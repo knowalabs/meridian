@@ -3,6 +3,7 @@ import { availableProviders, PROVIDERS, route } from '../providers/router.js';
 import { openVault } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
 import { log } from '../core/logger.js';
+import { CliError } from '../core/errors.js';
 
 export async function askCommand(promptParts: string[], opts: { provider?: string }): Promise<number> {
   const prompt = promptParts.join(' ').trim();
@@ -45,6 +46,9 @@ export async function askCommand(promptParts: string[], opts: { provider?: strin
     log.info('\n' + answer.trim());
     return 0;
   } catch (err) {
+    // CliErrors carry classified messages and hints (auth, timeout, rate
+    // limit) — let the top-level/launcher boundary render them.
+    if (err instanceof CliError) throw err;
     log.fail(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }

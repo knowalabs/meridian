@@ -91,11 +91,19 @@ export async function updateToolsCommand(tool?: string): Promise<number> {
     unknownTool(tool ?? '', registry.ids(), ['all']);
     return 1;
   }
+  let failures = 0;
   for (const plugin of targets) {
     if (!plugin!.doctor().installed) continue;
     log.info(`Updating ${plugin!.name}…`);
-    await plugin!.update();
+    if (!(await plugin!.update())) {
+      failures++;
+      log.warn(`${plugin!.name} failed to update`);
+    }
   }
-  log.ok('Update complete');
-  return 0;
+  if (failures === 0) {
+    log.ok('Update complete');
+    return 0;
+  }
+  log.fail(`${failures} tool(s) failed to update`);
+  return 1;
 }

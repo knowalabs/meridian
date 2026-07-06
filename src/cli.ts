@@ -1,7 +1,7 @@
-import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { configureLogger } from './core/logger.js';
+import { VERSION } from './core/pkg.js';
 import { doctorCommand } from './commands/doctor.js';
 import { installCommand, uninstallCommand } from './commands/install.js';
 import { authCommand, keysListCommand, keysRemoveCommand } from './commands/auth.js';
@@ -18,8 +18,7 @@ import { askCommand, routerConfigCommand } from './commands/ask.js';
 import { loginCommand, updateCommand } from './commands/update.js';
 import { ensureHome } from './core/paths.js';
 
-const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
-export const VERSION: string = pkg.version;
+export { VERSION };
 
 export interface CliOptions {
   /** Throw CommanderError instead of exiting — used by the interactive launcher. */

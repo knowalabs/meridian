@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { devpilotHome, ensureHome } from '../core/paths.js';
+import { backupFile, readJsonFile, writeFileAtomic } from '../core/fsx.js';
+import { looksLikeMcpConfig } from '../core/validate.js';
 import type { McpServerSpec } from './registry.js';
 
 interface McpServerEntry {
@@ -10,8 +12,9 @@ interface McpServerEntry {
   env?: Record<string, string>;
 }
 
-interface McpConfigFile {
-  mcpServers: Record<string, McpServerEntry>;
+export interface McpWriteReport {
+  touched: string[];
+  skipped: { file: string; reason: string; backup?: string }[];
 }
 
 /** Tool config files that accept the standard `mcpServers` JSON shape. */
@@ -26,53 +29,83 @@ export function mcpConfigTargets(projectRoot: string): { name: string; file: str
 function toEntry(spec: McpServerSpec): McpServerEntry {
   const entry: McpServerEntry = { command: spec.command, args: spec.args };
   if (spec.env?.length) {
-    entry.env = Object.fromEntries(spec.env.map((name) => [name, process.env[name] ?? '']));
+    // Write ${VAR} references, never resolved values: these config files are
+    // frequently committed, and inlining would leak the user's secrets.
+    entry.env = Object.fromEntries(spec.env.map((name) => [name, `\${${name}}`]));
   }
   return entry;
 }
 
-function readConfig(file: string): McpConfigFile & Record<string, unknown> {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return { mcpServers: {} };
-  }
+type ParsedConfig = { mcpServers?: Record<string, McpServerEntry> } & Record<string, unknown>;
+
+/**
+ * Read a tool config, refusing to proceed when the existing file is not
+ * something we can merge into safely.
+ */
+function readConfig(
+  file: string,
+): { ok: true; config: ParsedConfig } | { ok: false; reason: string } {
+  const result = readJsonFile(file, looksLikeMcpConfig);
+  if (result.ok) return { ok: true, config: result.value as ParsedConfig };
+  if (result.reason === 'missing') return { ok: true, config: { mcpServers: {} } };
+  return {
+    ok: false,
+    reason:
+      result.reason === 'malformed'
+        ? 'the file is not valid JSON'
+        : 'the file has an unexpected shape',
+  };
 }
 
 function writeConfig(file: string, config: object): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+  writeFileAtomic(file, JSON.stringify(config, null, 2) + '\n');
 }
 
-export function addServer(spec: McpServerSpec, projectRoot: string): string[] {
-  const touched: string[] = [];
+function skip(report: McpWriteReport, file: string, reason: string): void {
+  const backup = backupFile(file);
+  report.skipped.push({ file, reason, ...(backup ? { backup } : {}) });
+}
+
+export function addServer(spec: McpServerSpec, projectRoot: string): McpWriteReport {
+  const report: McpWriteReport = { touched: [], skipped: [] };
   for (const target of mcpConfigTargets(projectRoot)) {
     // Only touch global tool configs that already exist (tool is installed);
     // always create the project-level .mcp.json.
     const isProject = target.file.startsWith(projectRoot);
     if (!isProject && !fs.existsSync(path.dirname(target.file))) continue;
-    const config = readConfig(target.file);
+    const result = readConfig(target.file);
+    if (!result.ok) {
+      // Never overwrite a config we don't understand — that destroys data.
+      skip(report, target.file, result.reason);
+      continue;
+    }
+    const config = result.config;
     config.mcpServers = { ...config.mcpServers, [spec.id]: toEntry(spec) };
     writeConfig(target.file, config);
-    touched.push(target.file);
+    report.touched.push(target.file);
   }
   recordInstalled(spec.id);
-  return touched;
+  return report;
 }
 
-export function removeServer(id: string, projectRoot: string): string[] {
-  const touched: string[] = [];
+export function removeServer(id: string, projectRoot: string): McpWriteReport {
+  const report: McpWriteReport = { touched: [], skipped: [] };
   for (const target of mcpConfigTargets(projectRoot)) {
     if (!fs.existsSync(target.file)) continue;
-    const config = readConfig(target.file);
+    const result = readConfig(target.file);
+    if (!result.ok) {
+      skip(report, target.file, result.reason);
+      continue;
+    }
+    const config = result.config;
     if (config.mcpServers && id in config.mcpServers) {
       delete config.mcpServers[id];
       writeConfig(target.file, config);
-      touched.push(target.file);
+      report.touched.push(target.file);
     }
   }
   recordRemoved(id);
-  return touched;
+  return report;
 }
 
 /* Track installed servers in ~/.devpilot/mcp/installed.json */
@@ -91,10 +124,10 @@ export function listInstalled(): string[] {
 
 function recordInstalled(id: string): void {
   ensureHome();
-  fs.writeFileSync(installedPath(), JSON.stringify([...new Set([...listInstalled(), id])].sort(), null, 2));
+  writeFileAtomic(installedPath(), JSON.stringify([...new Set([...listInstalled(), id])].sort(), null, 2));
 }
 
 function recordRemoved(id: string): void {
   ensureHome();
-  fs.writeFileSync(installedPath(), JSON.stringify(listInstalled().filter((s) => s !== id), null, 2));
+  writeFileAtomic(installedPath(), JSON.stringify(listInstalled().filter((s) => s !== id), null, 2));
 }

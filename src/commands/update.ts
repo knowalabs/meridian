@@ -2,22 +2,27 @@ import pc from 'picocolors';
 import { runLive } from '../core/exec.js';
 import { updateToolsCommand } from './install.js';
 import { log } from '../core/logger.js';
+import { PACKAGE_NAME } from '../core/pkg.js';
 
 /** `devpilot update` — update the CLI itself, then installed tools. */
 export async function updateCommand(opts: { self?: boolean; tools?: boolean }): Promise<number> {
   const doSelf = opts.self || (!opts.self && !opts.tools);
   const doTools = opts.tools || (!opts.self && !opts.tools);
+  let failed = false;
 
   if (doSelf) {
     log.info('Updating DevPilot CLI…');
-    if (runLive('npm', ['install', '-g', 'devpilot@latest'])) log.ok('DevPilot is up to date');
-    else log.warn(`Self-update failed — try ${pc.bold('npm install -g devpilot@latest')} manually`);
+    if (runLive('npm', ['install', '-g', `${PACKAGE_NAME}@latest`])) log.ok('DevPilot is up to date');
+    else {
+      failed = true;
+      log.fail(`Self-update failed — try ${pc.bold(`npm install -g ${PACKAGE_NAME}@latest`)} manually`);
+    }
   }
   if (doTools) {
     log.info('\nUpdating installed AI tools…');
-    await updateToolsCommand();
+    if ((await updateToolsCommand()) !== 0) failed = true;
   }
-  return 0;
+  return failed ? 1 : 0;
 }
 
 /** `devpilot login` — Cloud Sync (roadmap v0.4). */

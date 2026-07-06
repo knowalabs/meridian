@@ -25,24 +25,43 @@ export function mcpInstallCommand(id: string, cwd: string = process.cwd()): numb
     log.fail(`Unknown MCP server "${id}". Try ${pc.bold('devpilot mcp search')}`);
     return 1;
   }
-  const touched = addServer(spec, cwd);
+  const report = addServer(spec, cwd);
   log.ok(`Installed MCP server ${pc.bold(spec.name)}`);
-  for (const f of touched) log.dim(`  configured ${f}`);
-  const missingEnv = (spec.env ?? []).filter((name) => !process.env[name]);
-  if (missingEnv.length) {
-    log.warn(`Set these environment variables before use: ${missingEnv.join(', ')}`);
+  for (const f of report.touched) log.dim(`  configured ${f}`);
+  for (const s of report.skipped) {
+    log.warn(
+      `Skipped ${s.file}: ${s.reason}.` +
+        (s.backup ? ` A backup was saved to ${s.backup}.` : '') +
+        ' Fix or remove the file and re-run.',
+    );
   }
-  return 0;
+  if (spec.env?.length) {
+    // Configs reference these as ${VAR}; the actual values stay in the
+    // user's environment, never in the config files.
+    const missing = spec.env.filter((name) => !process.env[name]);
+    log.info(`This server reads these environment variables: ${spec.env.join(', ')}`);
+    if (missing.length) {
+      log.warn(`Not currently set in your environment: ${missing.join(', ')}`);
+    }
+  }
+  return report.skipped.length > 0 && report.touched.length === 0 ? 1 : 0;
 }
 
 export function mcpRemoveCommand(id: string, cwd: string = process.cwd()): number {
-  const touched = removeServer(id, cwd);
-  if (touched.length === 0) {
+  const report = removeServer(id, cwd);
+  for (const s of report.skipped) {
+    log.warn(
+      `Skipped ${s.file}: ${s.reason}.` +
+        (s.backup ? ` A backup was saved to ${s.backup}.` : '') +
+        ' Fix or remove the file and re-run.',
+    );
+  }
+  if (report.touched.length === 0) {
     log.warn(`MCP server "${id}" was not configured anywhere`);
     return 1;
   }
   log.ok(`Removed MCP server ${pc.bold(id)}`);
-  for (const f of touched) log.dim(`  updated ${f}`);
+  for (const f of report.touched) log.dim(`  updated ${f}`);
   return 0;
 }
 
