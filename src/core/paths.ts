@@ -2,9 +2,17 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 
-/** Global DevPilot home (~/.devpilot) and its standard subdirectories. */
+/**
+ * Global DevPilot home and its standard subdirectories:
+ * %APPDATA%\devpilot on Windows, ~/.devpilot elsewhere.
+ * DEVPILOT_HOME overrides both (tests and CI rely on this).
+ */
 export function devpilotHome(): string {
-  return process.env.DEVPILOT_HOME ?? path.join(os.homedir(), '.devpilot');
+  if (process.env.DEVPILOT_HOME) return process.env.DEVPILOT_HOME;
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, 'devpilot');
+  }
+  return path.join(os.homedir(), '.devpilot');
 }
 
 export const HOME_SUBDIRS = [

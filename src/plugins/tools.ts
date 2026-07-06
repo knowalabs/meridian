@@ -4,17 +4,23 @@ import type { DoctorReport, ToolPlugin } from '../core/plugin.js';
 import { PluginRegistry } from '../core/plugin.js';
 import { log } from '../core/logger.js';
 
+type AppPlatform = 'darwin' | 'win32' | 'linux';
+
 export interface ToolSpec {
   id: string;
   name: string;
   /** Binary to look for on PATH. */
   bin: string;
-  /** macOS .app bundle paths that also count as installed. */
-  appPaths?: string[];
+  /** App install locations per platform that also count as installed. */
+  appPaths?: Partial<Record<AppPlatform, string[]>>;
   /** Global npm package that installs the tool. */
   npmPackage?: string;
   /** Homebrew formula or cask (macOS). */
   brew?: { name: string; cask?: boolean };
+  /** winget package id (Windows). */
+  winget?: { id: string };
+  /** Install guidance for Linux (we never run sudo on the user's behalf). */
+  linuxHint?: string;
   /** Manual install URL shown when no automated path exists. */
   installUrl?: string;
   hint?: string;
@@ -24,10 +30,24 @@ function hasBrew(): boolean {
   return process.platform === 'darwin' && which('brew') !== null;
 }
 
+function hasWinget(): boolean {
+  return process.platform === 'win32' && which('winget') !== null;
+}
+
+/** Expand %VAR% references in Windows-style paths. */
+function expandEnv(p: string): string {
+  return p.replace(/%([^%]+)%/g, (_m, name: string) => process.env[name] ?? `%${name}%`);
+}
+
+function platformAppPaths(spec: ToolSpec): string[] {
+  const paths = spec.appPaths?.[process.platform as AppPlatform] ?? [];
+  return paths.map(expandEnv);
+}
+
 export function detect(spec: ToolSpec): DoctorReport {
   const version = versionOf(spec.bin);
   if (version) return { installed: true, version };
-  for (const app of spec.appPaths ?? []) {
+  for (const app of platformAppPaths(spec)) {
     if (fs.existsSync(app)) return { installed: true, version: 'app installed (CLI not on PATH)' };
   }
   return { installed: false, hint: spec.hint ?? installHint(spec) };
@@ -36,8 +56,12 @@ export function detect(spec: ToolSpec): DoctorReport {
 function installHint(spec: ToolSpec): string {
   if (spec.npmPackage) return `npm install -g ${spec.npmPackage}`;
   if (spec.brew && hasBrew()) return `brew install ${spec.brew.cask ? '--cask ' : ''}${spec.brew.name}`;
+  if (spec.winget && hasWinget()) return `winget install --id ${spec.winget.id}`;
+  if (process.platform === 'linux' && spec.linuxHint) return spec.linuxHint;
   return spec.installUrl ? `see ${spec.installUrl}` : 'manual installation required';
 }
+
+const WINGET_FLAGS = ['-e', '--accept-source-agreements', '--accept-package-agreements'];
 
 export function makePlugin(spec: ToolSpec, configure?: () => boolean): ToolPlugin {
   return {
@@ -62,6 +86,10 @@ export function makePlugin(spec: ToolSpec, configure?: () => boolean): ToolPlugi
           : ['install', spec.brew.name];
         return runLive('brew', args);
       }
+      if (spec.winget && hasWinget()) {
+        log.info(`Installing ${spec.name} via winget…`);
+        return runLive('winget', ['install', '--id', spec.winget.id, ...WINGET_FLAGS]);
+      }
       log.warn(`${spec.name} has no automated installer on this platform: ${installHint(spec)}`);
       return false;
     },
@@ -73,6 +101,9 @@ export function makePlugin(spec: ToolSpec, configure?: () => boolean): ToolPlugi
           ? ['uninstall', '--cask', spec.brew.name]
           : ['uninstall', spec.brew.name];
         return runLive('brew', args);
+      }
+      if (spec.winget && hasWinget()) {
+        return runLive('winget', ['uninstall', '--id', spec.winget.id, '-e']);
       }
       log.warn(`${spec.name} must be uninstalled manually`);
       return false;
@@ -92,6 +123,10 @@ export function makePlugin(spec: ToolSpec, configure?: () => boolean): ToolPlugi
         const res = run('brew', ['upgrade', spec.brew.name]);
         return res.ok || /already installed/i.test(res.stderr);
       }
+      if (spec.winget && hasWinget()) {
+        const res = run('winget', ['upgrade', '--id', spec.winget.id, ...WINGET_FLAGS]);
+        return res.ok || /no available upgrade|no applicable update/i.test(res.stdout + res.stderr);
+      }
       log.warn(`${spec.name} must be updated manually`);
       return false;
     },
@@ -106,6 +141,8 @@ export const TOOL_SPECS: ToolSpec[] = [
     name: 'Git',
     bin: 'git',
     brew: { name: 'git' },
+    winget: { id: 'Git.Git' },
+    linuxHint: 'install with your package manager, e.g. sudo apt install git',
     installUrl: 'https://git-scm.com/downloads',
   },
   {
@@ -113,22 +150,34 @@ export const TOOL_SPECS: ToolSpec[] = [
     name: 'Node.js',
     bin: 'node',
     brew: { name: 'node' },
+    winget: { id: 'OpenJS.NodeJS.LTS' },
+    linuxHint: 'install via your package manager or https://nodejs.org',
     installUrl: 'https://nodejs.org',
   },
   {
     id: 'vscode',
     name: 'VS Code',
     bin: 'code',
-    appPaths: ['/Applications/Visual Studio Code.app'],
+    appPaths: {
+      darwin: ['/Applications/Visual Studio Code.app'],
+      win32: ['%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe'],
+    },
     brew: { name: 'visual-studio-code', cask: true },
+    winget: { id: 'Microsoft.VisualStudioCode' },
+    linuxHint: 'install from https://code.visualstudio.com or your package manager',
     installUrl: 'https://code.visualstudio.com',
   },
   {
     id: 'cursor',
     name: 'Cursor',
     bin: 'cursor',
-    appPaths: ['/Applications/Cursor.app'],
+    appPaths: {
+      darwin: ['/Applications/Cursor.app'],
+      win32: ['%LOCALAPPDATA%\\Programs\\cursor\\Cursor.exe'],
+    },
     brew: { name: 'cursor', cask: true },
+    winget: { id: 'Anysphere.Cursor' },
+    linuxHint: 'download the AppImage from https://cursor.com',
     installUrl: 'https://cursor.com',
   },
   {
@@ -153,8 +202,13 @@ export const TOOL_SPECS: ToolSpec[] = [
     id: 'docker',
     name: 'Docker',
     bin: 'docker',
-    appPaths: ['/Applications/Docker.app'],
+    appPaths: {
+      darwin: ['/Applications/Docker.app'],
+      win32: ['%ProgramFiles%\\Docker\\Docker\\Docker Desktop.exe'],
+    },
     brew: { name: 'docker-desktop', cask: true },
+    winget: { id: 'Docker.DockerDesktop' },
+    linuxHint: 'see https://docs.docker.com/engine/install/',
     installUrl: 'https://docs.docker.com/get-docker/',
   },
 ];

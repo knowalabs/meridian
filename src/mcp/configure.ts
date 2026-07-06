@@ -17,12 +17,29 @@ export interface McpWriteReport {
   skipped: { file: string; reason: string; backup?: string }[];
 }
 
-/** Tool config files that accept the standard `mcpServers` JSON shape. */
+/** Claude Desktop's config file location per platform. */
+function claudeDesktopConfig(): string {
+  const home = os.homedir();
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+  }
+  return path.join(home, '.config', 'Claude', 'claude_desktop_config.json');
+}
+
+/**
+ * Tool config files that accept the standard `mcpServers` JSON shape.
+ * Global targets are only written when their directory already exists
+ * (i.e. the tool is installed); the project .mcp.json is always created.
+ */
 export function mcpConfigTargets(projectRoot: string): { name: string; file: string }[] {
   return [
     { name: 'Project (.mcp.json — Claude Code, Codex & others)', file: path.join(projectRoot, '.mcp.json') },
     { name: 'Cursor (global)', file: path.join(os.homedir(), '.cursor', 'mcp.json') },
     { name: 'Gemini CLI (global)', file: path.join(os.homedir(), '.gemini', 'settings.json') },
+    { name: 'Claude Desktop', file: claudeDesktopConfig() },
   ];
 }
 
