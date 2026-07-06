@@ -1,5 +1,7 @@
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import pc from 'picocolors';
+import { configureLogger } from './core/logger.js';
 import { doctorCommand } from './commands/doctor.js';
 import { installCommand, uninstallCommand } from './commands/install.js';
 import { authCommand, keysListCommand, keysRemoveCommand } from './commands/auth.js';
@@ -16,11 +18,33 @@ import { askCommand, routerConfigCommand } from './commands/ask.js';
 import { loginCommand, updateCommand } from './commands/update.js';
 import { ensureHome } from './core/paths.js';
 
-export const VERSION = '0.3.0';
+const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
+export const VERSION: string = pkg.version;
 
 export interface CliOptions {
   /** Throw CommanderError instead of exiting — used by the interactive launcher. */
   exitOverride?: boolean;
+}
+
+interface GlobalFlags {
+  verbose?: boolean;
+  quiet?: boolean;
+  json?: boolean;
+  color?: boolean;
+}
+
+/**
+ * Register the global output flags on a command. They live on every leaf
+ * command (not just the program) so `devpilot doctor --json` works as well
+ * as `devpilot --json doctor`.
+ */
+function addGlobalFlags(cmd: Command): void {
+  cmd
+    .option('--verbose', 'show debug output and stack traces')
+    .option('-q, --quiet', 'only print errors')
+    .option('--json', 'output machine-readable JSON (where supported)')
+    .option('--no-color', 'disable colored output');
+  for (const sub of cmd.commands) addGlobalFlags(sub);
 }
 
 export function buildCli(options: CliOptions = {}): Command {
@@ -148,6 +172,15 @@ Examples:
     .command('login')
     .description('Sign in for Cloud Sync (coming in v0.4)')
     .action(() => done(loginCommand()));
+
+  addGlobalFlags(program);
+  program.hook('preAction', (_thisCommand, actionCommand) => {
+    const flags = actionCommand.optsWithGlobals<GlobalFlags>();
+    configureLogger({
+      level: flags.verbose ? 'verbose' : flags.quiet ? 'quiet' : 'normal',
+      json: flags.json ?? false,
+    });
+  });
 
   return program;
 }

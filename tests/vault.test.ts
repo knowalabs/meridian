@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openVault } from '../src/core/vault.js';
+import { CliError } from '../src/core/errors.js';
 
 describe('encrypted file vault', () => {
   let tmp: string;
@@ -52,5 +53,24 @@ describe('encrypted file vault', () => {
     vault.set('openai', 'new');
     expect(vault.get('openai')).toBe('new');
     expect(vault.list()).toEqual(['openai']);
+  });
+
+  it('reports a corrupted vault as a CliError with recovery guidance', () => {
+    const vault = openVault();
+    vault.set('openai', 'sk-value');
+    fs.writeFileSync(path.join(tmp, 'keys', 'vault.enc'), 'garbage-not-json');
+    expect(() => vault.get('openai')).toThrowError(CliError);
+    try {
+      vault.get('openai');
+    } catch (err) {
+      expect((err as CliError).hint).toContain('devpilot keys repair');
+    }
+  });
+
+  it('reports a lost master key as a CliError instead of crashing', () => {
+    const vault = openVault();
+    vault.set('openai', 'sk-value');
+    fs.writeFileSync(path.join(tmp, 'keys', '.master'), 'deadbeef'); // wrong key
+    expect(() => vault.get('openai')).toThrowError(CliError);
   });
 });

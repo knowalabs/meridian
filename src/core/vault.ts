@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CliError } from './errors.js';
+import { writeFileAtomic } from './fsx.js';
 import { run, which } from './exec.js';
 import { devpilotHome, ensureHome } from './paths.js';
 
@@ -67,7 +69,7 @@ function indexRead(): string[] {
 }
 function indexWrite(names: string[]): void {
   ensureHome();
-  fs.writeFileSync(indexPath(), JSON.stringify([...new Set(names)].sort(), null, 2), {
+  writeFileAtomic(indexPath(), JSON.stringify([...new Set(names)].sort(), null, 2), {
     mode: 0o600,
   });
 }
@@ -107,12 +109,19 @@ class FileVault implements Vault {
   private readAll(): Record<string, string> {
     const p = this.vaultPath();
     if (!fs.existsSync(p)) return {};
-    const raw = fs.readFileSync(p, 'utf8');
-    const { iv, tag, data } = JSON.parse(raw) as { iv: string; tag: string; data: string };
-    const decipher = crypto.createDecipheriv('aes-256-gcm', this.masterKey(), Buffer.from(iv, 'hex'));
-    decipher.setAuthTag(Buffer.from(tag, 'hex'));
-    const plain = Buffer.concat([decipher.update(Buffer.from(data, 'hex')), decipher.final()]);
-    return JSON.parse(plain.toString('utf8')) as Record<string, string>;
+    try {
+      const raw = fs.readFileSync(p, 'utf8');
+      const { iv, tag, data } = JSON.parse(raw) as { iv: string; tag: string; data: string };
+      const decipher = crypto.createDecipheriv('aes-256-gcm', this.masterKey(), Buffer.from(iv, 'hex'));
+      decipher.setAuthTag(Buffer.from(tag, 'hex'));
+      const plain = Buffer.concat([decipher.update(Buffer.from(data, 'hex')), decipher.final()]);
+      return JSON.parse(plain.toString('utf8')) as Record<string, string>;
+    } catch (err) {
+      throw new CliError(`The key vault could not be read: ${p}`, {
+        hint: 'The vault file is corrupted or its master key changed. Back up the keys directory, then run "devpilot keys repair" and re-add your keys with "devpilot auth".',
+        cause: err,
+      });
+    }
   }
 
   private writeAll(entries: Record<string, string>): void {
@@ -125,7 +134,7 @@ class FileVault implements Vault {
       tag: cipher.getAuthTag().toString('hex'),
       data: data.toString('hex'),
     };
-    fs.writeFileSync(this.vaultPath(), JSON.stringify(payload), { mode: 0o600 });
+    writeFileAtomic(this.vaultPath(), JSON.stringify(payload), { mode: 0o600 });
   }
 
   set(account: string, secret: string): void {

@@ -2,6 +2,7 @@ import readline from 'node:readline';
 import pc from 'picocolors';
 import { CommanderError } from 'commander';
 import { buildCli, VERSION } from './cli.js';
+import { renderError } from './core/errors.js';
 
 /* ---------------------------------- banner ---------------------------------- */
 
@@ -224,10 +225,14 @@ async function runCommandLine(line: string): Promise<number> {
   try {
     await buildCli({ exitOverride: true }).parseAsync(argv, { from: 'user' });
   } catch (err) {
-    if (!(err instanceof CommanderError)) throw err;
-    // Help/version output is not an error; anything else already printed a message.
-    if (!err.code.startsWith('commander.help') && err.code !== 'commander.version') {
-      process.exitCode = err.exitCode;
+    if (err instanceof CommanderError) {
+      // Help/version output is not an error; anything else already printed a message.
+      if (!err.code.startsWith('commander.help') && err.code !== 'commander.version') {
+        process.exitCode = err.exitCode;
+      }
+    } else {
+      // A failing command must never kill the menu loop.
+      process.exitCode = renderError(err, { verbose: argv.includes('--verbose') });
     }
   }
   const code = typeof process.exitCode === 'number' ? process.exitCode : 0;

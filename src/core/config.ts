@@ -1,11 +1,15 @@
-import fs from 'node:fs';
 import { ensureHome, globalConfigPath } from './paths.js';
+import { backupFile, readJsonFile, writeFileAtomic } from './fsx.js';
+import { coerceConfig } from './validate.js';
+import { log } from './logger.js';
 
 export interface RouterConfig {
   /** Preferred provider id, e.g. "anthropic". Empty = auto. */
   prefer?: string;
   /** Optimize for "cost" | "speed" | "quality". */
   optimize?: 'cost' | 'speed' | 'quality';
+  /** Per-provider model overrides, e.g. { anthropic: "claude-opus-4-8" }. */
+  models?: Record<string, string>;
 }
 
 export interface DevPilotConfig {
@@ -31,16 +35,21 @@ function defaults(): DevPilotConfig {
 
 export function loadConfig(): DevPilotConfig {
   const file = globalConfigPath();
-  if (!fs.existsSync(file)) return defaults();
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<DevPilotConfig>;
-    return { ...defaults(), ...parsed, router: { ...DEFAULT_CONFIG.router, ...parsed.router } };
-  } catch {
+  const result = readJsonFile<unknown>(file);
+  if (!result.ok) {
+    if (result.reason === 'malformed') {
+      const backup = backupFile(file);
+      log.warn(
+        `Config file is not valid JSON and was ignored: ${file}` +
+          (backup ? `\n  A backup was saved to ${backup}` : ''),
+      );
+    }
     return defaults();
   }
+  return coerceConfig(result.value, defaults());
 }
 
 export function saveConfig(config: DevPilotConfig): void {
   ensureHome();
-  fs.writeFileSync(globalConfigPath(), JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
+  writeFileAtomic(globalConfigPath(), JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
 }
