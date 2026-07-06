@@ -4,7 +4,12 @@ import { configureLogger } from './core/logger.js';
 import { VERSION } from './core/pkg.js';
 import { doctorCommand } from './commands/doctor.js';
 import { installCommand, uninstallCommand } from './commands/install.js';
-import { authCommand, keysListCommand, keysRemoveCommand } from './commands/auth.js';
+import {
+  authCommand,
+  keysListCommand,
+  keysRemoveCommand,
+  keysRepairCommand,
+} from './commands/auth.js';
 import { initCommand } from './commands/init.js';
 import { scanCommand } from './commands/scan.js';
 import { rulesGenerateCommand, rulesListCommand } from './commands/rules.js';
@@ -109,6 +114,10 @@ Examples:
     .alias('rm')
     .description('Delete a stored API key')
     .action((provider: string) => done(keysRemoveCommand(provider)));
+  keys
+    .command('repair')
+    .description('Back up and reinitialize a corrupted key vault')
+    .action(() => done(keysRepairCommand()));
 
   program
     .command('init')

@@ -1,5 +1,5 @@
 import pc from 'picocolors';
-import { openVault } from '../core/vault.js';
+import { openVault, repairVault, type VaultBackend } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
 import { PROVIDERS } from '../providers/router.js';
 import { log } from '../core/logger.js';
@@ -32,10 +32,23 @@ async function resolveProvider(provider?: string): Promise<string | null> {
   return chosen;
 }
 
+const BACKEND_LABEL: Record<VaultBackend, string> = {
+  keychain: 'the macOS Keychain',
+  'secret-service': 'the OS secret service (libsecret)',
+  'dpapi-file': 'the encrypted vault (DPAPI-protected key)',
+  'encrypted-file': 'the encrypted vault',
+};
+
 export async function authCommand(provider?: string, keyArg?: string): Promise<number> {
   const chosen = await resolveProvider(provider);
   if (!chosen) return 1;
 
+  if (keyArg) {
+    log.warn(
+      'Keys passed as command arguments can be recorded in your shell history. ' +
+        `Prefer ${pc.bold(`devpilot auth ${chosen}`)} and the hidden prompt.`,
+    );
+  }
   const key = keyArg ?? (await promptSecret(`Enter ${chosen} API key (input hidden): `));
   if (!key) {
     log.fail('No key entered');
@@ -49,7 +62,7 @@ export async function authCommand(provider?: string, keyArg?: string): Promise<n
   config.providers = [...new Set([...config.providers, chosen])].sort();
   saveConfig(config);
 
-  log.ok(`Stored ${chosen} key ${pc.dim(`(${maskKey(key)})`)} in ${vault.backend === 'keychain' ? 'the OS keychain' : 'the encrypted vault'}`);
+  log.ok(`Stored ${chosen} key ${pc.dim(`(${maskKey(key)})`)} in ${BACKEND_LABEL[vault.backend]}`);
   return 0;
 }
 
@@ -65,6 +78,18 @@ export function keysListCommand(): number {
     const value = vault.get(account);
     log.ok(`${account.padEnd(12)} ${pc.dim(value ? maskKey(value) : '(unreadable)')}`);
   }
+  return 0;
+}
+
+/** Back up and reinitialize a corrupted file vault. */
+export function keysRepairCommand(): number {
+  const backups = repairVault();
+  if (backups.length === 0) {
+    log.info('Nothing to repair — the vault is empty.');
+    return 0;
+  }
+  for (const b of backups) log.dim(`  backed up ${b}`);
+  log.ok(`Vault reinitialized. Re-add your keys with ${pc.bold('devpilot auth')}.`);
   return 0;
 }
 
