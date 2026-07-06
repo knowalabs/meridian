@@ -55,7 +55,8 @@ export function detect(spec: ToolSpec): DoctorReport {
 
 function installHint(spec: ToolSpec): string {
   if (spec.npmPackage) return `npm install -g ${spec.npmPackage}`;
-  if (spec.brew && hasBrew()) return `brew install ${spec.brew.cask ? '--cask ' : ''}${spec.brew.name}`;
+  if (spec.brew && hasBrew())
+    return `brew install ${spec.brew.cask ? '--cask ' : ''}${spec.brew.name}`;
   if (spec.winget && hasWinget()) return `winget install --id ${spec.winget.id}`;
   if (process.platform === 'linux' && spec.linuxHint) return spec.linuxHint;
   return spec.installUrl ? `see ${spec.installUrl}` : 'manual installation required';

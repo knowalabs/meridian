@@ -15,7 +15,10 @@ describe('e2e: keys round-trip (file vault)', () => {
 
     const list = await runCli(['keys', 'list', '--json'], sandbox);
     expect(list.code).toBe(0);
-    const doc = JSON.parse(list.stdout) as { backend: string; keys: { provider: string; masked: string }[] };
+    const doc = JSON.parse(list.stdout) as {
+      backend: string;
+      keys: { provider: string; masked: string }[];
+    };
     expect(doc.backend).toBe('encrypted-file');
     expect(doc.keys).toHaveLength(1);
     expect(doc.keys[0]!.provider).toBe('openai');

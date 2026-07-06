@@ -34,7 +34,16 @@ class KeychainVault implements Vault {
       `add-generic-password -U -s ${SERVICE} -a ${account} -w ${escaped}\n`,
     );
     if (!viaStdin.ok) {
-      const res = run('security', ['add-generic-password', '-U', '-s', SERVICE, '-a', account, '-w', secret]);
+      const res = run('security', [
+        'add-generic-password',
+        '-U',
+        '-s',
+        SERVICE,
+        '-a',
+        account,
+        '-w',
+        secret,
+      ]);
       if (!res.ok) throw new CliError(`keychain write failed: ${res.stderr}`);
     }
     indexAdd(account);
@@ -190,7 +199,10 @@ class FileVault implements Vault {
   readonly backend: VaultBackend;
   private readonly protector: KeyProtector;
 
-  constructor(protector: KeyProtector = new PlainProtector(), backend: VaultBackend = 'encrypted-file') {
+  constructor(
+    protector: KeyProtector = new PlainProtector(),
+    backend: VaultBackend = 'encrypted-file',
+  ) {
     this.protector = protector;
     this.backend = backend;
   }
@@ -218,7 +230,11 @@ class FileVault implements Vault {
     try {
       const raw = fs.readFileSync(p, 'utf8');
       const { iv, tag, data } = JSON.parse(raw) as { iv: string; tag: string; data: string };
-      const decipher = crypto.createDecipheriv('aes-256-gcm', this.masterKey(), Buffer.from(iv, 'hex'));
+      const decipher = crypto.createDecipheriv(
+        'aes-256-gcm',
+        this.masterKey(),
+        Buffer.from(iv, 'hex'),
+      );
       decipher.setAuthTag(Buffer.from(tag, 'hex'));
       const plain = Buffer.concat([decipher.update(Buffer.from(data, 'hex')), decipher.final()]);
       return JSON.parse(plain.toString('utf8')) as Record<string, string>;

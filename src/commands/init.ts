@@ -67,7 +67,9 @@ This project is managed with [DevPilot](https://devpilot.sh).
   } else {
     log.title('Initialized AI-ready project:\n');
     for (const f of created) log.ok(f);
-    log.info(`\nNext: ${pc.bold('devpilot scan')} to generate context, ${pc.bold('devpilot rules generate')} for tool instruction files.`);
+    log.info(
+      `\nNext: ${pc.bold('devpilot scan')} to generate context, ${pc.bold('devpilot rules generate')} for tool instruction files.`,
+    );
   }
   return 0;
 }

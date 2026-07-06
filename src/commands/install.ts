@@ -12,7 +12,10 @@ function unknownTool(tool: string, ids: string[], extra: string[] = []): void {
 }
 
 /** Interactive picker used when no tool argument was given. */
-async function pickTool(registry: ReturnType<typeof buildRegistry>, verb: string): Promise<string | null> {
+async function pickTool(
+  registry: ReturnType<typeof buildRegistry>,
+  verb: string,
+): Promise<string | null> {
   if (!process.stdin.isTTY) {
     log.fail(`Missing tool name. Usage: ${pc.bold(`devpilot ${verb} <tool>`)}`);
     log.dim(`  Supported: ${registry.ids().join(', ')}${verb === 'install' ? ', all' : ''}`);
@@ -24,7 +27,8 @@ async function pickTool(registry: ReturnType<typeof buildRegistry>, verb: string
     label: `${plugin.name} ${pc.dim(`· ${plugin.id}`)}`,
     note: plugin.doctor().installed ? 'installed' : undefined,
   }));
-  if (verb === 'install') choices.push({ value: 'all', label: pc.bold('Everything'), note: 'install all tools' });
+  if (verb === 'install')
+    choices.push({ value: 'all', label: pc.bold('Everything'), note: 'install all tools' });
   const chosen = await promptChoice('Pick a number (or press Enter to cancel):', choices);
   if (!chosen) log.dim('Cancelled.');
   return chosen;
@@ -60,11 +64,15 @@ export async function installCommand(tool?: string): Promise<number> {
     if (plugin.validate()) log.ok(`${plugin.name} is ready`);
     else {
       failures++;
-      log.warn(`${plugin.name} installed but failed validation (restart your shell and run ${pc.bold('devpilot doctor')})`);
+      log.warn(
+        `${plugin.name} installed but failed validation (restart your shell and run ${pc.bold('devpilot doctor')})`,
+      );
     }
   }
   if (failures === 0 && targets.length > 0) {
-    log.dim(`\nNext: run ${pc.bold('devpilot auth')} to store an API key, then ${pc.bold('devpilot init')} in your project.`);
+    log.dim(
+      `\nNext: run ${pc.bold('devpilot auth')} to store an API key, then ${pc.bold('devpilot init')} in your project.`,
+    );
   }
   return failures === 0 ? 0 : 1;
 }

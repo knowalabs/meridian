@@ -19,7 +19,10 @@ const LETTERS: Record<string, string[]> = {
 
 function bannerRows(word: string): string[] {
   return Array.from({ length: 6 }, (_, row) =>
-    word.split('').map((ch) => LETTERS[ch]?.[row] ?? '').join(''),
+    word
+      .split('')
+      .map((ch) => LETTERS[ch]?.[row] ?? '')
+      .join(''),
   );
 }
 
@@ -31,7 +34,9 @@ export function showBanner(): void {
   } else {
     console.log(`  ${pc.cyan(pc.bold('✈ DevPilot'))}`);
   }
-  console.log(`\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`);
+  console.log(
+    `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
+  );
 }
 
 /** Static overview for non-interactive terminals (pipes, CI). */
@@ -75,9 +80,18 @@ const MENU: MenuItem[] = [
   { command: 'keys list', label: 'List keys', description: 'show stored API keys (masked)' },
   { command: 'init', label: 'Init project', description: 'create the AI-ready scaffold' },
   { command: 'scan', label: 'Scan project', description: 'generate AI context files' },
-  { command: 'rules generate', label: 'Generate rules', description: 'write rules for every AI tool' },
+  {
+    command: 'rules generate',
+    label: 'Generate rules',
+    description: 'write rules for every AI tool',
+  },
   { command: 'mcp search', label: 'MCP servers', description: 'browse the MCP marketplace' },
-  { command: 'ask', label: 'Ask AI', description: 'ask anything — routed to the best provider', needsArgs: true },
+  {
+    command: 'ask',
+    label: 'Ask AI',
+    description: 'ask anything — routed to the best provider',
+    needsArgs: true,
+  },
   { command: 'update', label: 'Update', description: 'update the CLI and installed tools' },
   { command: 'help', label: 'Help', description: 'show all commands and options' },
   { command: QUIT, label: 'Quit', description: 'leave the menu (q or Esc)' },
@@ -121,9 +135,13 @@ function menuPrompt(): Promise<string | null> {
       }
       lines.push('');
       if (buffer && items.length === 0) {
-        lines.push(`  ${pc.cyan('❯')} devpilot ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('↵ run this command · Esc clear')}`);
+        lines.push(
+          `  ${pc.cyan('❯')} devpilot ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
+        );
       } else if (buffer) {
-        lines.push(`  ${pc.dim('>')} devpilot ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('Tab complete · Esc clear')}`);
+        lines.push(
+          `  ${pc.dim('>')} devpilot ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
+        );
       } else {
         lines.push(`  ${pc.dim('> start typing to filter or enter any command…')}`);
       }
@@ -251,6 +269,8 @@ export async function runInteractive(): Promise<void> {
     }
     console.log(`  ${pc.dim('$')} ${pc.bold(`devpilot ${line}`)}`);
     const code = await runCommandLine(line);
-    console.log(code === 0 ? pc.dim('\n  ── done ──\n') : pc.yellow(`\n  ── exited with code ${code} ──\n`));
+    console.log(
+      code === 0 ? pc.dim('\n  ── done ──\n') : pc.yellow(`\n  ── exited with code ${code} ──\n`),
+    );
   }
 }

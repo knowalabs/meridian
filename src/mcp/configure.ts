@@ -24,7 +24,13 @@ function claudeDesktopConfig(): string {
     return path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json');
   }
   if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    return path.join(
+      home,
+      'Library',
+      'Application Support',
+      'Claude',
+      'claude_desktop_config.json',
+    );
   }
   return path.join(home, '.config', 'Claude', 'claude_desktop_config.json');
 }
@@ -36,7 +42,10 @@ function claudeDesktopConfig(): string {
  */
 export function mcpConfigTargets(projectRoot: string): { name: string; file: string }[] {
   return [
-    { name: 'Project (.mcp.json — Claude Code, Codex & others)', file: path.join(projectRoot, '.mcp.json') },
+    {
+      name: 'Project (.mcp.json — Claude Code, Codex & others)',
+      file: path.join(projectRoot, '.mcp.json'),
+    },
     { name: 'Cursor (global)', file: path.join(os.homedir(), '.cursor', 'mcp.json') },
     { name: 'Gemini CLI (global)', file: path.join(os.homedir(), '.gemini', 'settings.json') },
     { name: 'Claude Desktop', file: claudeDesktopConfig() },
@@ -141,10 +150,20 @@ export function listInstalled(): string[] {
 
 function recordInstalled(id: string): void {
   ensureHome();
-  writeFileAtomic(installedPath(), JSON.stringify([...new Set([...listInstalled(), id])].sort(), null, 2));
+  writeFileAtomic(
+    installedPath(),
+    JSON.stringify([...new Set([...listInstalled(), id])].sort(), null, 2),
+  );
 }
 
 function recordRemoved(id: string): void {
   ensureHome();
-  writeFileAtomic(installedPath(), JSON.stringify(listInstalled().filter((s) => s !== id), null, 2));
+  writeFileAtomic(
+    installedPath(),
+    JSON.stringify(
+      listInstalled().filter((s) => s !== id),
+      null,
+      2,
+    ),
+  );
 }

@@ -5,7 +5,10 @@ import { loadConfig, saveConfig } from '../core/config.js';
 import { jsonMode, log } from '../core/logger.js';
 import { CliError } from '../core/errors.js';
 
-export async function askCommand(promptParts: string[], opts: { provider?: string }): Promise<number> {
+export async function askCommand(
+  promptParts: string[],
+  opts: { provider?: string },
+): Promise<number> {
   const prompt = promptParts.join(' ').trim();
   if (!prompt) {
     log.fail('Usage: devpilot ask "<your question>"');
@@ -14,7 +17,9 @@ export async function askCommand(promptParts: string[], opts: { provider?: strin
 
   const available = availableProviders();
   if (available.length === 0) {
-    log.fail(`No providers configured. Add a key with ${pc.bold('devpilot auth')} (or install Ollama).`);
+    log.fail(
+      `No providers configured. Add a key with ${pc.bold('devpilot auth')} (or install Ollama).`,
+    );
     return 1;
   }
 
@@ -39,7 +44,9 @@ export async function askCommand(promptParts: string[], opts: { provider?: strin
 
   const key = provider.needsKey ? openVault().get(provider.id) : '';
   if (provider.needsKey && !key) {
-    log.fail(`Key for ${provider.id} disappeared from the vault. Re-run ${pc.bold('devpilot auth')}.`);
+    log.fail(
+      `Key for ${provider.id} disappeared from the vault. Re-run ${pc.bold('devpilot auth')}.`,
+    );
     return 1;
   }
 
@@ -64,7 +71,9 @@ export function routerConfigCommand(opts: { prefer?: string; optimize?: string }
   const config = loadConfig();
   if (opts.prefer !== undefined) {
     if (opts.prefer && !PROVIDERS.some((p) => p.id === opts.prefer)) {
-      log.fail(`Unknown provider "${opts.prefer}". Supported: ${PROVIDERS.map((p) => p.id).join(', ')}`);
+      log.fail(
+        `Unknown provider "${opts.prefer}". Supported: ${PROVIDERS.map((p) => p.id).join(', ')}`,
+      );
       return 1;
     }
     config.router.prefer = opts.prefer || undefined;
@@ -77,6 +86,8 @@ export function routerConfigCommand(opts: { prefer?: string; optimize?: string }
     config.router.optimize = opts.optimize as 'cost' | 'speed' | 'quality';
   }
   saveConfig(config);
-  log.ok(`Router config: prefer=${config.router.prefer ?? '(auto)'} optimize=${config.router.optimize}`);
+  log.ok(
+    `Router config: prefer=${config.router.prefer ?? '(auto)'} optimize=${config.router.optimize}`,
+  );
   return 0;
 }

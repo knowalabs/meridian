@@ -52,7 +52,13 @@ describe('project analyzer', () => {
 
   it('renders markdown with all sections', () => {
     const md = renderContextMarkdown(analyzeProject(tmp));
-    for (const section of ['## Overview', '## Folder Structure', '## Dependencies', '## Coding Conventions', '## API Surface']) {
+    for (const section of [
+      '## Overview',
+      '## Folder Structure',
+      '## Dependencies',
+      '## Coding Conventions',
+      '## API Surface',
+    ]) {
       expect(md).toContain(section);
     }
   });

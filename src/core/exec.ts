@@ -38,7 +38,8 @@ export function run(cmd: string, args: string[] = [], input?: string): ExecResul
     input,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const notFound = res.error !== undefined && (res.error as NodeJS.ErrnoException).code === 'ENOENT';
+  const notFound =
+    res.error !== undefined && (res.error as NodeJS.ErrnoException).code === 'ENOENT';
   return {
     ok: res.status === 0,
     stdout: (res.stdout ?? '').trim(),

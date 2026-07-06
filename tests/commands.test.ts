@@ -4,8 +4,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { configureLogger } from '../src/core/logger.js';
 import { doctorCommand } from '../src/commands/doctor.js';
-import { authCommand, keysListCommand, keysRemoveCommand, keysRepairCommand } from '../src/commands/auth.js';
-import { mcpInstallCommand, mcpListCommand, mcpRemoveCommand, mcpSearchCommand } from '../src/commands/mcp.js';
+import {
+  authCommand,
+  keysListCommand,
+  keysRemoveCommand,
+  keysRepairCommand,
+} from '../src/commands/auth.js';
+import {
+  mcpInstallCommand,
+  mcpListCommand,
+  mcpRemoveCommand,
+  mcpSearchCommand,
+} from '../src/commands/mcp.js';
 import { initCommand } from '../src/commands/init.js';
 import { scanCommand } from '../src/commands/scan.js';
 import { rulesGenerateCommand, rulesListCommand } from '../src/commands/rules.js';
@@ -92,7 +102,9 @@ describe('mcp commands', () => {
     expect(mcpInstallCommand('memory', project)).toBe(0);
     configureLogger({ json: true });
     expect(mcpListCommand()).toBe(0);
-    expect(lastJson<{ installed: { id: string }[] }>().installed.map((s) => s.id)).toContain('memory');
+    expect(lastJson<{ installed: { id: string }[] }>().installed.map((s) => s.id)).toContain(
+      'memory',
+    );
     configureLogger({ json: false });
     expect(mcpRemoveCommand('memory', project)).toBe(0);
     expect(mcpRemoveCommand('memory', project)).toBe(1); // nowhere configured now
@@ -137,7 +149,20 @@ describe('cli wiring', () => {
   it('builds the full command tree with global flags on leaves', () => {
     const program = buildCli({ exitOverride: true });
     const names = program.commands.map((c) => c.name());
-    for (const expected of ['doctor', 'install', 'auth', 'keys', 'init', 'scan', 'rules', 'mcp', 'ask', 'router', 'update', 'login']) {
+    for (const expected of [
+      'doctor',
+      'install',
+      'auth',
+      'keys',
+      'init',
+      'scan',
+      'rules',
+      'mcp',
+      'ask',
+      'router',
+      'update',
+      'login',
+    ]) {
       expect(names).toContain(expected);
     }
     const doctor = program.commands.find((c) => c.name() === 'doctor')!;

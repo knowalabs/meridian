@@ -50,8 +50,12 @@ describe('ai router', () => {
   });
 
   it('registry lists all five providers from the docs', () => {
-    expect(PROVIDERS.map((p) => p.id).sort()).toEqual(
-      ['anthropic', 'google', 'ollama', 'openai', 'openrouter'],
-    );
+    expect(PROVIDERS.map((p) => p.id).sort()).toEqual([
+      'anthropic',
+      'google',
+      'ollama',
+      'openai',
+      'openrouter',
+    ]);
   });
 });

@@ -6,6 +6,14 @@ import { renderError, EXIT } from './core/errors.js';
 import { buildCli } from './cli.js';
 import { runInteractive, showWelcome } from './launcher.js';
 
+const nodeMajor = Number(process.versions.node.split('.')[0]);
+if (nodeMajor < 18) {
+  console.error(
+    `devpilot requires Node.js 18 or newer (you are running ${process.versions.node}).`,
+  );
+  process.exit(EXIT.UNAVAILABLE);
+}
+
 const verbose = process.argv.includes('--verbose');
 
 process.on('uncaughtException', (err) => {

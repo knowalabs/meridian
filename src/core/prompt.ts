@@ -58,7 +58,9 @@ function levenshtein(a: string, b: string): number {
     const current = [i];
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      current.push(Math.min((current[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost));
+      current.push(
+        Math.min((current[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost),
+      );
     }
     prev = current;
   }

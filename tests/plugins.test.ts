@@ -12,7 +12,14 @@ describe('plugin registry', () => {
 
   it('every plugin implements the full lifecycle contract', () => {
     for (const plugin of buildRegistry().all()) {
-      for (const method of ['install', 'uninstall', 'configure', 'validate', 'update', 'doctor'] as const) {
+      for (const method of [
+        'install',
+        'uninstall',
+        'configure',
+        'validate',
+        'update',
+        'doctor',
+      ] as const) {
         expect(typeof plugin[method], `${plugin.id}.${method}`).toBe('function');
       }
     }

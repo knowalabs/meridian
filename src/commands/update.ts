@@ -12,10 +12,13 @@ export async function updateCommand(opts: { self?: boolean; tools?: boolean }): 
 
   if (doSelf) {
     log.info('Updating DevPilot CLI…');
-    if (runLive('npm', ['install', '-g', `${PACKAGE_NAME}@latest`])) log.ok('DevPilot is up to date');
+    if (runLive('npm', ['install', '-g', `${PACKAGE_NAME}@latest`]))
+      log.ok('DevPilot is up to date');
     else {
       failed = true;
-      log.fail(`Self-update failed — try ${pc.bold(`npm install -g ${PACKAGE_NAME}@latest`)} manually`);
+      log.fail(
+        `Self-update failed — try ${pc.bold(`npm install -g ${PACKAGE_NAME}@latest`)} manually`,
+      );
     }
   }
   if (doTools) {

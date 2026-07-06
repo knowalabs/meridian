@@ -93,7 +93,10 @@ Examples:
     .command('install [tool]')
     .alias('i')
     .description('Install and configure a tool ("all" for everything; omit for a picker)')
-    .addHelpText('after', '\nExamples:\n  $ devpilot install claude\n  $ devpilot install all\n  $ devpilot install            (interactive picker)')
+    .addHelpText(
+      'after',
+      '\nExamples:\n  $ devpilot install claude\n  $ devpilot install all\n  $ devpilot install            (interactive picker)',
+    )
     .action(async (tool?: string) => done(await installCommand(tool)));
 
   program
@@ -104,11 +107,18 @@ Examples:
   program
     .command('auth [provider] [key]')
     .description('Store an API key in the secure vault (openai, anthropic, google, openrouter)')
-    .addHelpText('after', '\nThe key is prompted with hidden input — you rarely need to pass it as an argument.')
+    .addHelpText(
+      'after',
+      '\nThe key is prompted with hidden input — you rarely need to pass it as an argument.',
+    )
     .action(async (provider?: string, key?: string) => done(await authCommand(provider, key)));
 
   const keys = program.command('keys').description('Manage stored API keys');
-  keys.command('list').alias('ls').description('List stored API keys (masked)').action(() => done(keysListCommand()));
+  keys
+    .command('list')
+    .alias('ls')
+    .description('List stored API keys (masked)')
+    .action(() => done(keysListCommand()));
   keys
     .command('remove <provider>')
     .alias('rm')
@@ -121,7 +131,9 @@ Examples:
 
   program
     .command('init')
-    .description('Create an AI-ready project scaffold (.devpilot/, CLAUDE.md, AGENTS.md, README_AI.md)')
+    .description(
+      'Create an AI-ready project scaffold (.devpilot/, CLAUDE.md, AGENTS.md, README_AI.md)',
+    )
     .action(() => done(initCommand()));
 
   program
@@ -135,7 +147,11 @@ Examples:
     .alias('gen')
     .description('Generate instruction files for Claude, Cursor, Codex, Copilot, Gemini')
     .action((targets: string[]) => done(rulesGenerateCommand(targets ?? [])));
-  rules.command('list').alias('ls').description('List supported rule targets').action(() => done(rulesListCommand()));
+  rules
+    .command('list')
+    .alias('ls')
+    .description('List supported rule targets')
+    .action(() => done(rulesListCommand()));
 
   const mcp = program.command('mcp').description('Search and install MCP servers');
   mcp
@@ -152,7 +168,11 @@ Examples:
     .alias('rm')
     .description('Remove an MCP server from all configs')
     .action((id: string) => done(mcpRemoveCommand(id)));
-  mcp.command('list').alias('ls').description('List installed MCP servers').action(() => done(mcpListCommand()));
+  mcp
+    .command('list')
+    .alias('ls')
+    .description('List installed MCP servers')
+    .action(() => done(mcpListCommand()));
 
   program
     .command('ask [prompt...]')

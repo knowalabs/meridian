@@ -29,7 +29,9 @@ describe('devpilot init', () => {
     ]) {
       expect(fs.existsSync(path.join(tmp, p)), p).toBe(true);
     }
-    const project = JSON.parse(fs.readFileSync(path.join(tmp, '.devpilot', 'project.json'), 'utf8'));
+    const project = JSON.parse(
+      fs.readFileSync(path.join(tmp, '.devpilot', 'project.json'), 'utf8'),
+    );
     expect(project.name).toBe(path.basename(tmp));
   });
 

@@ -1,18 +1,38 @@
-import tsParser from '@typescript-eslint/parser';
-import tsPlugin from '@typescript-eslint/eslint-plugin';
+import tseslint from 'typescript-eslint';
+import prettier from 'eslint-config-prettier';
 
-export default [
+export default tseslint.config(
+  ...tseslint.configs.recommendedTypeChecked,
   {
     files: ['src/**/*.ts', 'tests/**/*.ts'],
     languageOptions: {
-      parser: tsParser,
-      parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
-    plugins: { '@typescript-eslint': tsPlugin },
     rules: {
-      ...tsPlugin.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
     },
   },
-];
+  {
+    // Tests assert on parsed JSON output constantly; the unsafe-any family
+    // adds casts without catching bugs there. Source stays fully strict.
+    files: ['tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/require-await': 'off',
+    },
+  },
+  {
+    // Type-aware linting only applies to files in the tsconfig project.
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '*.config.ts', 'eslint.config.js'],
+  },
+  prettier,
+);

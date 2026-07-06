@@ -44,7 +44,11 @@ export function readJsonFile<T>(
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    return { ok: false, reason: 'malformed', detail: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      reason: 'malformed',
+      detail: err instanceof Error ? err.message : String(err),
+    };
   }
   if (validate && !validate(parsed)) return { ok: false, reason: 'invalid' };
   return { ok: true, value: parsed as T };

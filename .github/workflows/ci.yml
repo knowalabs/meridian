@@ -21,6 +21,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npx prettier --check .
       - run: npm run build
       - run: npm run test:coverage
       - run: npm run test:e2e
@@ -29,13 +30,21 @@ jobs:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - name: Verify tag matches package version
+        run: |
+          node -e "const v='v'+require('./package.json').version; if (v !== process.env.GITHUB_REF_NAME) { console.error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package version ' + v); process.exit(1); }"
       - run: npm ci
-      - run: npm publish --access public
+      - run: npm run build
+      - run: npm test
+      - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

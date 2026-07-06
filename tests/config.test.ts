@@ -22,7 +22,10 @@ describe('config corruption handling', () => {
     config.router.prefer = 'anthropic';
     config.providers = ['anthropic'];
     saveConfig(config);
-    expect(loadConfig()).toMatchObject({ router: { prefer: 'anthropic' }, providers: ['anthropic'] });
+    expect(loadConfig()).toMatchObject({
+      router: { prefer: 'anthropic' },
+      providers: ['anthropic'],
+    });
   });
 
   it('backs up a malformed config instead of silently discarding it', () => {

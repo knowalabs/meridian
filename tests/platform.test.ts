@@ -101,7 +101,9 @@ describe('mcp config targets per platform', () => {
   it('includes Claude Desktop at the right per-OS location', () => {
     setPlatform('darwin');
     let files = mcpConfigTargets('/proj').map((t) => t.file);
-    expect(files.some((f) => f.includes(path.join('Library', 'Application Support', 'Claude')))).toBe(true);
+    expect(
+      files.some((f) => f.includes(path.join('Library', 'Application Support', 'Claude'))),
+    ).toBe(true);
 
     setPlatform('linux');
     files = mcpConfigTargets('/proj').map((t) => t.file);

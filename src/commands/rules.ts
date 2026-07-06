@@ -6,7 +6,9 @@ import { log } from '../core/logger.js';
 export function rulesGenerateCommand(only: string[], cwd: string = process.cwd()): number {
   const unknown = only.filter((t) => !RULE_TARGETS.some((r) => r.id === t));
   if (unknown.length) {
-    log.fail(`Unknown target(s): ${unknown.join(', ')}. Supported: ${RULE_TARGETS.map((r) => r.id).join(', ')}`);
+    log.fail(
+      `Unknown target(s): ${unknown.join(', ')}. Supported: ${RULE_TARGETS.map((r) => r.id).join(', ')}`,
+    );
     return 1;
   }
   const written = generateRules(cwd, path.basename(cwd), only);

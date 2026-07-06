@@ -3,11 +3,13 @@
 **One command to set up every AI coding tool on any machine.**
 
 ```bash
-npm install -g devpilot
+npm install -g @sonalsithara/devpilot
 devpilot init
 ```
 
-DevPilot installs, configures and manages AI coding assistants (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot), keeps your API keys in the OS keychain, generates AI-ready project context and rules, and installs MCP servers into every tool at once.
+DevPilot installs, configures and manages AI coding assistants (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot), keeps your API keys in the OS-native secret store, generates AI-ready project context and rules, and installs MCP servers into every tool at once.
+
+Works on **macOS, Windows and Linux** (Node.js ≥ 18).
 
 ## Interactive mode
 
@@ -15,30 +17,62 @@ Run `devpilot` with no arguments to open the interactive launcher: navigate the 
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `devpilot doctor` | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker) |
-| `devpilot install <tool>` \| `all` | Install and configure supported tools |
-| `devpilot auth [provider]` | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter) |
-| `devpilot keys list` / `keys remove <p>` | Manage stored keys (always masked, never plaintext) |
-| `devpilot init` | Create the AI-ready scaffold: `.devpilot/`, `CLAUDE.md`, `AGENTS.md`, `README_AI.md` |
-| `devpilot scan` | Analyze the project → `.devpilot/context.md` + `architecture.md` (structure, deps, conventions, API surface) |
-| `devpilot rules generate` | Render `.devpilot/rules.md` into every tool's format: `CLAUDE.md`, `.cursor/rules/`, `AGENTS.md`, Copilot, `GEMINI.md` |
-| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools |
-| `devpilot ask "<prompt>"` | AI router: picks the best provider by cost/speed/quality/context size |
-| `devpilot router --prefer/--optimize` | Configure routing behavior |
-| `devpilot update` | Update the CLI and installed tools |
-| `devpilot login` | Cloud Sync (coming in v0.4) |
+| Command                                   | What it does                                                                                                           |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                            |
+| `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                        |
+| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter)                                           |
+| `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                    |
+| `devpilot init`                           | Create the AI-ready scaffold: `.devpilot/`, `CLAUDE.md`, `AGENTS.md`, `README_AI.md`                                   |
+| `devpilot scan`                           | Analyze the project → `.devpilot/context.md` + `architecture.md` (structure, deps, conventions, API surface)           |
+| `devpilot rules generate`                 | Render `.devpilot/rules.md` into every tool's format: `CLAUDE.md`, `.cursor/rules/`, `AGENTS.md`, Copilot, `GEMINI.md` |
+| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                             |
+| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size                                                  |
+| `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                             |
+| `devpilot update`                         | Update the CLI and installed tools                                                                                     |
+| `devpilot login`                          | Cloud Sync (coming in v0.5)                                                                                            |
+
+### Global flags
+
+Every command accepts:
+
+- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `scan`, `ask`)
+- `--quiet` — errors only
+- `--verbose` — debug output and stack traces
+- `--no-color` — plain output (also honors `NO_COLOR`)
+
+`devpilot ask` prints routing diagnostics to stderr, so `devpilot ask "…" | pbcopy` pipes only the answer:
+
+```bash
+devpilot doctor --json | jq '.missing'
+devpilot ask "explain this repo" --json | jq -r .answer
+```
+
+### Model selection
+
+The router ships with sensible model defaults per provider and lets you override them without waiting for a release, in `~/.devpilot/config.json`:
+
+```json
+{ "router": { "models": { "anthropic": "claude-opus-4-8", "openai": "gpt-5.1" } } }
+```
 
 ## Security
 
-- **macOS:** keys are stored in the system Keychain (`security` service `devpilot`).
-- **Other platforms** (or `DEVPILOT_VAULT=file`): AES-256-GCM encrypted vault in `~/.devpilot/keys/vault.enc`, with a random 256-bit master key held in a separate `0600` file. Secrets are never written in plaintext.
+API keys are stored in the strongest secret store available on your platform, and never written to disk in plaintext:
+
+| Platform | Backend                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------- |
+| macOS    | System Keychain (`security`, service `devpilot`) — secrets passed via stdin, not process args           |
+| Windows  | AES-256-GCM vault; master key wrapped with **DPAPI** (CurrentUser) and the key directory ACL-restricted |
+| Linux    | **libsecret** (`secret-tool`) when available, else the encrypted file vault                             |
+| Fallback | AES-256-GCM vault in `~/.devpilot/keys/vault.enc` with a `0600` master-key file                         |
+
+Set `DEVPILOT_VAULT=file` to force the file vault (used by CI). MCP configs get `${VAR}` environment references — your tokens are never inlined into project files. If a vault ever corrupts, `devpilot keys repair` backs it up and reinitializes.
 
 ## Architecture
 
 ```
-CLI (commander) → Core (config, vault, exec) → Plugins (tool lifecycle) → Providers (AI APIs) → Cloud (v0.4)
+CLI (commander) → Core (config, vault, exec, errors) → Plugins (tool lifecycle) → Providers (AI APIs)
 ```
 
 Every tool plugin implements the same lifecycle: `install() · uninstall() · configure() · validate() · update() · doctor()`.
@@ -48,9 +82,23 @@ Every tool plugin implements the same lifecycle: `install() · uninstall() · co
 ```bash
 npm install
 npm run dev -- doctor   # run from source
-npm test                # vitest
-npm run lint            # eslint
+npm test                # unit tests (vitest)
+npm run test:e2e        # runs the built CLI end-to-end in a sandbox
+npm run test:coverage   # unit tests + coverage gates
+npm run lint            # type-checked eslint
 npm run build           # tsc → dist/
 ```
 
-Product documentation lives in [`DevPilot_Docs/`](DevPilot_Docs/); the roadmap is in [`DevPilot_Docs/04-roadmap.md`](DevPilot_Docs/04-roadmap.md). This codebase implements v0.1–v0.3 (doctor, install, auth, init, scan, rules, MCP, updater) plus the Phase 4 AI router; Cloud Sync (v0.4) and Team features need the backend and ship next.
+CI runs lint, format check, build, unit + e2e tests on ubuntu/macos/windows × Node 18/20/22. Releases are tag-driven with npm provenance.
+
+### Releasing
+
+```bash
+npx changeset            # describe your change
+npx changeset version    # bump version + update CHANGELOG.md
+git commit -am "release" && git tag v<version> && git push --follow-tags
+```
+
+The `publish` CI job verifies the tag matches `package.json`, re-runs the tests, and publishes to npm with `--provenance`.
+
+Product documentation lives in [`DevPilot_Docs/`](DevPilot_Docs/); the roadmap is in [`DevPilot_Docs/04-roadmap.md`](DevPilot_Docs/04-roadmap.md). This codebase implements v0.1–v0.4 (doctor, install, auth, init, scan, rules, MCP, updater, AI router); Cloud Sync and Team features need the backend and ship next.

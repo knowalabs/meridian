@@ -61,7 +61,9 @@ export function renderError(err: unknown, opts: { verbose?: boolean } = {}): num
     console.error(pc.dim(err.stack));
     for (const cause of causeChain(err)) console.error(pc.dim(`caused by: ${cause}`));
   } else {
-    console.error(pc.dim('  This looks like a bug in DevPilot. Re-run with --verbose for details.'));
+    console.error(
+      pc.dim('  This looks like a bug in DevPilot. Re-run with --verbose for details.'),
+    );
   }
   return EXIT.ERROR;
 }

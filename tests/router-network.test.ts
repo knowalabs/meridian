@@ -111,7 +111,7 @@ describe('provider network behavior', () => {
     saveConfig(config);
     let sentModel = '';
     setFetchForTests(async (_url, init) => {
-      sentModel = (JSON.parse(String(init?.body)) as { model: string }).model;
+      sentModel = (JSON.parse(init?.body as string) as { model: string }).model;
       return jsonResponse(200, { content: [{ type: 'text', text: 'ok' }] });
     });
     await anthropic.ask('hi', 'key');

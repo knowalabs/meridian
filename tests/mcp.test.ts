@@ -19,7 +19,9 @@ const { addServer, listInstalled, removeServer } = await import('../src/mcp/conf
 describe('mcp registry', () => {
   it('searches by id, name and description', () => {
     expect(searchMcp('github').map((s) => s.id)).toContain('github');
-    expect(searchMcp('browser').map((s) => s.id)).toEqual(expect.arrayContaining(['puppeteer', 'playwright']));
+    expect(searchMcp('browser').map((s) => s.id)).toEqual(
+      expect.arrayContaining(['puppeteer', 'playwright']),
+    );
     expect(searchMcp('zzz-nothing')).toHaveLength(0);
   });
 

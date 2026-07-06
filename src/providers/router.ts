@@ -101,9 +101,7 @@ async function post(
     });
   }
   if (!res.ok) {
-    throw new CliError(
-      `${ctx.provider}: HTTP ${res.status} — ${(await res.text()).slice(0, 300)}`,
-    );
+    throw new CliError(`${ctx.provider}: HTTP ${res.status} — ${(await res.text()).slice(0, 300)}`);
   }
   return res.json();
 }

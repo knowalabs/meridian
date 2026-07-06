@@ -34,7 +34,9 @@ export function doctorCommand(): number {
     if (tool.installed) {
       log.ok(`${tool.name.padEnd(12)} ${pc.dim(tool.version ?? '')}`);
     } else {
-      log.fail(`${tool.name.padEnd(12)} not found ${tool.hint ? pc.dim(`— install: ${tool.hint}`) : ''}`);
+      log.fail(
+        `${tool.name.padEnd(12)} not found ${tool.hint ? pc.dim(`— install: ${tool.hint}`) : ''}`,
+      );
     }
   }
 
@@ -42,7 +44,9 @@ export function doctorCommand(): number {
   if (missing.length === 0) {
     log.ok('All supported tools are installed.');
   } else {
-    log.warn(`${missing.length} tool(s) missing. Run ${pc.bold('devpilot install <tool>')} or ${pc.bold('devpilot install all')}.`);
+    log.warn(
+      `${missing.length} tool(s) missing. Run ${pc.bold('devpilot install <tool>')} or ${pc.bold('devpilot install all')}.`,
+    );
   }
   return 0;
 }
