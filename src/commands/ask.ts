@@ -1,8 +1,8 @@
 import pc from 'picocolors';
-import { availableProviders, PROVIDERS, route } from '../providers/router.js';
+import { availableProviders, modelFor, PROVIDERS, route } from '../providers/router.js';
 import { openVault } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
-import { log } from '../core/logger.js';
+import { jsonMode, log } from '../core/logger.js';
 import { CliError } from '../core/errors.js';
 
 export async function askCommand(promptParts: string[], opts: { provider?: string }): Promise<number> {
@@ -33,7 +33,9 @@ export async function askCommand(promptParts: string[], opts: { provider?: strin
   }
 
   const { provider, reason } = decision;
-  log.dim(`→ routed to ${provider.name} [${provider.model}] (${reason})`);
+  // Routing info is a diagnostic — log.dim sends it to stderr so that
+  // `devpilot ask "…" | tool` pipes only the answer.
+  log.dim(`→ routed to ${provider.name} [${modelFor(provider)}] (${reason})`);
 
   const key = provider.needsKey ? openVault().get(provider.id) : '';
   if (provider.needsKey && !key) {
@@ -43,7 +45,11 @@ export async function askCommand(promptParts: string[], opts: { provider?: strin
 
   try {
     const answer = await provider.ask(prompt, key ?? '');
-    log.info('\n' + answer.trim());
+    if (jsonMode()) {
+      log.json({ provider: provider.id, model: modelFor(provider), reason, answer: answer.trim() });
+    } else {
+      log.info('\n' + answer.trim());
+    }
     return 0;
   } catch (err) {
     // CliErrors carry classified messages and hints (auth, timeout, rate

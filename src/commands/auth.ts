@@ -2,7 +2,7 @@ import pc from 'picocolors';
 import { openVault, repairVault, type VaultBackend } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
 import { PROVIDERS } from '../providers/router.js';
-import { log } from '../core/logger.js';
+import { jsonMode, log } from '../core/logger.js';
 import { didYouMean, promptChoice, promptSecret } from '../core/prompt.js';
 
 const KEY_PROVIDERS = PROVIDERS.filter((p) => p.needsKey).map((p) => p.id);
@@ -69,6 +69,16 @@ export async function authCommand(provider?: string, keyArg?: string): Promise<n
 export function keysListCommand(): number {
   const vault = openVault();
   const keys = vault.list();
+  if (jsonMode()) {
+    log.json({
+      backend: vault.backend,
+      keys: keys.map((account) => {
+        const value = vault.get(account);
+        return { provider: account, masked: value ? maskKey(value) : null };
+      }),
+    });
+    return 0;
+  }
   log.title(`API Keys (${vault.backend})\n`);
   if (keys.length === 0) {
     log.info(`No keys stored. Run ${pc.bold('devpilot auth')} to add one.`);

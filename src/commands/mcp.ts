@@ -1,15 +1,26 @@
 import pc from 'picocolors';
 import { getMcp, MCP_REGISTRY, searchMcp } from '../mcp/registry.js';
 import { addServer, listInstalled, removeServer } from '../mcp/configure.js';
-import { log } from '../core/logger.js';
+import { jsonMode, log } from '../core/logger.js';
 
 export function mcpSearchCommand(query?: string): number {
   const results = query ? searchMcp(query) : MCP_REGISTRY;
+  const installed = new Set(listInstalled());
+  if (jsonMode()) {
+    log.json({
+      results: results.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        installed: installed.has(s.id),
+      })),
+    });
+    return results.length === 0 ? 1 : 0;
+  }
   if (results.length === 0) {
     log.warn(`No MCP servers matching "${query}"`);
     return 1;
   }
-  const installed = new Set(listInstalled());
   log.title(`MCP servers${query ? ` matching "${query}"` : ''}:\n`);
   for (const s of results) {
     const mark = installed.has(s.id) ? pc.green(' (installed)') : '';
@@ -67,6 +78,15 @@ export function mcpRemoveCommand(id: string, cwd: string = process.cwd()): numbe
 
 export function mcpListCommand(): number {
   const installed = listInstalled();
+  if (jsonMode()) {
+    log.json({
+      installed: installed.map((id) => {
+        const spec = getMcp(id);
+        return { id, name: spec?.name ?? null, description: spec?.description ?? null };
+      }),
+    });
+    return 0;
+  }
   if (installed.length === 0) {
     log.info(`No MCP servers installed. Browse with ${pc.bold('devpilot mcp search')}`);
     return 0;

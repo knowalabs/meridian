@@ -7,7 +7,7 @@ import {
   renderArchitectureMarkdown,
   renderContextMarkdown,
 } from '../scan/analyzer.js';
-import { log } from '../core/logger.js';
+import { jsonMode, log } from '../core/logger.js';
 
 /** `devpilot scan` — analyze the project and write AI context files. */
 export function scanCommand(cwd: string = process.cwd()): number {
@@ -21,6 +21,19 @@ export function scanCommand(cwd: string = process.cwd()): number {
   const archFile = path.join(dir, 'architecture.md');
   fs.writeFileSync(contextFile, renderContextMarkdown(analysis));
   fs.writeFileSync(archFile, renderArchitectureMarkdown(analysis));
+
+  if (jsonMode()) {
+    log.json({
+      totalFiles: analysis.totalFiles,
+      languages: analysis.languages,
+      frameworks: analysis.frameworks,
+      files: {
+        context: path.relative(cwd, contextFile),
+        architecture: path.relative(cwd, archFile),
+      },
+    });
+    return 0;
+  }
 
   log.ok(`Analyzed ${analysis.totalFiles} files`);
   log.ok(`Languages: ${analysis.languages.map((l) => l.language).join(', ') || 'none detected'}`);
