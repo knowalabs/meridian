@@ -120,7 +120,7 @@ export const PROVIDERS: ProviderSpec[] = [
       const data = (await post(
         'https://api.anthropic.com/v1/messages',
         { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        { model: modelFor(this), max_tokens: 2048, messages: [{ role: 'user', content: prompt }] },
+        { model: modelFor(this), max_tokens: 8192, messages: [{ role: 'user', content: prompt }] },
         { provider: this.id },
       )) as { content: { type: string; text?: string }[] };
       return data.content.map((b) => b.text ?? '').join('');

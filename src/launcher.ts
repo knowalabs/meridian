@@ -51,6 +51,7 @@ ${row('devpilot install', 'install tools (interactive picker)')}
 ${row('devpilot auth', 'store an API key in the secure vault')}
 ${row('devpilot init', 'make your project AI-ready')}
 ${row('devpilot scan', 'generate AI context from your code')}
+${row('devpilot generate', 'AI-generate rules, agents, skills & commands')}
 
 ${pc.bold('Everyday:')}
 ${row('devpilot ask "…"', 'ask AI via the smart router')}
@@ -80,6 +81,11 @@ const MENU: MenuItem[] = [
   { command: 'keys list', label: 'List keys', description: 'show stored API keys (masked)' },
   { command: 'init', label: 'Init project', description: 'create the AI-ready scaffold' },
   { command: 'scan', label: 'Scan project', description: 'generate AI context files' },
+  {
+    command: 'generate',
+    label: 'Generate AI kit',
+    description: 'rules, agents, skills, commands — tailored by AI',
+  },
   {
     command: 'rules generate',
     label: 'Generate rules',

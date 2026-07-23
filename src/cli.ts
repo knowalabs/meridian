@@ -12,6 +12,7 @@ import {
 } from './commands/auth.js';
 import { initCommand } from './commands/init.js';
 import { scanCommand } from './commands/scan.js';
+import { generateCommand } from './commands/generate.js';
 import { rulesGenerateCommand, rulesListCommand } from './commands/rules.js';
 import {
   mcpInstallCommand,
@@ -140,6 +141,27 @@ Examples:
     .command('scan')
     .description('Analyze the project and generate AI context files')
     .action(() => done(scanCommand()));
+
+  program
+    .command('generate [kinds...]')
+    .alias('gen')
+    .description(
+      'Generate the full AI kit: rules, subagents, skills, slash commands, prompts, docs',
+    )
+    .option('-p, --provider <id>', 'force a specific AI provider')
+    .option('-f, --force', 'overwrite existing files')
+    .option('--dry-run', 'show what would be generated without writing')
+    .option('--no-ai', 'use static templates even if an AI provider is configured')
+    .addHelpText(
+      'after',
+      '\nKinds: rules, agents, skills, commands, prompts, docs (default: all)\nExamples:\n  $ devpilot generate                   generate everything\n  $ devpilot generate agents commands   only subagents and slash commands\n  $ devpilot generate --dry-run         preview without writing',
+    )
+    .action(
+      async (
+        kinds: string[],
+        opts: { provider?: string; force?: boolean; dryRun?: boolean; ai?: boolean },
+      ) => done(await generateCommand(kinds ?? [], opts)),
+    );
 
   const rules = program.command('rules').description('Generate AI tool instruction files');
   rules
