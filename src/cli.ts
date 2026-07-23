@@ -10,10 +10,7 @@ import {
   keysRemoveCommand,
   keysRepairCommand,
 } from './commands/auth.js';
-import { initCommand } from './commands/init.js';
-import { scanCommand } from './commands/scan.js';
 import { generateCommand } from './commands/generate.js';
-import { rulesGenerateCommand, rulesListCommand } from './commands/rules.js';
 import {
   mcpInstallCommand,
   mcpListCommand,
@@ -79,7 +76,7 @@ Examples:
   $ devpilot install claude             install & configure Claude Code
   $ devpilot install                    pick a tool from an interactive list
   $ devpilot auth anthropic             store your Anthropic API key securely
-  $ devpilot init && devpilot scan      make this project AI-ready
+  $ devpilot generate                   make this project AI-ready in one shot
   $ devpilot mcp search github          find MCP servers
   $ devpilot ask "explain this repo"    ask AI (auto-picks the best provider)`,
     );
@@ -131,22 +128,10 @@ Examples:
     .action(() => done(keysRepairCommand()));
 
   program
-    .command('init')
-    .description(
-      'Create an AI-ready project scaffold (.devpilot/, CLAUDE.md, AGENTS.md, README_AI.md)',
-    )
-    .action(() => done(initCommand()));
-
-  program
-    .command('scan')
-    .description('Analyze the project and generate AI context files')
-    .action(() => done(scanCommand()));
-
-  program
     .command('generate [kinds...]')
     .alias('gen')
     .description(
-      'Generate the full AI kit: rules, subagents, skills, slash commands, prompts, docs',
+      'Review the codebase and generate everything AI tools need: context, rules, subagents, skills, slash commands, prompts, docs',
     )
     .option('-p, --provider <id>', 'force a specific AI provider')
     .option('-f, --force', 'overwrite existing files')
@@ -162,18 +147,6 @@ Examples:
         opts: { provider?: string; force?: boolean; dryRun?: boolean; ai?: boolean },
       ) => done(await generateCommand(kinds ?? [], opts)),
     );
-
-  const rules = program.command('rules').description('Generate AI tool instruction files');
-  rules
-    .command('generate [targets...]')
-    .alias('gen')
-    .description('Generate instruction files for Claude, Cursor, Codex, Copilot, Gemini')
-    .action((targets: string[]) => done(rulesGenerateCommand(targets ?? [])));
-  rules
-    .command('list')
-    .alias('ls')
-    .description('List supported rule targets')
-    .action(() => done(rulesListCommand()));
 
   const mcp = program.command('mcp').description('Search and install MCP servers');
   mcp

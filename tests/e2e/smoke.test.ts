@@ -15,7 +15,7 @@ describe('e2e: smoke', () => {
   it('--help lists the commands', async () => {
     const res = await runCli(['--help'], sandbox);
     expect(res.code).toBe(0);
-    for (const cmd of ['doctor', 'install', 'auth', 'init', 'scan', 'mcp', 'ask']) {
+    for (const cmd of ['doctor', 'install', 'auth', 'generate', 'mcp', 'ask']) {
       expect(res.stdout).toContain(cmd);
     }
   });

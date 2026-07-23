@@ -4,12 +4,12 @@
 
 ```bash
 npm install -g @sonalsithara/devpilot
-devpilot init
+devpilot generate
 ```
 
 DevPilot installs, configures and manages AI coding assistants (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot), keeps your API keys in the OS-native secret store, generates AI-ready project context and rules, and installs MCP servers into every tool at once.
 
-You never hand-write an AI config file again: `devpilot generate` scans your codebase and produces the **complete AI kit** — project rules, Claude Code subagents, skills and slash commands, reusable prompts and onboarding docs — tailored to your stack by AI (with clean static fallbacks when no API key is configured).
+You never hand-write an AI config file again: one command — `devpilot generate` — reviews your codebase and produces the **complete AI kit**: project context and architecture docs, canonical rules mirrored into every tool's format, Claude Code subagents, skills and slash commands, reusable prompts and onboarding docs — tailored to your stack by AI (with rich static fallbacks when no API key is configured).
 
 Works on **macOS, Windows and Linux** (Node.js ≥ 18).
 
@@ -19,27 +19,24 @@ Run `devpilot` with no arguments to open the interactive launcher: navigate the 
 
 ## Commands
 
-| Command                                   | What it does                                                                                                            |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                             |
-| `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                         |
-| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter)                                            |
-| `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                     |
-| `devpilot init`                           | Create the AI-ready scaffold: `.devpilot/`, `CLAUDE.md`, `AGENTS.md`, `README_AI.md`                                    |
-| `devpilot scan`                           | Analyze the project → `.devpilot/context.md` + `architecture.md` (structure, deps, conventions, API surface)            |
-| `devpilot rules generate`                 | Render `.devpilot/rules.md` into every tool's format: `CLAUDE.md`, `.cursor/rules/`, `AGENTS.md`, Copilot, `GEMINI.md`  |
-| `devpilot generate [kinds…]`              | Generate the full AI kit: rules, `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, prompts, docs — AI-tailored |
-| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                              |
-| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size                                                   |
-| `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                              |
-| `devpilot update`                         | Update the CLI and installed tools                                                                                      |
-| `devpilot login`                          | Cloud Sync (coming in v0.5)                                                                                             |
+| Command                                   | What it does                                                                                                                                                                   |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                                                                                    |
+| `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                                                                                |
+| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter)                                                                                                   |
+| `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                                                                            |
+| `devpilot generate [kinds…]`              | Review the codebase, then generate everything: context, architecture, rules (mirrored to every tool), `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, prompts, docs |
+| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                                                                                     |
+| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size                                                                                                          |
+| `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                                                                                     |
+| `devpilot update`                         | Update the CLI and installed tools                                                                                                                                             |
+| `devpilot login`                          | Cloud Sync (coming in v0.5)                                                                                                                                                    |
 
 ### Global flags
 
 Every command accepts:
 
-- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `scan`, `ask`, `generate`)
+- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `ask`, `generate`)
 - `--quiet` — errors only
 - `--verbose` — debug output and stack traces
 - `--no-color` — plain output (also honors `NO_COLOR`)
@@ -53,17 +50,17 @@ devpilot ask "explain this repo" --json | jq -r .answer
 
 ### The AI kit
 
-`devpilot generate` builds a project digest (stack, scripts, layout, key file excerpts), routes it to your best configured provider, and writes every artifact a developer would otherwise author by hand:
+`devpilot generate` reviews the codebase first — layout, dependencies, scripts, conventions and excerpts of the most informative source files — then routes that digest to your best configured provider and writes every artifact a developer would otherwise author by hand:
 
 ```bash
-devpilot generate                    # everything: rules, agents, skills, commands, prompts, docs
+devpilot generate                    # everything: context, rules, agents, skills, commands, prompts, docs
 devpilot generate agents commands    # just those kinds
 devpilot generate --dry-run          # preview without writing
 devpilot generate --force            # regenerate over existing files
 devpilot generate --no-ai            # static templates only (offline)
 ```
 
-Existing files are never overwritten without `--force`, AI output paths are validated against a per-kind allowlist, and any failed AI call degrades to the static template for that kind — the command always leaves the project fully set up.
+Derived files that mirror the code (`.devpilot/context.md`, `.devpilot/architecture.md`) are refreshed on every run; everything you might have hand-edited is never overwritten without `--force`. AI output paths are validated against a per-kind allowlist, and any failed AI call degrades to a rich static template built from the codebase analysis — the command always leaves the project fully set up.
 
 ### Model selection
 

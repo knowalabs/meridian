@@ -49,14 +49,11 @@ ${pc.bold('Get started:')}
 ${row('devpilot doctor', 'see which AI tools are installed')}
 ${row('devpilot install', 'install tools (interactive picker)')}
 ${row('devpilot auth', 'store an API key in the secure vault')}
-${row('devpilot init', 'make your project AI-ready')}
-${row('devpilot scan', 'generate AI context from your code')}
-${row('devpilot generate', 'AI-generate rules, agents, skills & commands')}
+${row('devpilot generate', 'make your project AI-ready in one shot')}
 
 ${pc.bold('Everyday:')}
 ${row('devpilot ask "…"', 'ask AI via the smart router')}
 ${row('devpilot mcp search', 'find & install MCP servers')}
-${row('devpilot rules generate', 'sync rules to every tool')}
 
 Run ${pc.bold('devpilot --help')} for all commands, or ${pc.bold('devpilot <command> --help')} for details.`);
 }
@@ -79,17 +76,10 @@ const MENU: MenuItem[] = [
   { command: 'install', label: 'Install tools', description: 'install & configure AI tools' },
   { command: 'auth', label: 'Add API key', description: 'store a key in the secure vault' },
   { command: 'keys list', label: 'List keys', description: 'show stored API keys (masked)' },
-  { command: 'init', label: 'Init project', description: 'create the AI-ready scaffold' },
-  { command: 'scan', label: 'Scan project', description: 'generate AI context files' },
   {
     command: 'generate',
     label: 'Generate AI kit',
-    description: 'rules, agents, skills, commands — tailored by AI',
-  },
-  {
-    command: 'rules generate',
-    label: 'Generate rules',
-    description: 'write rules for every AI tool',
+    description: 'review the codebase, generate context, rules, agents, skills, commands',
   },
   { command: 'mcp search', label: 'MCP servers', description: 'browse the MCP marketplace' },
   {

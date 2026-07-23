@@ -16,9 +16,7 @@ import {
   mcpRemoveCommand,
   mcpSearchCommand,
 } from '../src/commands/mcp.js';
-import { initCommand } from '../src/commands/init.js';
-import { scanCommand } from '../src/commands/scan.js';
-import { rulesGenerateCommand, rulesListCommand } from '../src/commands/rules.js';
+import { generateCommand } from '../src/commands/generate.js';
 import { routerConfigCommand } from '../src/commands/ask.js';
 import { buildCli } from '../src/cli.js';
 import { loadConfig } from '../src/core/config.js';
@@ -116,22 +114,25 @@ describe('mcp commands', () => {
   });
 });
 
-describe('init / scan / rules commands', () => {
-  it('init + scan + rules generate work together in a project', () => {
+describe('generate command (one-shot AI kit)', () => {
+  it('reviews the codebase and writes scaffold, context, rules and kit in one run', async () => {
     fs.writeFileSync(path.join(project, 'main.ts'), 'export const a = 1;\n');
-    expect(initCommand(project)).toBe(0);
-
-    configureLogger({ json: true });
-    expect(scanCommand(project)).toBe(0);
-    const doc = lastJson<{ totalFiles: number; files: { context: string } }>();
-    expect(doc.totalFiles).toBeGreaterThan(0);
-    expect(fs.existsSync(path.join(project, doc.files.context))).toBe(true);
-    configureLogger({ json: false });
-
-    expect(rulesGenerateCommand([], project)).toBe(0);
-    expect(fs.existsSync(path.join(project, 'CLAUDE.md'))).toBe(true);
-    expect(rulesGenerateCommand(['bogus-target'], project)).toBe(1);
-    expect(rulesListCommand()).toBe(0);
+    expect(await generateCommand([], { ai: false }, project)).toBe(0);
+    for (const f of [
+      '.devpilot/project.json',
+      '.devpilot/context.md',
+      '.devpilot/architecture.md',
+      '.devpilot/rules.md',
+      '.devpilot/docs/onboarding.md',
+      'README_AI.md',
+      'CLAUDE.md',
+      'AGENTS.md',
+      'GEMINI.md',
+    ]) {
+      expect(fs.existsSync(path.join(project, f)), f).toBe(true);
+    }
+    // Re-running refreshes derived context but keeps user-editable files.
+    expect(await generateCommand([], { ai: false }, project)).toBe(0);
   });
 });
 
@@ -155,9 +156,7 @@ describe('cli wiring', () => {
       'install',
       'auth',
       'keys',
-      'init',
-      'scan',
-      'rules',
+      'generate',
       'mcp',
       'ask',
       'router',
@@ -173,7 +172,7 @@ describe('cli wiring', () => {
 
   it('runs a command end-to-end through commander', async () => {
     const program = buildCli({ exitOverride: true });
-    await program.parseAsync(['rules', 'list'], { from: 'user' });
-    expect(stdout()).toContain('claude');
+    await program.parseAsync(['keys', 'list', '--json'], { from: 'user' });
+    expect(stdout()).toContain('keys');
   });
 });

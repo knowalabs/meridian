@@ -148,7 +148,8 @@ describe('runGenerate', () => {
       dryRun: false,
       noAi: true,
     });
-    expect(result.files[0]?.action).toBe('skipped-exists');
+    const rules = result.files.find((f) => f.file === '.devpilot/rules.md');
+    expect(rules?.action).toBe('skipped-exists');
     expect(fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8')).toBe('MINE');
     expect(result.propagated).toEqual([]);
 
@@ -159,7 +160,8 @@ describe('runGenerate', () => {
       dryRun: false,
       noAi: true,
     });
-    expect(forced.files[0]?.action).toBe('written');
+    const forcedRules = forced.files.find((f) => f.file === '.devpilot/rules.md');
+    expect(forcedRules?.action).toBe('written');
     expect(fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8')).not.toBe('MINE');
   });
 
@@ -232,7 +234,9 @@ describe('runGenerate', () => {
       noAi: false,
     });
     expect(result.provider).toBe('anthropic');
-    expect(result.files[0]).toMatchObject({ file: '.devpilot/prompts/x.md', action: 'written' });
+    expect(result.files).toContainEqual(
+      expect.objectContaining({ file: '.devpilot/prompts/x.md', action: 'written' }),
+    );
   });
 
   it('falls back to static content when the AI call fails', async () => {
@@ -289,7 +293,7 @@ describe('generateCommand', () => {
       files: { file: string }[];
     };
     expect(doc.provider).toBeNull();
-    expect(doc.files[0]?.file).toBe('.devpilot/docs/onboarding.md');
+    expect(doc.files.map((f) => f.file)).toContain('.devpilot/docs/onboarding.md');
   });
 
   it('dry-run and rerun report without rewriting', async () => {

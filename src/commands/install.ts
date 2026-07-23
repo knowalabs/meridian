@@ -71,7 +71,7 @@ export async function installCommand(tool?: string): Promise<number> {
   }
   if (failures === 0 && targets.length > 0) {
     log.dim(
-      `\nNext: run ${pc.bold('devpilot auth')} to store an API key, then ${pc.bold('devpilot init')} in your project.`,
+      `\nNext: run ${pc.bold('devpilot auth')} to store an API key, then ${pc.bold('devpilot generate')} in your project.`,
     );
   }
   return failures === 0 ? 0 : 1;

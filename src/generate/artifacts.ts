@@ -1,13 +1,13 @@
 import path from 'node:path';
-import { ProjectAnalysis } from '../scan/analyzer.js';
-import { DEFAULT_RULES } from '../rules/generators.js';
+import { ProjectAnalysis, renderArchitectureMarkdown } from '../scan/analyzer.js';
 
 /**
  * Artifact kinds for `devpilot generate`: everything a developer would
  * otherwise hand-write to make a project AI-ready — rules, subagents, skills,
- * slash commands, reusable prompts and onboarding docs. Each kind knows how to
- * prompt an AI provider for project-tailored content and how to fall back to
- * a sensible static version when no provider is available.
+ * slash commands, reusable prompts and docs. Each kind knows how to prompt an
+ * AI provider for project-tailored content and how to fall back to a rich
+ * static version derived from the codebase analysis when no provider is
+ * available.
  */
 
 export interface ArtifactFile {
@@ -22,6 +22,8 @@ export interface ArtifactKind {
   description: string;
   /** Path prefixes (or exact files) the AI is allowed to write for this kind. */
   allowedPaths: string[];
+  /** Derived files rewritten on every run (they mirror the code). */
+  alwaysOverwrite?: string[];
   prompt(digest: string): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
 }
@@ -75,12 +77,48 @@ function stack(a: ProjectAnalysis): string {
   return a.frameworks.length ? `${langs} with ${a.frameworks.join(', ')}` : langs;
 }
 
+/** Top-level directories parsed out of the rendered tree. */
+function topLevelDirs(a: ProjectAnalysis): string[] {
+  return a.tree
+    .split('\n')
+    .filter((line) => /^(├── |└── ).*\/$/.test(line))
+    .map((line) => line.replace(/^(├── |└── )/, '').replace(/\/$/, ''));
+}
+
+/** Scripts worth turning into workflows, in a stable, useful order. */
+function workflowScripts(a: ProjectAnalysis): [string, string][] {
+  const interesting = /^(test|lint|build|format|typecheck|check|dev|start|e2e|coverage)/;
+  return Object.entries(a.scripts)
+    .filter(([name]) => interesting.test(name))
+    .slice(0, 8);
+}
+
+function verificationChecklist(a: ProjectAnalysis): string[] {
+  const run = scriptRunner(a);
+  const order = ['format', 'lint', 'typecheck', 'build', 'test'];
+  return Object.keys(a.scripts)
+    .filter((s) => order.some((o) => s === o || s.startsWith(o + ':')))
+    .sort(
+      (x, y) => order.findIndex((o) => x.startsWith(o)) - order.findIndex((o) => y.startsWith(o)),
+    )
+    .map((s) => `${run}${s}`);
+}
+
 function commonPrompt(kindInstructions: string, digest: string): string {
   return `You are DevPilot, a tool that makes codebases AI-assistant-ready.
-Study the project digest below, then generate the requested files. Be specific
-to THIS project — name its real frameworks, scripts, directories and
-conventions. Never invent files, scripts or commands that do not exist in the
-digest. Keep each file focused and under 120 lines.
+First review the project digest below carefully — the layout, the real
+frameworks, scripts, dependencies, conventions and the actual source code
+excerpts. Then generate the requested files.
+
+Quality bar:
+- Be specific to THIS project: reference its real directories, modules,
+  scripts and configuration by name. Generic advice that would fit any
+  project is a failure.
+- Never invent files, scripts, commands or dependencies not shown in the
+  digest.
+- Content should be thorough and immediately useful — a developer should not
+  need to edit it afterwards. Depth beats brevity; cover the edge cases you
+  can see in the code.
 
 ${kindInstructions}
 
@@ -101,26 +139,71 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
     prompt: (digest) =>
       commonPrompt(
         `Generate exactly one file: ".devpilot/rules.md" — the canonical coding
-rules for AI assistants working in this repository. Sections: General,
-Architecture, Code Style, Testing, Safety. Derive every rule from what the
-digest actually shows (frameworks, scripts, directory layout, lint/test
-setup). Rules must be imperative one-liners an AI can follow.`,
+rules for AI assistants working in this repository. Structure it as:
+
+## General — how to approach changes in this codebase
+## Architecture — what each top-level directory/module is for and the
+   boundaries an AI must respect (derive from the layout and source excerpts)
+## Code Style — the project's real idioms: naming, error handling, imports,
+  formatting tools, patterns visible in the source excerpts
+## Testing — which test frameworks/configs exist, where tests live, what a
+  change must include, exact commands to run
+## Verification — the exact ordered commands to run before work is done
+## Safety — secrets, destructive operations, files never to touch
+
+Every rule is an imperative one-liner an AI can follow. Aim for 60–120 lines
+of genuinely project-specific rules.`,
         digest,
       ),
     fallback: (a) => {
-      const conventions = a.conventions.map((c) => `- ${c}`).join('\n');
-      const scripts = Object.keys(a.scripts)
-        .filter((s) => ['test', 'lint', 'build', 'format'].some((k) => s.startsWith(k)))
-        .map((s) => `- Run \`${scriptRunner(a)}${s}\` before considering work done.`)
-        .join('\n');
+      const run = scriptRunner(a);
+      const dirs = topLevelDirs(a);
+      const checklist = verificationChecklist(a);
+      const testScripts = Object.keys(a.scripts).filter((s) => s.startsWith('test'));
       return [
         {
           file: '.devpilot/rules.md',
-          content: `${DEFAULT_RULES}
-## Project Specifics
+          content: `## General
+
+- Read \`.devpilot/context.md\` and \`.devpilot/architecture.md\` before making changes.
+- Keep changes small and focused; follow existing patterns in the codebase.
+- Write or update tests alongside every behavior change.
+- Update documentation when behavior changes.
+
+## Architecture
 
 - Stack: ${stack(a)}.
-${conventions ? conventions + '\n' : ''}${scripts ? '\n## Verification\n\n' + scripts + '\n' : ''}`,
+${dirs.map((d) => `- \`${d}/\` — keep changes scoped here when working on this area; do not create new top-level directories without need.`).join('\n') || '- Single-directory project — keep the flat layout.'}
+
+## Code Style
+
+- Match the project's existing formatting, naming and idioms.
+${a.conventions.map((c) => `- Respect the configured tooling: ${c}.`).join('\n')}
+- Prefer clear, self-explanatory code over comments.
+
+## Testing
+
+${
+  testScripts.length
+    ? testScripts
+        .map(
+          (s) =>
+            `- Run tests with \`${run}${s}\`; add tests next to the existing ones for any new behavior.`,
+        )
+        .join('\n')
+    : '- No test script detected — add tests when introducing a test framework.'
+}
+
+## Verification
+
+${checklist.length ? `Run, in order, before considering any work done:\n\n${checklist.map((c, i) => `${i + 1}. \`${c}\``).join('\n')}` : '- Build/verify manually; no scripts detected.'}
+
+## Safety
+
+- Never commit secrets, API keys or credentials.
+- Ask before running destructive commands (deletes, force-pushes, migrations).
+- Never edit generated files by hand (\`dist/\`, coverage output, lockfiles except via the package manager).
+`,
         },
       ];
     },
@@ -132,48 +215,89 @@ ${conventions ? conventions + '\n' : ''}${scripts ? '\n## Verification\n\n' + sc
     allowedPaths: ['.claude/agents/'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 2–4 Claude Code subagent files under ".claude/agents/", each
-tailored to this project (e.g. a code reviewer that knows the stack, a test
-runner/fixer that uses the real test commands, a domain specialist for the
-main subsystem). Each file needs YAML frontmatter:
+        `Generate 3–4 Claude Code subagent files under ".claude/agents/", each a
+specialist for THIS project — for example: a code reviewer with a checklist
+built from the project's real conventions and past-bug-prone areas visible in
+the code; a test runner/fixer that knows the exact test commands and layout;
+a domain specialist for the project's core subsystem (name it); a refactoring
+guide that knows the module boundaries. Each file needs YAML frontmatter:
 
 ---
 name: kebab-case-name
-description: When this agent should be used (one sentence).
+description: When this agent should be used (one sentence, third person).
 ---
 
-followed by the agent's system prompt in markdown.`,
+followed by a detailed system prompt in markdown: the agent's role, what it
+knows about this project (real paths, commands, patterns), its step-by-step
+working procedure, and its output format. Make each agent 30–60 lines.`,
         digest,
       ),
-    fallback: (a) => [
-      {
-        file: '.claude/agents/code-reviewer.md',
-        content: `---
+    fallback: (a) => {
+      const run = scriptRunner(a);
+      const dirs = topLevelDirs(a);
+      const checklist = verificationChecklist(a);
+      return [
+        {
+          file: '.claude/agents/code-reviewer.md',
+          content: `---
 name: code-reviewer
 description: Reviews changes for bugs, style and convention violations before commit.
 ---
 
 You review code changes in ${a.name} (${stack(a)}).
-Check for: logic errors, missing tests, deviations from the conventions in
-.devpilot/rules.md, and secrets accidentally committed. Report findings by
-file and line, most severe first.
+
+Checklist, in order:
+1. Correctness — logic errors, unhandled edge cases, broken error handling.
+2. Tests — every behavior change has a matching test; tests assert behavior,
+   not implementation details.
+3. Conventions — changes follow .devpilot/rules.md${a.conventions.length ? ` and the configured tooling (${a.conventions.join(', ')})` : ''}.
+4. Scope — the diff stays inside the module boundaries${dirs.length ? ` (${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}; no drive-by refactors.
+5. Safety — no secrets, credentials or generated files in the diff.
+
+Report findings by file and line, most severe first. For each: what is wrong,
+why it matters, and the smallest fix. End with a verdict: approve / request changes.
 `,
-      },
-      {
-        file: '.claude/agents/test-fixer.md',
-        content: `---
+        },
+        {
+          file: '.claude/agents/test-fixer.md',
+          content: `---
 name: test-fixer
 description: Runs the test suite and fixes failures without changing intended behavior.
 ---
 
-You fix failing tests in ${a.name}.${
-          a.scripts['test'] ? ` Run tests with \`${scriptRunner(a)}test\`.` : ''
-        }
-Reproduce the failure, find the root cause, apply the smallest fix, and re-run
-until green. Never delete or skip a test to make it pass.
+You fix failing tests in ${a.name}.
+
+Procedure:
+1. ${a.scripts['test'] ? `Run \`${run}test\` and read the failure output carefully.` : 'Locate and run the test suite.'}
+2. Reproduce the smallest failing case; identify whether the bug is in the
+   code under test or the test itself.
+3. Apply the smallest fix that restores intended behavior.
+4. Re-run until green${checklist.length ? `, then run the full verification chain: ${checklist.map((c) => `\`${c}\``).join(' → ')}` : ''}.
+
+Never delete, skip or weaken a test to make it pass. If a test asserts
+outdated behavior, say so explicitly and update the assertion with the reason.
 `,
-      },
-    ],
+        },
+        {
+          file: '.claude/agents/architect.md',
+          content: `---
+name: architect
+description: Plans multi-file changes so they respect the project's module boundaries.
+---
+
+You plan implementation strategies for ${a.name} (${stack(a)}).
+
+Given a feature or fix request:
+1. Read .devpilot/architecture.md and the modules involved${dirs.length ? ` (top-level: ${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}.
+2. Produce a step-by-step plan: files to create/modify in order, what each
+   change contains, and which existing patterns to reuse.
+3. Flag anything that would cross a module boundary or need a new dependency —
+   those need explicit sign-off.
+4. End with the verification commands to run when the plan is implemented.
+`,
+        },
+      ];
+    },
   },
   {
     id: 'skills',
@@ -182,25 +306,30 @@ until green. Never delete or skip a test to make it pass.
     allowedPaths: ['.claude/skills/'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 1–3 Claude Code skills under ".claude/skills/<skill-name>/SKILL.md",
+        `Generate 2–3 Claude Code skills under ".claude/skills/<skill-name>/SKILL.md",
 each capturing a repeatable, project-specific workflow an AI assistant should
-follow here (e.g. how to add a feature end-to-end in this architecture, how to
-run and debug this project, how to release). Each SKILL.md needs YAML
-frontmatter:
+follow here — e.g. how to add a feature end-to-end in this architecture
+(which files, in which order, with which patterns), how to run/debug this
+project locally, how to release/ship. Each SKILL.md needs YAML frontmatter:
 
 ---
 name: kebab-case-name
 description: One sentence saying when to use this skill.
 ---
 
-followed by concrete, step-by-step instructions referencing real paths and
-commands from the digest.`,
+followed by concrete numbered steps referencing real paths, modules and
+commands from the digest. 25–60 lines each; every step actionable.`,
         digest,
       ),
-    fallback: (a) => [
-      {
-        file: '.claude/skills/project-conventions/SKILL.md',
-        content: `---
+    fallback: (a) => {
+      const dirs = topLevelDirs(a);
+      const srcDir = dirs.find((d) => ['src', 'lib', 'app'].includes(d));
+      const testDir = dirs.find((d) => ['tests', 'test', '__tests__', 'spec'].includes(d));
+      const checklist = verificationChecklist(a);
+      return [
+        {
+          file: '.claude/skills/project-conventions/SKILL.md',
+          content: `---
 name: project-conventions
 description: Follow ${a.name}'s conventions when writing or reviewing code.
 ---
@@ -210,10 +339,30 @@ description: Follow ${a.name}'s conventions when writing or reviewing code.
 - Stack: ${stack(a)}.
 ${a.conventions.map((c) => `- ${c}`).join('\n') || '- See .devpilot/context.md.'}
 
-Read .devpilot/rules.md and .devpilot/context.md before large changes.
+Before large changes, read \`.devpilot/rules.md\` and \`.devpilot/context.md\`.
+${checklist.length ? `\nVerification, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}` : ''}
 `,
-      },
-    ],
+        },
+        {
+          file: '.claude/skills/add-feature/SKILL.md',
+          content: `---
+name: add-feature
+description: Add a feature to ${a.name} end-to-end, from code to passing verification.
+---
+
+# Adding a feature to ${a.name}
+
+1. Read \`.devpilot/architecture.md\` and the module you are changing${srcDir ? ` (source lives in \`${srcDir}/\`)` : ''}.
+2. Find the closest existing feature and mirror its structure — file
+   placement, naming, error handling, exports.
+3. Implement the smallest complete version of the feature.
+${testDir ? `4. Add tests in \`${testDir}/\`, mirroring the existing test style.` : `4. Add tests next to the existing ones, mirroring their style.`}
+5. Update docs (README or .devpilot/docs/) if behavior is user-visible.
+${checklist.length ? `6. Verify, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}.` : `6. Run the project's build/tests to verify.`}
+`,
+        },
+      ];
+    },
   },
   {
     id: 'commands',
@@ -222,12 +371,15 @@ Read .devpilot/rules.md and .devpilot/context.md before large changes.
     allowedPaths: ['.claude/commands/'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 3–6 Claude Code slash-command files under ".claude/commands/".
-Each file is a markdown prompt the developer can invoke as /<filename>; use
-$ARGUMENTS where the user's input belongs. Base them on this project's real
-workflows and scripts (verify/test loops, linting, releasing, reviewing,
-scaffolding a new module in this architecture). Start each file with a
-one-line "description:" YAML frontmatter.`,
+        `Generate 4–7 Claude Code slash-command files under ".claude/commands/".
+Each file is a markdown prompt the developer invokes as /<filename>; use
+$ARGUMENTS where the user's input belongs. Cover this project's real
+workflows: the verify/fix loop with its actual scripts, reviewing a diff
+against the project's conventions, scaffolding a new module/feature the way
+this architecture does it, releasing if the digest shows a release process,
+debugging the running app. Start each file with YAML frontmatter containing a
+one-line description. Each command's body should give the AI enough
+project-specific instruction to execute well (5–20 lines).`,
         digest,
       ),
     fallback: (a) => {
@@ -238,28 +390,34 @@ one-line "description:" YAML frontmatter.`,
           file: `.claude/commands/${name}.md`,
           content: `---\ndescription: ${description}\n---\n\n${body}\n`,
         });
-      if (a.scripts['test'])
+      for (const [script] of workflowScripts(a)) {
+        const cmdName = script.replace(/[:.]/g, '-');
         add(
-          'test',
-          'Run the test suite and fix any failures',
-          `Run \`${run}test\`. If anything fails, diagnose the root cause and fix it without weakening the tests, then re-run until green.`,
+          cmdName,
+          `Run ${run}${script} and fix anything it reports`,
+          `Run \`${run}${script}\`. If it fails, diagnose the root cause and fix it — never by weakening tests or silencing checks — then re-run until it passes.`,
         );
-      if (a.scripts['lint'])
-        add(
-          'lint',
-          'Lint the project and fix violations',
-          `Run \`${run}lint\`. Fix every reported problem following the existing code style.`,
-        );
-      if (a.scripts['build'])
-        add(
-          'build',
-          'Build the project and resolve errors',
-          `Run \`${run}build\` and fix any build errors.`,
-        );
+      }
+      add(
+        'verify',
+        'Run the full verification chain and fix failures',
+        verificationChecklist(a).length
+          ? `Run, in order: ${verificationChecklist(a)
+              .map((c) => `\`${c}\``)
+              .join(
+                ' → ',
+              )}. Fix every failure at the root cause and re-run the chain until it is fully green. Summarize what was fixed.`
+          : `Build and test the project; fix every failure at the root cause and re-run until green.`,
+      );
+      add(
+        'review',
+        'Review the current diff against project conventions',
+        `Review the uncommitted diff in ${a.name} against .devpilot/rules.md: correctness, tests, conventions, scope, secrets. Report by file and line, most severe first.`,
+      );
       add(
         'explain',
         'Explain how a part of this codebase works',
-        `Explain how $ARGUMENTS works in ${a.name}. Read the relevant source first; cite files and line numbers.`,
+        `Explain how $ARGUMENTS works in ${a.name}. Read the relevant source first; cite files and line numbers; include a short call-flow if useful.`,
       );
       return files;
     },
@@ -271,52 +429,115 @@ one-line "description:" YAML frontmatter.`,
     allowedPaths: ['.devpilot/prompts/'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 2–4 reusable prompt files under ".devpilot/prompts/" that a
-developer on this project will actually reach for (e.g. reviewing a PR in
-this stack, writing a new module in this architecture, debugging this
-runtime). Plain markdown, each starting with a "# Title" line.`,
+        `Generate 3–4 reusable prompt files under ".devpilot/prompts/" that a
+developer on this project will actually reach for — e.g. reviewing a PR in
+this stack, implementing a new module following this architecture, debugging
+this runtime, writing tests in this project's style. Plain markdown, each
+starting with a "# Title" line, followed by a ready-to-paste prompt that
+bakes in the project's real context (stack, paths, commands, conventions).`,
         digest,
       ),
-    fallback: (a) => [
-      {
-        file: '.devpilot/prompts/review.md',
-        content: `# Review a change
+    fallback: (a) => {
+      const checklist = verificationChecklist(a);
+      return [
+        {
+          file: '.devpilot/prompts/review.md',
+          content: `# Review a change
 
-Review the current diff in ${a.name} (${stack(a)}) for correctness, test
-coverage and convention violations (.devpilot/rules.md). Most severe first.
+Review the current diff in ${a.name} (${stack(a)}) for:
+1. Correctness — logic errors and unhandled edge cases.
+2. Tests — behavior changes without matching tests.
+3. Conventions — violations of .devpilot/rules.md.
+4. Security — secrets, injection, unsafe file/network handling.
+
+Report by file and line, most severe first, with the smallest fix for each.
 `,
-      },
-    ],
+        },
+        {
+          file: '.devpilot/prompts/new-module.md',
+          content: `# Implement a new module
+
+Implement <module> in ${a.name} (${stack(a)}). Before writing code, read
+.devpilot/architecture.md and the closest existing module, then mirror its
+structure, naming and error handling. Include tests in the existing style${
+            checklist.length
+              ? ` and finish by running: ${checklist.map((c) => `\`${c}\``).join(' → ')}`
+              : ''
+          }.
+`,
+        },
+        {
+          file: '.devpilot/prompts/debug.md',
+          content: `# Debug an issue
+
+Debug this issue in ${a.name}: <describe the symptom>. Reproduce it first,
+trace the actual code path (cite files/lines), state the root cause in one
+sentence, then apply the smallest fix and prove it with a test.
+`,
+        },
+      ];
+    },
   },
   {
     id: 'docs',
     name: 'AI docs',
-    description: 'AI onboarding doc (.devpilot/docs/)',
-    allowedPaths: ['.devpilot/docs/'],
+    description: 'architecture + onboarding docs (.devpilot/)',
+    allowedPaths: ['.devpilot/architecture.md', '.devpilot/docs/'],
+    alwaysOverwrite: ['.devpilot/architecture.md'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate exactly one file: ".devpilot/docs/onboarding.md" — a concise
-onboarding document for AI assistants: what the project does, how the
-architecture fits together (name the real directories/modules), where to make
-common kinds of changes, and how to verify work (real commands only).`,
+        `Generate exactly two files:
+
+1. ".devpilot/architecture.md" — a real architecture document for this
+   project: what it does, the layers/modules and what each is responsible
+   for (name the real directories and key files), how data/control flows
+   between them, external dependencies and why they're used, and the
+   invariants a change must not break.
+
+2. ".devpilot/docs/onboarding.md" — onboarding for AI assistants: a crisp
+   project overview, where to make the most common kinds of changes (map
+   change-type → directory/file), the exact commands to run/verify, and the
+   gotchas visible in the code (platform differences, generated files,
+   ordering constraints).`,
         digest,
       ),
-    fallback: (a) => [
-      {
-        file: '.devpilot/docs/onboarding.md',
-        content: `# ${a.name} — AI onboarding
+    fallback: (a) => {
+      const run = scriptRunner(a);
+      const scripts = workflowScripts(a);
+      return [
+        {
+          file: '.devpilot/architecture.md',
+          content: renderArchitectureMarkdown(a),
+        },
+        {
+          file: '.devpilot/docs/onboarding.md',
+          content: `# ${a.name} — AI onboarding
+
+## Overview
 
 - Stack: ${stack(a)}.
-- Layout:
+- ${a.totalFiles} files; primary languages: ${a.languages.map((l) => `${l.language} (${l.files})`).join(', ') || 'unknown'}.
+${a.frameworks.length ? `- Tooling/frameworks: ${a.frameworks.join(', ')}.` : ''}
+
+## Layout
 
 \`\`\`
 ${a.tree}
 \`\`\`
 
-Run \`devpilot scan\` for full context in .devpilot/context.md.
+## Everyday commands
+
+${scripts.length ? scripts.map(([name, cmd]) => `- \`${run}${name}\` — \`${cmd}\``).join('\n') : '- No scripts detected.'}
+
+## Where to look
+
+- Project rules: \`.devpilot/rules.md\` (mirrored into every AI tool's instruction file).
+- Full context: \`.devpilot/context.md\`; architecture: \`.devpilot/architecture.md\`.
+- Reusable prompts: \`.devpilot/prompts/\`; subagents: \`.claude/agents/\`; skills: \`.claude/skills/\`.
 `,
-      },
-    ],
+        },
+      ];
+    },
   },
 ];
 

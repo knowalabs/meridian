@@ -30,10 +30,17 @@ const KEY_FILES = [
   'src/app.ts',
   'main.go',
   'src/main.rs',
+  'vitest.config.ts',
+  'jest.config.js',
+  'eslint.config.js',
+  '.github/workflows/ci.yml',
+  'Dockerfile',
+  'docker-compose.yml',
+  'CONTRIBUTING.md',
 ];
 
-const PER_FILE_CAP = 4_000;
-const TOTAL_CAP = 28_000;
+const PER_FILE_CAP = 6_000;
+const TOTAL_CAP = 60_000;
 
 function excerpt(file: string, cap: number): string | null {
   let raw: string;
@@ -99,7 +106,7 @@ export function buildDigest(root: string, analysis?: ProjectAnalysis): ProjectDi
   ];
 
   let budget = TOTAL_CAP;
-  const files = [...KEY_FILES, ...sampleSources(a, root, 4)];
+  const files = [...KEY_FILES, ...sampleSources(a, root, 10)];
   for (const rel of files) {
     if (budget <= 0) break;
     const content = excerpt(path.join(root, rel), Math.min(PER_FILE_CAP, budget));

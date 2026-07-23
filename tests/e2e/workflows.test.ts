@@ -55,27 +55,34 @@ describe('e2e: keys round-trip (file vault)', () => {
   });
 });
 
-describe('e2e: init + scan', () => {
+describe('e2e: generate', () => {
   let sandbox: Sandbox;
   beforeEach(() => (sandbox = makeSandbox()));
   afterEach(() => sandbox.cleanup());
 
-  it('init scaffolds, scan analyzes, both idempotent', async () => {
+  it('one command reviews the codebase and writes the full AI kit, idempotent', async () => {
     fs.writeFileSync(path.join(sandbox.project, 'main.ts'), 'export const x = 1;\n');
-    const init = await runCli(['init'], sandbox);
-    expect(init.code).toBe(0);
-    for (const f of ['.devpilot/project.json', 'CLAUDE.md', 'AGENTS.md']) {
+    const gen = await runCli(['generate', '--no-ai', '--json'], sandbox);
+    expect(gen.code).toBe(0);
+    const doc = JSON.parse(gen.stdout) as { files: { file: string; action: string }[] };
+    expect(doc.files.length).toBeGreaterThan(10);
+    for (const f of [
+      '.devpilot/project.json',
+      '.devpilot/context.md',
+      '.devpilot/architecture.md',
+      '.devpilot/rules.md',
+      'README_AI.md',
+      'CLAUDE.md',
+      'AGENTS.md',
+      '.claude/agents/code-reviewer.md',
+      '.claude/skills/add-feature/SKILL.md',
+      '.claude/commands/verify.md',
+    ]) {
       expect(fs.existsSync(path.join(sandbox.project, f)), f).toBe(true);
     }
 
-    const scan = await runCli(['scan', '--json'], sandbox);
-    expect(scan.code).toBe(0);
-    const doc = JSON.parse(scan.stdout) as { totalFiles: number; files: { context: string } };
-    expect(doc.totalFiles).toBeGreaterThan(0);
-    expect(fs.existsSync(path.join(sandbox.project, doc.files.context))).toBe(true);
-
-    const again = await runCli(['init'], sandbox);
-    expect(again.code).toBe(0); // no overwrite, no crash
+    const again = await runCli(['generate', '--no-ai'], sandbox);
+    expect(again.code).toBe(0); // derived files refresh, the rest is kept — no crash
   });
 });
 
