@@ -2,11 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  ARTIFACT_KINDS,
-  isAllowedPath,
-  parseFileBlocks,
-} from '../src/generate/artifacts.js';
+import { ARTIFACT_KINDS, isAllowedPath, parseFileBlocks } from '../src/generate/artifacts.js';
 import { buildDigest } from '../src/generate/digest.js';
 import { runGenerate } from '../src/generate/pipeline.js';
 import { setFetchForTests } from '../src/providers/router.js';
@@ -193,11 +189,12 @@ describe('runGenerate', () => {
       'evil',
       '<<<END>>>',
     ].join('\n');
-    setFetchForTests(async () =>
-      new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+    setFetchForTests(
+      async () =>
+        new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
     );
 
     const result = await runGenerate({
@@ -218,13 +215,14 @@ describe('runGenerate', () => {
 
   it('routes to the best available provider when none is forced', async () => {
     openVault().set('anthropic', 'test-key');
-    setFetchForTests(async () =>
-      new Response(
-        JSON.stringify({
-          content: [{ type: 'text', text: '<<<FILE .devpilot/prompts/x.md>>>\nhi\n<<<END>>>' }],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
+    setFetchForTests(
+      async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '<<<FILE .devpilot/prompts/x.md>>>\nhi\n<<<END>>>' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
     );
     const result = await runGenerate({
       root,

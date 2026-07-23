@@ -48,7 +48,8 @@ export async function generateCommand(
   const rejected = result.files.filter((f) => f.action === 'rejected-path');
 
   for (const f of written) log.ok(`${f.file} ${pc.dim(`(${f.kind}, ${f.source})`)}`);
-  for (const f of planned) log.info(`${pc.cyan('→')} would write ${f.file} ${pc.dim(`(${f.kind})`)}`);
+  for (const f of planned)
+    log.info(`${pc.cyan('→')} would write ${f.file} ${pc.dim(`(${f.kind})`)}`);
   for (const f of result.propagated) log.ok(`${f} ${pc.dim('(rules propagated)')}`);
   for (const f of skipped) log.dim(`  kept existing ${f.file} (use --force to overwrite)`);
   for (const f of rejected) log.warn(`rejected unsafe path from provider: ${f.file}`);
@@ -60,7 +61,9 @@ export async function generateCommand(
   } else if (!opts.dryRun) {
     log.info(
       `\nYour project is AI-ready: rules, agents, skills, commands and docs are in place.` +
-        (result.provider ? '' : `\nTip: add an API key (${pc.bold('devpilot auth')}) and re-run with --force for AI-tailored content.`),
+        (result.provider
+          ? ''
+          : `\nTip: add an API key (${pc.bold('devpilot auth')}) and re-run with --force for AI-tailored content.`),
     );
   }
   return 0;

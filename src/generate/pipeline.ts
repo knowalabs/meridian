@@ -1,13 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ProjectAnalysis } from '../scan/analyzer.js';
-import { availableProviders, modelFor, PROVIDERS, ProviderSpec, route } from '../providers/router.js';
+import {
+  availableProviders,
+  modelFor,
+  PROVIDERS,
+  ProviderSpec,
+  route,
+} from '../providers/router.js';
 import { openVault } from '../core/vault.js';
 import { writeFileAtomic } from '../core/fsx.js';
 import { generateRules } from '../rules/generators.js';
 import { log } from '../core/logger.js';
 import { buildDigest } from './digest.js';
-import { ArtifactFile, ArtifactKind, isAllowedPath, kindsById, parseFileBlocks } from './artifacts.js';
+import {
+  ArtifactFile,
+  ArtifactKind,
+  isAllowedPath,
+  kindsById,
+  parseFileBlocks,
+} from './artifacts.js';
 
 /**
  * Generation pipeline (Phase 5): scan the project, ask an AI provider for
@@ -131,9 +143,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
 
     // Fresh rules should reach every tool's instruction file.
     if (kind.id === 'rules' && !opts.dryRun) {
-      const wroteRules = result.files.some(
-        (f) => f.kind === 'rules' && f.action === 'written',
-      );
+      const wroteRules = result.files.some((f) => f.kind === 'rules' && f.action === 'written');
       if (wroteRules) {
         result.propagated = generateRules(opts.root, analysis.name).map((g) => g.file);
       }

@@ -19,21 +19,21 @@ Run `devpilot` with no arguments to open the interactive launcher: navigate the 
 
 ## Commands
 
-| Command                                   | What it does                                                                                                           |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                            |
-| `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                        |
-| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter)                                           |
-| `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                    |
-| `devpilot init`                           | Create the AI-ready scaffold: `.devpilot/`, `CLAUDE.md`, `AGENTS.md`, `README_AI.md`                                   |
-| `devpilot scan`                           | Analyze the project → `.devpilot/context.md` + `architecture.md` (structure, deps, conventions, API surface)           |
-| `devpilot rules generate`                 | Render `.devpilot/rules.md` into every tool's format: `CLAUDE.md`, `.cursor/rules/`, `AGENTS.md`, Copilot, `GEMINI.md` |
+| Command                                   | What it does                                                                                                            |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                             |
+| `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                         |
+| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter)                                            |
+| `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                     |
+| `devpilot init`                           | Create the AI-ready scaffold: `.devpilot/`, `CLAUDE.md`, `AGENTS.md`, `README_AI.md`                                    |
+| `devpilot scan`                           | Analyze the project → `.devpilot/context.md` + `architecture.md` (structure, deps, conventions, API surface)            |
+| `devpilot rules generate`                 | Render `.devpilot/rules.md` into every tool's format: `CLAUDE.md`, `.cursor/rules/`, `AGENTS.md`, Copilot, `GEMINI.md`  |
 | `devpilot generate [kinds…]`              | Generate the full AI kit: rules, `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, prompts, docs — AI-tailored |
-| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                             |
-| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size                                                  |
-| `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                             |
-| `devpilot update`                         | Update the CLI and installed tools                                                                                     |
-| `devpilot login`                          | Cloud Sync (coming in v0.5)                                                                                            |
+| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                              |
+| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size                                                   |
+| `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                              |
+| `devpilot update`                         | Update the CLI and installed tools                                                                                      |
+| `devpilot login`                          | Cloud Sync (coming in v0.5)                                                                                             |
 
 ### Global flags
 
