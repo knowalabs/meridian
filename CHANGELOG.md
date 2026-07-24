@@ -1,5 +1,11 @@
 # @sonalsithara/devpilot
 
+## 0.8.0
+
+### Minor Changes
+
+- 5a7c5ec: Two more keyless providers: `codex-cli` (ChatGPT subscription via `codex exec`, read-only sandbox, clean answer capture through --output-last-message) and `gemini-cli` (Google account via the Gemini CLI). Together with `claude-code`, any signed-in AI CLI now powers `generate`/`ask` with no API key; the provider picker lists whichever are installed. CLI-backed providers use each tool's own default model unless overridden via `router.models.<id>`.
+
 ## 0.7.1
 
 ### Patch Changes
