@@ -388,6 +388,56 @@ export function route(prompt: string, availableIds: string[]): RouteDecision | n
   return { provider: best, reason: `optimized for ${metric}, context ~${estTokens} tokens` };
 }
 
+export type KeyVerification = 'valid' | 'invalid' | 'unreachable';
+
+/** Cheap authenticated GET per provider, used to validate keys before storing. */
+const KEY_CHECKS: Record<
+  string,
+  (key: string) => { url: string; headers: Record<string, string> }
+> = {
+  anthropic: (k) => ({
+    url: 'https://api.anthropic.com/v1/models',
+    headers: { 'x-api-key': k, 'anthropic-version': '2023-06-01' },
+  }),
+  openai: (k) => ({
+    url: 'https://api.openai.com/v1/models',
+    headers: { authorization: `Bearer ${k}` },
+  }),
+  google: (k) => ({
+    url: `https://generativelanguage.googleapis.com/v1beta/models?key=${k}`,
+    headers: {},
+  }),
+  openrouter: (k) => ({
+    url: 'https://openrouter.ai/api/v1/key',
+    headers: { authorization: `Bearer ${k}` },
+  }),
+};
+
+/**
+ * Check a key against the provider's API without spending tokens.
+ * `invalid` = provider rejected the key; `unreachable` = we couldn't tell
+ * (offline, provider down) — callers should store with a warning, not block.
+ */
+export async function verifyApiKey(providerId: string, apiKey: string): Promise<KeyVerification> {
+  const check = KEY_CHECKS[providerId];
+  if (!check) return 'valid'; // no checker for this provider — don't block
+  const { url, headers } = check(apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetchImpl(url, { headers, signal: controller.signal });
+    if (res.status === 401 || res.status === 403) return 'invalid';
+    // Google reports a bad key as 400 API_KEY_INVALID.
+    if (providerId === 'google' && res.status === 400) return 'invalid';
+    if (res.ok || res.status === 429) return 'valid'; // 429 still proves the key is accepted
+    return 'unreachable'; // 5xx etc. — provider trouble, can't tell
+  } catch {
+    return 'unreachable';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Providers usable right now (key in vault, or a CLI/daemon on PATH). */
 export function availableProviders(): string[] {
   const vault = openVault();

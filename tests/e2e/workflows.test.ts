@@ -9,7 +9,7 @@ describe('e2e: keys round-trip (file vault)', () => {
   afterEach(() => sandbox.cleanup());
 
   it('auth → list → remove', async () => {
-    const add = await runCli(['auth', 'openai', 'sk-e2e-test-key-123'], sandbox);
+    const add = await runCli(['auth', 'openai', 'sk-e2e-test-key-123', '--no-verify'], sandbox);
     expect(add.code).toBe(0);
     expect(add.stderr).toContain('shell history'); // arg warning
 
@@ -39,7 +39,7 @@ describe('e2e: keys round-trip (file vault)', () => {
   });
 
   it('corrupt vault → clear error → keys repair recovers', async () => {
-    await runCli(['auth', 'openai', 'sk-corrupt-me'], sandbox);
+    await runCli(['auth', 'openai', 'sk-corrupt-me', '--no-verify'], sandbox);
     const vaultFile = path.join(sandbox.home, '.devpilot', 'keys', 'vault.enc');
     fs.writeFileSync(vaultFile, 'garbage');
 

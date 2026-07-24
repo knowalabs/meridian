@@ -105,11 +105,15 @@ Examples:
   program
     .command('auth [provider] [key]')
     .description('Store an API key in the secure vault (openai, anthropic, google, openrouter)')
+    .option('--no-verify', 'store the key without checking it against the provider')
     .addHelpText(
       'after',
-      '\nThe key is prompted with hidden input — you rarely need to pass it as an argument.',
+      '\nThe key is prompted with hidden input — you rarely need to pass it as an argument.\nKeys are verified against the provider before storing (skip with --no-verify).',
     )
-    .action(async (provider?: string, key?: string) => done(await authCommand(provider, key)));
+    .action(
+      async (provider: string | undefined, key: string | undefined, opts: { verify?: boolean }) =>
+        done(await authCommand(provider, key, opts)),
+    );
 
   const keys = program.command('keys').description('Manage stored API keys');
   keys

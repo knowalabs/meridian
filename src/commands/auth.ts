@@ -1,8 +1,9 @@
 import pc from 'picocolors';
 import { openVault, repairVault, type VaultBackend } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
-import { PROVIDERS } from '../providers/router.js';
+import { PROVIDERS, verifyApiKey } from '../providers/router.js';
 import { jsonMode, log } from '../core/logger.js';
+import { startSpinner } from '../core/spinner.js';
 import { didYouMean, promptChoice, promptSecret } from '../core/prompt.js';
 
 const KEY_PROVIDERS = PROVIDERS.filter((p) => p.needsKey).map((p) => p.id);
@@ -39,7 +40,11 @@ const BACKEND_LABEL: Record<VaultBackend, string> = {
   'encrypted-file': 'the encrypted vault',
 };
 
-export async function authCommand(provider?: string, keyArg?: string): Promise<number> {
+export async function authCommand(
+  provider?: string,
+  keyArg?: string,
+  opts: { verify?: boolean } = {},
+): Promise<number> {
   const chosen = await resolveProvider(provider);
   if (!chosen) return 1;
 
@@ -53,6 +58,26 @@ export async function authCommand(provider?: string, keyArg?: string): Promise<n
   if (!key) {
     log.fail('No key entered');
     return 1;
+  }
+
+  // Validate against the provider before touching the vault — a mistyped key
+  // stored now would only surface as a confusing failure much later.
+  if (opts.verify !== false) {
+    const spin = startSpinner(`Verifying key with ${chosen}…`);
+    const verdict = await verifyApiKey(chosen, key);
+    if (verdict === 'invalid') {
+      spin.fail(`${chosen} rejected this key — nothing was stored`);
+      log.info(
+        `  Double-check the key (masked: ${maskKey(key)}) and try again,` +
+          ` or store it unchecked with ${pc.bold('--no-verify')}.`,
+      );
+      return 1;
+    }
+    if (verdict === 'unreachable') {
+      spin.fail(`Could not reach ${chosen} to verify — storing the key unverified`);
+    } else {
+      spin.succeed(`Key accepted by ${chosen}`);
+    }
   }
 
   const vault = openVault();

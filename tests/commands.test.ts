@@ -20,6 +20,8 @@ import { generateCommand } from '../src/commands/generate.js';
 import { routerConfigCommand } from '../src/commands/ask.js';
 import { buildCli } from '../src/cli.js';
 import { loadConfig } from '../src/core/config.js';
+import { setFetchForTests } from '../src/providers/router.js';
+import { openVault } from '../src/core/vault.js';
 
 let tmp: string;
 let project: string;
@@ -65,7 +67,7 @@ describe('doctor command', () => {
 
 describe('auth / keys commands', () => {
   it('stores, lists, removes a key and updates the provider cache', async () => {
-    expect(await authCommand('openai', 'sk-unit-test')).toBe(0);
+    expect(await authCommand('openai', 'sk-unit-test', { verify: false })).toBe(0);
     expect(loadConfig().providers).toContain('openai');
 
     configureLogger({ json: true });
@@ -78,6 +80,28 @@ describe('auth / keys commands', () => {
     expect(keysRemoveCommand('openai')).toBe(0);
     expect(loadConfig().providers).not.toContain('openai');
     expect(keysRemoveCommand('openai')).toBe(1); // already gone
+  });
+
+  it('refuses to store a key the provider rejects', async () => {
+    setFetchForTests(async () => new Response('bad key', { status: 401 }));
+    try {
+      expect(await authCommand('openai', 'sk-wrong')).toBe(1);
+      expect(openVault().list()).not.toContain('openai');
+    } finally {
+      setFetchForTests(null);
+    }
+  });
+
+  it('stores with a warning when the provider is unreachable', async () => {
+    setFetchForTests(async () => {
+      throw new TypeError('offline');
+    });
+    try {
+      expect(await authCommand('openai', 'sk-maybe')).toBe(0);
+      expect(openVault().list()).toContain('openai');
+    } finally {
+      setFetchForTests(null);
+    }
   });
 
   it('rejects unknown providers', async () => {

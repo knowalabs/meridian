@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PROVIDERS, modelFor, setFetchForTests, setRunForTests } from '../src/providers/router.js';
+import {
+  PROVIDERS,
+  modelFor,
+  setFetchForTests,
+  setRunForTests,
+  verifyApiKey,
+} from '../src/providers/router.js';
 import { CliError } from '../src/core/errors.js';
 import { saveConfig, loadConfig } from '../src/core/config.js';
 
@@ -245,5 +251,36 @@ describe('codex-cli and gemini-cli providers', () => {
       notFound: true,
     }));
     await expect(gemini.ask('hi', '')).rejects.toThrowError(/not installed/);
+  });
+});
+
+describe('verifyApiKey', () => {
+  afterEach(() => setFetchForTests(null));
+
+  it('accepts on 2xx and on 429 (key reached the account)', async () => {
+    setFetchForTests(async () => new Response('{}', { status: 200 }));
+    expect(await verifyApiKey('openai', 'sk-good')).toBe('valid');
+    setFetchForTests(async () => new Response('slow down', { status: 429 }));
+    expect(await verifyApiKey('anthropic', 'sk-busy')).toBe('valid');
+  });
+
+  it('rejects on 401/403, and 400 for google', async () => {
+    setFetchForTests(async () => new Response('nope', { status: 401 }));
+    expect(await verifyApiKey('openai', 'sk-bad')).toBe('invalid');
+    setFetchForTests(async () => new Response('API_KEY_INVALID', { status: 400 }));
+    expect(await verifyApiKey('google', 'bad')).toBe('invalid');
+  });
+
+  it('reports unreachable on network errors and 5xx', async () => {
+    setFetchForTests(async () => {
+      throw new TypeError('fetch failed');
+    });
+    expect(await verifyApiKey('openrouter', 'k')).toBe('unreachable');
+    setFetchForTests(async () => new Response('boom', { status: 500 }));
+    expect(await verifyApiKey('openai', 'k')).toBe('unreachable');
+  });
+
+  it('passes through providers it has no checker for', async () => {
+    expect(await verifyApiKey('some-future-provider', 'k')).toBe('valid');
   });
 });

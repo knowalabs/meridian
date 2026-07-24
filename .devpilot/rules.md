@@ -1,0 +1,69 @@
+# DevPilot — AI Assistant Rules
+
+## General — how to approach changes in this codebase
+
+- This is `@sonalsithara/devpilot`, a Node.js/TypeScript CLI (`devpilot`) that makes other codebases AI-assistant-ready. Treat "the target project" (what `devpilot generate` scans) as a different concept from "this repo" — never conflate the two when editing.
+- Read `src/generate/pipeline.ts` (`runGenerate`) before touching anything in the `generate` flow — it is the flagship path and orchestrates `scan/analyzer.ts` → `generate/digest.ts` → `providers/router.ts` → `generate/artifacts.ts` → `core/fsx.ts` → `rules/generators.ts`.
+- Commands in `src/commands/*.ts` must stay thin: parse/validate input, call into `core`/`generate`/`providers`/`scan`, return an exit code. Do not put business logic directly in a Commander `.action()` callback.
+- Never call `process.exit()` inside a command. Return/set an exit code via the `done()` wrapper pattern in `src/cli.ts` — the interactive launcher (`src/launcher.ts`) runs commands in-process and a raw `process.exit()` would kill the whole TUI session after one action.
+- `src/index.ts` imports `./core/colorflag.js` first, before anything else, on purpose — it mutates `NO_COLOR`/color state before `picocolors` (used almost everywhere) reads it at load time. Never reorder that import or insert another import above it.
+- When adding a new artifact kind to `src/generate/artifacts.ts`, you must supply both a `prompt(digest)` and a `fallback(analysis)` — the `static fallbacks` test in `tests/generate.test.ts` enforces every kind produces files under its own `allowedPaths`.
+- AI generation in `generateKind` (`src/generate/pipeline.ts`) is fail-closed: a failed AI call must write nothing, never silently fall back to the static template mid-run. Preserve this if you touch that function.
+
+## Architecture — module boundaries
+
+- `src/index.ts` — process entry point only: Node version check, global `uncaughtException`/`unhandledRejection`/`SIGINT` handlers, dispatch to `launcher.ts` (TTY, no args) or `cli.ts` (`buildCli().parseAsync`). Do not add command logic here.
+- `src/cli.ts` — builds the Commander program, registers every subcommand and global flags (`--verbose`, `-q/--quiet`, `--json`, `--no-color`) via `addGlobalFlags`. New subcommands are registered here, not ad hoc elsewhere.
+- `src/launcher.ts` — the interactive TUI (`runInteractive`, `menuPrompt`, `showBanner`/`showWelcome`) shown for bare `devpilot` in a TTY. Excluded from coverage thresholds in `vitest.config.ts` on purpose (exercised by humans/e2e, not unit tests) — do not treat low coverage here as a regression.
+- `src/commands/*.ts` — one file per command group (`doctor`, `install`, `auth`, `generate`, `mcp`, `ask`, `update`). Keep these as thin adapters over `core`/`generate`/`providers`/`scan`.
+- `src/core/` — cross-cutting infra: `errors.ts` (`CliError`, `renderError`, `EXIT`), `logger.ts`, `config.ts`, `vault.ts` (multi-backend secret storage), `fsx.ts` (`writeFileAtomic`, `backupFile`), `paths.ts`, `exec.ts` (`run`/`runAsync`/`which`), `spinner.ts`, `pkg.ts` (`VERSION`), `colorflag.ts`. Platform-specific logic belongs here, isolated per backend class (see `vault.ts`'s `KeychainVault`/`SecretToolVault`/`DpapiProtector`/`PlainProtector`), not scattered as inline `if (platform === …)` checks elsewhere.
+- `src/scan/analyzer.ts` — static analysis of the _target_ project (`analyzeProject`, `renderContextMarkdown`, `renderArchitectureMarkdown`). Read-only; must never write files.
+- `src/generate/` — the AI-kit pipeline: `digest.ts` (`buildDigest`), `artifacts.ts` (`ARTIFACT_KINDS`, `isAllowedPath`, `parseFileBlocks`, `FORMAT_SPEC`), `pipeline.ts` (`runGenerate`, `generateKind`, `pickProvider`). Any AI-suggested file path must be validated through `isAllowedPath` before writing — never bypass it.
+- `src/rules/generators.ts` — mirrors `.devpilot/rules.md` into every AI tool's native config file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, etc.). Changes to rules content flow from here, not the other way around.
+- `src/providers/router.ts` — `PROVIDERS: ProviderSpec[]`, `route()`, `modelFor()`, shared HTTP `post()` helper with timeout/retry/error-mapping. New providers go in this array with `cost`/`speed`/`quality`/`contextTokens` set relative to existing entries.
+- `src/mcp/` + `src/commands/mcp.ts` — MCP server marketplace (search/install/remove/list) across all detected tools.
+- `src/plugins/` — per-tool install/config logic used by `install`/`doctor`/`uninstall`.
+- Never write generated output (`.devpilot/`, `CLAUDE.md`, `AGENTS.md`, etc.) from anywhere except the `generate` pipeline and `rules/generators.ts` — other modules must stay read-only with respect to the target project's files.
+
+## Code Style
+
+- Strict TypeScript, ESM only (`"type": "module"` in `package.json`, `tsconfig.json` has `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`). Match these guarantees — no `any` (ESLint `@typescript-eslint/no-explicit-any` is `error` on `src/**`), no implicit fallthrough, no unchecked index access.
+- Relative imports must use explicit `.js` extensions even though the source is `.ts` (NodeNext resolution), e.g. `import './core/colorflag.js'`.
+- Throw `CliError` (`src/core/errors.ts`) for all user-facing failures, never a raw `Error`. Always attach an actionable `hint` field — follow the pattern in `src/providers/router.ts`'s `post()` (e.g. `hint: 'Run "devpilot auth ${ctx.provider}" to update it.'`).
+- No floating or misused promises (`@typescript-eslint/no-floating-promises`/`no-misused-promises` are `error` on `src/**`) — always `await` or explicitly `void` a promise.
+- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` test seam — see `setFetchForTests`/`setRunForTests` in `src/providers/router.ts`. Follow this pattern instead of introducing a mocking library.
+- File writes that must be atomic or permissioned go through `writeFileAtomic` (`src/core/fsx.ts`); secrets/sensitive files use `mode: 0o600` explicitly (see `indexWrite` in `src/core/vault.ts`).
+- Secrets must avoid `argv` when possible — prefer stdin-based invocation (`security -i`, `secret-tool` via stdin) over passing secrets as CLI arguments, per `KeychainVault.set`/`SecretToolVault.set` in `src/core/vault.ts`.
+- Naming: PascalCase for types/interfaces (`ProviderSpec`, `ArtifactKind`, `GenerateResult`), camelCase for functions/variables, `UPPER_SNAKE_CASE` for module-level constants (`PROVIDERS`, `ARTIFACT_KINDS`, `FORMAT_SPEC`, `DEFAULT_TIMEOUT_MS`).
+- Format with Prettier (`npm run format` / CI runs `npx prettier --check .`) — do not hand-format or fight the formatter.
+
+## Testing
+
+- Framework: Vitest. Unit/integration tests live in `tests/*.test.ts`, one file per module area (`analyzer`, `commands`, `config`, `errors`, `fsx`, `generate`, `launcher`, `mcp`, `platform`, `plugins`, `prompt`, `router`, `router-network`, `rules`, `update-ask`, `vault-backends`, `vault`).
+- E2E tests live in `tests/e2e/`, run with a separate config (`vitest.e2e.config.ts`) and require a build first (`pretest:e2e` runs `npm run build`).
+- Any change to `src/generate/*.ts` must keep the `isAllowedPath`/`parseFileBlocks` invariants covered — see the existing `describe('isAllowedPath')` and `describe('parseFileBlocks')` blocks in `tests/generate.test.ts` and extend them for new cases rather than writing ad hoc scripts.
+- Any change to `src/providers/router.ts` network/retry/timeout behavior must use `setFetchForTests`/`setRunForTests` plus `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync` (see `tests/router-network.test.ts`) — do not add real network calls or real `setTimeout` delays to tests.
+- Sandbox filesystem/vault state in tests via `process.env.DEVPILOT_HOME` (temp dir) and `process.env.DEVPILOT_VAULT = 'file'`, and clean up in `afterEach` with `fs.rmSync(..., { recursive: true, force: true })` — never touch the real OS keychain or the developer's real `~/.devpilot` in a test.
+- Coverage thresholds (`vitest.config.ts`): 70% lines, 60% branches, computed over `src/**/*.ts` excluding `src/launcher.ts` and `src/index.ts`. A new module must not drag branch/line coverage below these thresholds.
+- Commands: `npm test` (`vitest run`), `npm run test:watch` (`vitest`), `npm run test:coverage` (`vitest run --coverage`), `npm run test:e2e` (builds first via `pretest:e2e`, then `vitest run --config vitest.e2e.config.ts`).
+
+## Verification — exact ordered commands before work is done
+
+1. `npm run format` (or `npx prettier --check .` to check without writing)
+2. `npm run lint` (`eslint src tests`)
+3. `npm run build` (`tsc -p tsconfig.build.json`)
+4. `npm run test:coverage` (`vitest run --coverage`)
+5. `npm run test:e2e` (only if the change touches `generate`, `cli.ts`, or anything exercised end-to-end — this rebuilds via `pretest:e2e` first)
+
+This mirrors `.github/workflows/ci.yml`'s job order exactly (`lint` → `prettier --check` → `build` → `test:coverage` → `test:e2e`) — run it in this order locally so a green local run predicts a green CI run.
+
+## Safety
+
+- Never commit or write real API keys, tokens, or vault contents to disk outside `core/vault.ts`'s backends. `keys/index.json` under `devpilotHome()` stores only account names, never secret values — do not add secret material to it.
+- Never bypass `isAllowedPath` (`src/generate/artifacts.ts`) for any AI-suggested or dynamically constructed file path — it is the only guard against an adversarial or malformed AI response writing outside the project (blocks absolute paths, Windows drive letters, `..` traversal).
+- Never add a raw `process.exit()` call anywhere in `src/commands/*` or code reachable from the interactive launcher.
+- Treat `.devpilot/` and root-level generated files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `README_AI.md`) in _this_ repo's own working tree as dogfooded `devpilot generate` output, not hand-authored source — do not hand-edit generated sections; change the generator instead.
+- Do not touch `.github/workflows/ci.yml`'s publish gating (tag-vs-`package.json`-version check, `refs/tags/v*` trigger) without explicit confirmation — it is the only thing preventing an accidental `npm publish`.
+- Never run `npm publish`, push git tags matching `v*`, or modify `NPM_TOKEN`/CI secrets from an assistant session.
+- Windows vault code (`DpapiProtector` in `src/core/vault.ts`) shells out to PowerShell with base64 over stdin — never change it to pass secrets as PowerShell command-line arguments.
+- Do not delete or bypass the legacy plain-hex fallback in `DpapiProtector.unprotect` — it exists for backward compatibility with keys stored before the `dpapi:` prefix was introduced; removing it would break existing users' stored keys.
