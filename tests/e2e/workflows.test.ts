@@ -75,7 +75,7 @@ describe('e2e: generate', () => {
       'CLAUDE.md',
       'AGENTS.md',
       '.claude/agents/code-reviewer.md',
-      '.claude/skills/add-feature/SKILL.md',
+      '.claude/skills/new-feature/SKILL.md',
       '.claude/commands/verify.md',
     ]) {
       expect(fs.existsSync(path.join(sandbox.project, f)), f).toBe(true);

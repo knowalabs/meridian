@@ -94,6 +94,15 @@ function workflowScripts(a: ProjectAnalysis): [string, string][] {
     .slice(0, 8);
 }
 
+/** Heuristic: does the project have a user interface layer? */
+const hasUiLayer = (a: ProjectAnalysis): boolean =>
+  a.frameworks.some((f) => /react|next|vue|svelte|angular|astro|flutter|electron/i.test(f)) ||
+  a.languages.some((l) => /\(react\)|vue|svelte|astro|dart|swift/i.test(l.language));
+
+/** Heuristic: does the project have an API/route layer? */
+const hasApiLayer = (a: ProjectAnalysis): boolean =>
+  a.apiRoutes.length > 0 || a.frameworks.some((f) => /express|fastify|nestjs/i.test(f));
+
 function verificationChecklist(a: ProjectAnalysis): string[] {
   const order = ['format', 'lint', 'typecheck', 'build', 'test'];
   return Object.keys(a.scripts)
@@ -304,11 +313,25 @@ Given a feature or fix request:
     allowedPaths: ['.claude/skills/'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 2–3 Claude Code skills under ".claude/skills/<skill-name>/SKILL.md",
-each capturing a repeatable, project-specific workflow an AI assistant should
-follow here — e.g. how to add a feature end-to-end in this architecture
-(which files, in which order, with which patterns), how to run/debug this
-project locally, how to release/ship. Each SKILL.md needs YAML frontmatter:
+        `Generate 4–8 Claude Code skills, each at
+".claude/skills/<skill-name>/SKILL.md", capturing THIS project's actual
+repeatable workflows. Derive the set from the codebase itself — its
+architecture, layers and everyday engineering tasks — and name each skill
+in the project's own vocabulary.
+
+Illustrative examples of the kind of skills a project might warrant (pick,
+rename, replace or invent as the digest dictates — none are required):
+"new-feature", "fix-bug", "refactor", "feature-info", "new-utility",
+"commit", "implement-api" for a project with an API layer, "new-screen"
+for a UI app, or fully domain-specific ones — a CLI tool might want
+"new-command", a library "new-public-api", a project with a release
+process "release", one with schema migrations "new-migration".
+
+Two hard rules: never generate a skill for a workflow this project does
+not have, and prefer a skill grounded in the digest's real structure over
+a generic one from the list above.
+
+Each SKILL.md needs YAML frontmatter:
 
 ---
 name: kebab-case-name
@@ -324,31 +347,18 @@ commands from the digest. 25–60 lines each; every step actionable.`,
       const srcDir = dirs.find((d) => ['src', 'lib', 'app'].includes(d));
       const testDir = dirs.find((d) => ['tests', 'test', '__tests__', 'spec'].includes(d));
       const checklist = verificationChecklist(a);
-      return [
-        {
-          file: '.claude/skills/project-conventions/SKILL.md',
-          content: `---
-name: project-conventions
-description: Follow ${a.name}'s conventions when writing or reviewing code.
----
-
-# ${a.name} conventions
-
-- Stack: ${stack(a)}.
-${a.conventions.map((c) => `- ${c}`).join('\n') || '- See .devpilot/context.md.'}
-
-Before large changes, read \`.devpilot/rules.md\` and \`.devpilot/context.md\`.
-${checklist.length ? `\nVerification, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}` : ''}
-`,
-        },
-        {
-          file: '.claude/skills/add-feature/SKILL.md',
-          content: `---
-name: add-feature
-description: Add a feature to ${a.name} end-to-end, from code to passing verification.
----
-
-# Adding a feature to ${a.name}
+      const verify = checklist.length
+        ? `Verify, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}.`
+        : `Run the project's build/tests to verify.`;
+      const skill = (name: string, description: string, body: string): ArtifactFile => ({
+        file: `.claude/skills/${name}/SKILL.md`,
+        content: `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`,
+      });
+      const files: ArtifactFile[] = [
+        skill(
+          'new-feature',
+          `Add a feature to ${a.name} end-to-end, from code to passing verification.`,
+          `# Adding a feature to ${a.name}
 
 1. Read \`docs/architecture.md\` and the module you are changing${srcDir ? ` (source lives in \`${srcDir}/\`)` : ''}.
 2. Find the closest existing feature and mirror its structure — file
@@ -356,10 +366,126 @@ description: Add a feature to ${a.name} end-to-end, from code to passing verific
 3. Implement the smallest complete version of the feature.
 ${testDir ? `4. Add tests in \`${testDir}/\`, mirroring the existing test style.` : `4. Add tests next to the existing ones, mirroring their style.`}
 5. Update docs (README or docs/) if behavior is user-visible.
-${checklist.length ? `6. Verify, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}.` : `6. Run the project's build/tests to verify.`}
-`,
-        },
+6. ${verify}`,
+        ),
+        skill(
+          'fix-bug',
+          `Fix a bug in ${a.name} at the root cause, proven by a regression test.`,
+          `# Fixing a bug in ${a.name}
+
+1. Reproduce the bug first${a.scripts['test'] ? ` — ideally as a failing test (\`${commandFor(a, 'test')}\`)` : ''}.
+   No fix before a reproduction.
+2. Trace the actual code path from the symptom to the cause; cite the
+   files and lines involved.
+3. State the root cause in one sentence, then apply the smallest fix at
+   that cause — not a workaround where the symptom appears.
+4. Keep the reproduction as a regression test, asserting the intended
+   behavior rather than implementation details.
+5. ${verify}`,
+        ),
+        skill(
+          'refactor',
+          `Refactor ${a.name} without changing behavior, in small verified steps.`,
+          `# Refactoring ${a.name}
+
+1. Confirm the tests are green before touching anything${a.scripts['test'] ? ` (\`${commandFor(a, 'test')}\`)` : ''}.
+2. Read \`docs/architecture.md\`; the module boundaries${dirs.length ? ` (${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''} must
+   still hold after the refactor.
+3. Move in small steps — rename, extract, inline — running the tests
+   between steps; never mix a refactor with a behavior change.
+4. Keep the public API stable unless the change is the point; update every
+   caller in the same change.
+5. ${verify}`,
+        ),
+        skill(
+          'feature-info',
+          `Investigate and explain how an existing feature of ${a.name} works.`,
+          `# Explaining a feature of ${a.name}
+
+1. Locate the entry point: search${srcDir ? ` \`${srcDir}/\`` : ' the source'} for the feature's
+   name, command, route or UI text.
+2. Trace the flow outward from the entry point, noting each file (and
+   line) the control or data passes through.
+3. Read the feature's tests${testDir ? ` in \`${testDir}/\`` : ''} — they document the intended behavior
+   and edge cases.
+4. Report: what the feature does, the flow as a file-by-file list, key
+   data structures, edge cases covered, and where to change what.`,
+        ),
+        skill(
+          'new-utility',
+          `Add a shared utility/helper to ${a.name} without duplicating an existing one.`,
+          `# Adding a utility to ${a.name}
+
+1. Search the codebase for an existing helper first — a duplicated utility
+   is a bug. Grep for likely names and read the neighbors.
+2. Place it next to similar helpers${srcDir ? ` under \`${srcDir}/\`` : ''}, following the local naming
+   and export style.
+3. Keep it small and single-purpose; no side effects unless that is the
+   point.
+4. Add focused tests for the edge cases (empty input, errors, limits).
+5. ${verify}`,
+        ),
+        skill(
+          'commit',
+          `Prepare and write a clean commit for ${a.name}.`,
+          `# Committing to ${a.name}
+
+1. Review the full diff (\`git status\` + \`git diff\`): remove debug output,
+   stray files and anything unrelated to this change.
+2. Never commit secrets, credentials, or generated/build artifacts.
+3. ${verify}
+4. Read \`git log --oneline -10\` and match this repository's message style;
+   subject line in the imperative, under 72 characters.
+5. Stage only the files belonging to this change, then commit. Split
+   unrelated work into separate commits.`,
+        ),
       ];
+      if (hasApiLayer(a)) {
+        files.push(
+          skill(
+            'implement-api',
+            `Add an API endpoint to ${a.name} following the existing route patterns.`,
+            `# Implementing an API endpoint in ${a.name}
+
+1. Read the existing route/handler files${
+              a.apiRoutes.length
+                ? ` — start with ${a.apiRoutes
+                    .slice(0, 3)
+                    .map((r) => `\`${r}\``)
+                    .join(', ')}`
+                : ''
+            } —
+   and mirror their structure exactly.
+2. Validate every input at the boundary; reuse the project's existing
+   validation and error-response patterns.
+3. Keep the handler thin — put logic in the layer the existing endpoints
+   use for it.
+4. Add tests covering the success path, validation failures and error
+   responses.
+5. ${verify}`,
+          ),
+        );
+      }
+      if (hasUiLayer(a)) {
+        files.push(
+          skill(
+            'new-screen',
+            `Add a screen/page/view to ${a.name} following the existing UI structure.`,
+            `# Adding a screen to ${a.name}
+
+1. Find the closest existing screen/page and mirror its file layout,
+   naming and component structure.
+2. Register it the way the existing screens are — routing/navigation,
+   menus, deep links.
+3. Reuse the project's shared components and styling conventions; do not
+   introduce a new pattern for state or styling.
+4. Handle the non-happy paths every screen needs: loading, empty and
+   error states.
+5. ${verify}`,
+          ),
+        );
+      }
+      return files;
     },
   },
   {
@@ -484,8 +610,8 @@ sentence, then apply the smallest fix and prove it with a test.
       commonPrompt(
         `Generate a professional engineering documentation suite under "docs/" —
 the documents a staff engineer would hand a new teammate on THIS project.
-
-Always generate these seven core docs:
+Decide the set of docs from the codebase itself; only these four are
+required in every project:
 
 1. "docs/README.md" — the index: a table listing every doc you generated
    with a one-line "read this when…" for each.
@@ -501,37 +627,24 @@ Always generate these seven core docs:
    test, lint, build — the real scripts), the exact ordered verification
    to run before work is considered done, and the release/CI process when
    the digest shows one.
-5. "docs/security.md" — how secrets and configuration are handled, input
-   validation, authentication/authorization if present, files that must
-   never be committed, and the code paths to treat with extra care.
-6. "docs/tech-debt.md" — an honest register of debt visible in the digest:
-   TODO/FIXME markers, duplicated logic, missing tests, deprecated usage.
-   Use a table: area | description | impact | suggested fix. If little
-   debt is visible, say so and keep the register short.
-7. "docs/BEHAVIOUR_CONTRACT_TEMPLATE.md" — a reusable fill-in template for
-   specifying a feature's observable behavior before changing it: context,
-   triggers, preconditions, expected behavior, edge cases, error handling,
-   non-goals, and how to verify.
 
-Then generate ONLY the specialized docs below that the digest shows real
-evidence for. Skipping one is correct when the project has nothing to
-document — never write a generic filler version:
+Beyond those, add the specialized docs THIS project's stack actually
+warrants. Illustrative examples (pick, rename or invent as the digest
+dictates — none are required): "security.md" (secrets/config handling,
+input validation, code paths to treat with care), "tech-debt.md" (an
+honest register: area | description | impact | suggested fix),
+"BEHAVIOUR_CONTRACT_TEMPLATE.md" (a fill-in template for specifying
+observable behavior before changing it), "design-system.md" for UI
+component libraries (split into core/feature/input component docs when
+large), "di-registry.md" where dependency injection is used,
+"localization.md", "navigation.md", "networking.md",
+"shared-utilities.md" — or fully domain-specific docs such as
+"data-model.md", "deployment.md", "cli-reference.md" or
+"provider-matrix.md" when the digest shows that domain.
 
-- "docs/design-system.md" — if there are UI components, design tokens or
-  theming. When the project has many components, split them across
-  "docs/design-system-core-components.md",
-  "docs/design-system-feature-components.md" and
-  "docs/design-system-input-components.md".
-- "docs/di-registry.md" — if dependency injection is used: every
-  registration, its scope/lifetime, and where it is resolved.
-- "docs/localization.md" — if i18n/l10n exists: the framework, where
-  locale files live, and how to add a string or a new locale.
-- "docs/navigation.md" — if the app has routing/navigation: the route
-  map, guards/middleware, deep links, and how to add a screen or route.
-- "docs/networking.md" — if there is an HTTP/API client layer: clients,
-  base URLs, auth, error/retry/timeout handling, how to add an endpoint.
-- "docs/shared-utilities.md" — if shared helper/util modules exist: each
-  utility, what it does, and when to use it instead of writing new code.
+Two hard rules: never write a doc the project has no material for —
+skipping is correct, generic filler is a failure — and prefer a doc
+grounded in the digest's real structure over one from the list above.
 
 Each doc you write should be 40–120 lines and dense with THIS project's
 real paths, names and commands.`,

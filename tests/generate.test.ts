@@ -117,6 +117,24 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('adds the screen skill only for UI projects', () => {
+    const root = makeProject();
+    try {
+      fs.writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({
+          name: 'ui-app',
+          dependencies: { react: '^18.0.0' },
+          scripts: { test: 'vitest run' },
+        }),
+      );
+      const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!.fallback(analyzeProject(root));
+      expect(skills.map((f) => f.file)).toContain('.claude/skills/new-screen/SKILL.md');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('uses the ecosystem commands for a non-npm project', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-go-'));
     try {
@@ -167,7 +185,12 @@ describe('runGenerate', () => {
     expect(written).toContain('.devpilot/rules.md');
     expect(written).toContain('.claude/agents/code-reviewer.md');
     expect(written).toContain('.claude/commands/test.md');
-    expect(written).toContain('.claude/skills/project-conventions/SKILL.md');
+    expect(written).toContain('.claude/skills/new-feature/SKILL.md');
+    expect(written).toContain('.claude/skills/fix-bug/SKILL.md');
+    expect(written).toContain('.claude/skills/commit/SKILL.md');
+    // Express project → API skill generated, no UI layer → no screen skill.
+    expect(written).toContain('.claude/skills/implement-api/SKILL.md');
+    expect(written).not.toContain('.claude/skills/new-screen/SKILL.md');
     // Rules were propagated to every tool's instruction file.
     expect(result.propagated).toContain('CLAUDE.md');
     expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(true);
