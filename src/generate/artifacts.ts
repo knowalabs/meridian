@@ -69,8 +69,9 @@ export function isAllowedPath(file: string, allowed: string[]): boolean {
 
 /* --------------------------------- helpers --------------------------------- */
 
-const scriptRunner = (a: ProjectAnalysis): string =>
-  a.frameworks.some((f) => f.includes('pyproject')) ? '' : 'npm run ';
+/** Resolve a canonical script name to the command a developer actually runs. */
+const commandFor = (a: ProjectAnalysis, name: string): string =>
+  a.scriptRunner ? `${a.scriptRunner}${name}` : (a.scripts[name] ?? name);
 
 function stack(a: ProjectAnalysis): string {
   const langs = a.languages.map((l) => l.language).join(', ') || 'unknown language';
@@ -94,14 +95,13 @@ function workflowScripts(a: ProjectAnalysis): [string, string][] {
 }
 
 function verificationChecklist(a: ProjectAnalysis): string[] {
-  const run = scriptRunner(a);
   const order = ['format', 'lint', 'typecheck', 'build', 'test'];
   return Object.keys(a.scripts)
     .filter((s) => order.some((o) => s === o || s.startsWith(o + ':')))
     .sort(
       (x, y) => order.findIndex((o) => x.startsWith(o)) - order.findIndex((o) => y.startsWith(o)),
     )
-    .map((s) => `${run}${s}`);
+    .map((s) => commandFor(a, s));
 }
 
 function commonPrompt(kindInstructions: string, digest: string): string {
@@ -156,7 +156,6 @@ of genuinely project-specific rules.`,
         digest,
       ),
     fallback: (a) => {
-      const run = scriptRunner(a);
       const dirs = topLevelDirs(a);
       const checklist = verificationChecklist(a);
       const testScripts = Object.keys(a.scripts).filter((s) => s.startsWith('test'));
@@ -165,7 +164,7 @@ of genuinely project-specific rules.`,
           file: '.devpilot/rules.md',
           content: `## General
 
-- Read \`.devpilot/context.md\` and \`.devpilot/architecture.md\` before making changes.
+- Read \`.devpilot/context.md\` and \`docs/architecture.md\` before making changes.
 - Keep changes small and focused; follow existing patterns in the codebase.
 - Write or update tests alongside every behavior change.
 - Update documentation when behavior changes.
@@ -188,7 +187,7 @@ ${
     ? testScripts
         .map(
           (s) =>
-            `- Run tests with \`${run}${s}\`; add tests next to the existing ones for any new behavior.`,
+            `- Run tests with \`${commandFor(a, s)}\`; add tests next to the existing ones for any new behavior.`,
         )
         .join('\n')
     : '- No test script detected — add tests when introducing a test framework.'
@@ -233,7 +232,6 @@ working procedure, and its output format. Make each agent 30–60 lines.`,
         digest,
       ),
     fallback: (a) => {
-      const run = scriptRunner(a);
       const dirs = topLevelDirs(a);
       const checklist = verificationChecklist(a);
       return [
@@ -268,7 +266,7 @@ description: Runs the test suite and fixes failures without changing intended be
 You fix failing tests in ${a.name}.
 
 Procedure:
-1. ${a.scripts['test'] ? `Run \`${run}test\` and read the failure output carefully.` : 'Locate and run the test suite.'}
+1. ${a.scripts['test'] ? `Run \`${commandFor(a, 'test')}\` and read the failure output carefully.` : 'Locate and run the test suite.'}
 2. Reproduce the smallest failing case; identify whether the bug is in the
    code under test or the test itself.
 3. Apply the smallest fix that restores intended behavior.
@@ -288,7 +286,7 @@ description: Plans multi-file changes so they respect the project's module bound
 You plan implementation strategies for ${a.name} (${stack(a)}).
 
 Given a feature or fix request:
-1. Read .devpilot/architecture.md and the modules involved${dirs.length ? ` (top-level: ${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}.
+1. Read docs/architecture.md and the modules involved${dirs.length ? ` (top-level: ${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}.
 2. Produce a step-by-step plan: files to create/modify in order, what each
    change contains, and which existing patterns to reuse.
 3. Flag anything that would cross a module boundary or need a new dependency —
@@ -352,12 +350,12 @@ description: Add a feature to ${a.name} end-to-end, from code to passing verific
 
 # Adding a feature to ${a.name}
 
-1. Read \`.devpilot/architecture.md\` and the module you are changing${srcDir ? ` (source lives in \`${srcDir}/\`)` : ''}.
+1. Read \`docs/architecture.md\` and the module you are changing${srcDir ? ` (source lives in \`${srcDir}/\`)` : ''}.
 2. Find the closest existing feature and mirror its structure — file
    placement, naming, error handling, exports.
 3. Implement the smallest complete version of the feature.
 ${testDir ? `4. Add tests in \`${testDir}/\`, mirroring the existing test style.` : `4. Add tests next to the existing ones, mirroring their style.`}
-5. Update docs (README or .devpilot/docs/) if behavior is user-visible.
+5. Update docs (README or docs/) if behavior is user-visible.
 ${checklist.length ? `6. Verify, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}.` : `6. Run the project's build/tests to verify.`}
 `,
         },
@@ -384,7 +382,6 @@ project-specific instruction to execute well (5–20 lines).`,
       ),
     fallback: (a) => {
       const files: ArtifactFile[] = [];
-      const run = scriptRunner(a);
       const add = (name: string, description: string, body: string) =>
         files.push({
           file: `.claude/commands/${name}.md`,
@@ -394,8 +391,8 @@ project-specific instruction to execute well (5–20 lines).`,
         const cmdName = script.replace(/[:.]/g, '-');
         add(
           cmdName,
-          `Run ${run}${script} and fix anything it reports`,
-          `Run \`${run}${script}\`. If it fails, diagnose the root cause and fix it — never by weakening tests or silencing checks — then re-run until it passes.`,
+          `Run ${commandFor(a, script)} and fix anything it reports`,
+          `Run \`${commandFor(a, script)}\`. If it fails, diagnose the root cause and fix it — never by weakening tests or silencing checks — then re-run until it passes.`,
         );
       }
       add(
@@ -458,7 +455,7 @@ Report by file and line, most severe first, with the smallest fix for each.
           content: `# Implement a new module
 
 Implement <module> in ${a.name} (${stack(a)}). Before writing code, read
-.devpilot/architecture.md and the closest existing module, then mirror its
+docs/architecture.md and the closest existing module, then mirror its
 structure, naming and error handling. Include tests in the existing style${
             checklist.length
               ? ` and finish by running: ${checklist.map((c) => `\`${c}\``).join(' → ')}`
@@ -480,60 +477,180 @@ sentence, then apply the smallest fix and prove it with a test.
   },
   {
     id: 'docs',
-    name: 'AI docs',
-    description: 'architecture + onboarding docs (.devpilot/)',
-    allowedPaths: ['.devpilot/architecture.md', '.devpilot/docs/'],
-    alwaysOverwrite: ['.devpilot/architecture.md'],
+    name: 'Docs',
+    description: 'professional docs suite (docs/)',
+    allowedPaths: ['docs/'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate exactly two files:
+        `Generate a professional engineering documentation suite under "docs/" —
+the documents a staff engineer would hand a new teammate on THIS project.
 
-1. ".devpilot/architecture.md" — a real architecture document for this
-   project: what it does, the layers/modules and what each is responsible
-   for (name the real directories and key files), how data/control flows
-   between them, external dependencies and why they're used, and the
+Always generate these seven core docs:
+
+1. "docs/README.md" — the index: a table listing every doc you generated
+   with a one-line "read this when…" for each.
+2. "docs/architecture.md" — the layers/modules and their responsibilities
+   (name the real directories and key files), how control/data flows
+   between them, external dependencies and why each exists, and the
    invariants a change must not break.
+3. "docs/conventions.md" — the project's real conventions: naming, file
+   organization, imports, typing, error handling, formatting/lint tooling
+   and its configuration. Prove every convention with a reference to a
+   file in the digest that shows it.
+4. "docs/engineer-workflow.md" — day-one setup, everyday commands (dev,
+   test, lint, build — the real scripts), the exact ordered verification
+   to run before work is considered done, and the release/CI process when
+   the digest shows one.
+5. "docs/security.md" — how secrets and configuration are handled, input
+   validation, authentication/authorization if present, files that must
+   never be committed, and the code paths to treat with extra care.
+6. "docs/tech-debt.md" — an honest register of debt visible in the digest:
+   TODO/FIXME markers, duplicated logic, missing tests, deprecated usage.
+   Use a table: area | description | impact | suggested fix. If little
+   debt is visible, say so and keep the register short.
+7. "docs/BEHAVIOUR_CONTRACT_TEMPLATE.md" — a reusable fill-in template for
+   specifying a feature's observable behavior before changing it: context,
+   triggers, preconditions, expected behavior, edge cases, error handling,
+   non-goals, and how to verify.
 
-2. ".devpilot/docs/onboarding.md" — onboarding for AI assistants: a crisp
-   project overview, where to make the most common kinds of changes (map
-   change-type → directory/file), the exact commands to run/verify, and the
-   gotchas visible in the code (platform differences, generated files,
-   ordering constraints).`,
+Then generate ONLY the specialized docs below that the digest shows real
+evidence for. Skipping one is correct when the project has nothing to
+document — never write a generic filler version:
+
+- "docs/design-system.md" — if there are UI components, design tokens or
+  theming. When the project has many components, split them across
+  "docs/design-system-core-components.md",
+  "docs/design-system-feature-components.md" and
+  "docs/design-system-input-components.md".
+- "docs/di-registry.md" — if dependency injection is used: every
+  registration, its scope/lifetime, and where it is resolved.
+- "docs/localization.md" — if i18n/l10n exists: the framework, where
+  locale files live, and how to add a string or a new locale.
+- "docs/navigation.md" — if the app has routing/navigation: the route
+  map, guards/middleware, deep links, and how to add a screen or route.
+- "docs/networking.md" — if there is an HTTP/API client layer: clients,
+  base URLs, auth, error/retry/timeout handling, how to add an endpoint.
+- "docs/shared-utilities.md" — if shared helper/util modules exist: each
+  utility, what it does, and when to use it instead of writing new code.
+
+Each doc you write should be 40–120 lines and dense with THIS project's
+real paths, names and commands.`,
         digest,
       ),
     fallback: (a) => {
-      const run = scriptRunner(a);
       const scripts = workflowScripts(a);
+      const checklist = verificationChecklist(a);
       return [
         {
-          file: '.devpilot/architecture.md',
+          file: 'docs/README.md',
+          content: `# ${a.name} — documentation
+
+| Doc | Read this when… |
+| --- | --- |
+| [architecture.md](architecture.md) | you need the module map and how data flows between them |
+| [conventions.md](conventions.md) | you are writing code and want it to match the codebase |
+| [engineer-workflow.md](engineer-workflow.md) | you are setting up, running or verifying the project |
+| [tech-debt.md](tech-debt.md) | you want to know the known rough edges before touching them |
+| [BEHAVIOUR_CONTRACT_TEMPLATE.md](BEHAVIOUR_CONTRACT_TEMPLATE.md) | you are specifying a feature's behavior before changing it |
+
+Generated by \`devpilot generate\`. Re-run with an AI provider and \`--force\`
+for docs written from an actual reading of the codebase.
+`,
+        },
+        {
+          file: 'docs/architecture.md',
           content: renderArchitectureMarkdown(a),
         },
         {
-          file: '.devpilot/docs/onboarding.md',
-          content: `# ${a.name} — AI onboarding
+          file: 'docs/conventions.md',
+          content: `# ${a.name} — conventions
 
-## Overview
+## Stack
 
-- Stack: ${stack(a)}.
+- ${stack(a)}.
 - ${a.totalFiles} files; primary languages: ${a.languages.map((l) => `${l.language} (${l.files})`).join(', ') || 'unknown'}.
-${a.frameworks.length ? `- Tooling/frameworks: ${a.frameworks.join(', ')}.` : ''}
 
-## Layout
+## Tooling
+
+${a.conventions.map((c) => `- ${c}`).join('\n') || '- No formatter/linter configs detected — match the style of the surrounding code.'}
+
+## Ground rules
+
+- Match the existing formatting, naming and idioms of the file you are in.
+- Mirror the closest existing module when adding a new one — placement,
+  naming, error handling, exports.
+- Prefer clear, self-explanatory code over comments.
+`,
+        },
+        {
+          file: 'docs/engineer-workflow.md',
+          content: `# ${a.name} — engineer workflow
+
+## Everyday commands
+
+${scripts.length ? scripts.map(([name, cmd]) => `- \`${commandFor(a, name)}\`${a.scriptRunner ? ` — \`${cmd}\`` : ''}`).join('\n') : '- No scripts detected — build and run manually.'}
+
+## Verification
+
+${checklist.length ? `Run, in order, before considering any work done:\n\n${checklist.map((c, i) => `${i + 1}. \`${c}\``).join('\n')}` : 'Build and test the project manually; no verification scripts detected.'}
+
+## Where things live
 
 \`\`\`
 ${a.tree}
 \`\`\`
+`,
+        },
+        {
+          file: 'docs/tech-debt.md',
+          content: `# ${a.name} — tech debt register
 
-## Everyday commands
+Track known debt here so it is paid down deliberately instead of
+rediscovered. Add a row when you find or knowingly introduce debt.
 
-${scripts.length ? scripts.map(([name, cmd]) => `- \`${run}${name}\` — \`${cmd}\``).join('\n') : '- No scripts detected.'}
+| Area | Description | Impact | Suggested fix |
+| --- | --- | --- | --- |
+| _(none recorded yet)_ | | | |
+`,
+        },
+        {
+          file: 'docs/BEHAVIOUR_CONTRACT_TEMPLATE.md',
+          content: `# Behaviour contract — <feature name>
 
-## Where to look
+Fill this in before changing a feature's observable behavior; it is the
+agreed contract the change is verified against.
 
-- Project rules: \`.devpilot/rules.md\` (mirrored into every AI tool's instruction file).
-- Full context: \`.devpilot/context.md\`; architecture: \`.devpilot/architecture.md\`.
-- Reusable prompts: \`.devpilot/prompts/\`; subagents: \`.claude/agents/\`; skills: \`.claude/skills/\`.
+## Context
+
+<What part of the system this covers and why it exists.>
+
+## Triggers
+
+<User actions, events or inputs that start this behavior.>
+
+## Preconditions
+
+<State that must hold before the behavior runs.>
+
+## Expected behavior
+
+<The observable outcome, step by step. Be precise enough to test.>
+
+## Edge cases
+
+<Empty input, concurrency, offline, permissions, limits — and what happens.>
+
+## Error handling
+
+<What the user sees and what the system does on each failure mode.>
+
+## Non-goals
+
+<Adjacent behavior this contract deliberately does not cover.>
+
+## Verification
+
+<The exact commands/tests that prove the contract holds.>
 `,
         },
       ];

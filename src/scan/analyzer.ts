@@ -67,7 +67,15 @@ export interface ProjectAnalysis {
   dependencies: string[];
   devDependencies: string[];
   frameworks: string[];
+  /**
+   * Runnable project commands keyed by canonical name (test, lint, build, …).
+   * From package.json when it defines scripts; otherwise derived from the
+   * ecosystem's own manifests (Makefile, Cargo.toml, go.mod, pyproject, …),
+   * in which case each value is the full command to run as-is.
+   */
   scripts: Record<string, string>;
+  /** Prefix that turns a script name into a command ('npm run ' or ''). */
+  scriptRunner: string;
   tree: string;
   conventions: string[];
   apiRoutes: string[];
@@ -113,6 +121,8 @@ export function analyzeProject(root: string): ProjectAnalysis {
 
   const dependencies = Object.keys(pkg?.dependencies ?? {});
   const devDependencies = Object.keys(pkg?.devDependencies ?? {});
+  const npmScripts = pkg?.scripts ?? {};
+  const hasNpmScripts = Object.keys(npmScripts).length > 0;
 
   return {
     root,
@@ -123,7 +133,8 @@ export function analyzeProject(root: string): ProjectAnalysis {
     dependencies,
     devDependencies,
     frameworks: detectFrameworks(root, [...dependencies, ...devDependencies]),
-    scripts: pkg?.scripts ?? {},
+    scripts: hasNpmScripts ? npmScripts : detectEcosystemScripts(root),
+    scriptRunner: hasNpmScripts ? 'npm run ' : '',
     tree: renderTree(root),
     conventions: detectConventions(root, devDependencies),
     apiRoutes: apiRoutes.slice(0, 30),
@@ -172,6 +183,90 @@ function detectFrameworks(root: string, deps: string[]): string[] {
     found.push('JVM (Gradle)');
   if (fs.existsSync(path.join(root, 'Dockerfile'))) found.push('Docker');
   return found;
+}
+
+function readText(file: string): string {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Runnable commands (canonical name → full command) for projects without npm
+ * scripts, derived from the manifests each ecosystem actually uses. A
+ * Makefile target wins over the ecosystem default for the same name — it
+ * encodes the project's preferred workflow.
+ */
+function detectEcosystemScripts(root: string): Record<string, string> {
+  const scripts: Record<string, string> = {};
+  const exists = (f: string) => fs.existsSync(path.join(root, f));
+  const add = (name: string, command: string): void => {
+    if (!scripts[name]) scripts[name] = command;
+  };
+
+  const makefile = readText(path.join(root, 'Makefile'));
+  for (const match of makefile.matchAll(/^([A-Za-z0-9_-]+):(?!=)/gm)) {
+    const target = match[1]!;
+    if (/^(test|build|lint|fmt|format|check|typecheck|dev|run|e2e|coverage)$/.test(target)) {
+      add(target === 'fmt' ? 'format' : target, `make ${target}`);
+    }
+  }
+
+  if (exists('Cargo.toml')) {
+    add('build', 'cargo build');
+    add('test', 'cargo test');
+    add('lint', 'cargo clippy');
+    add('format', 'cargo fmt');
+  }
+  if (exists('go.mod')) {
+    add('build', 'go build ./...');
+    add('test', 'go test ./...');
+    add('lint', 'go vet ./...');
+    add('format', 'gofmt -w .');
+  }
+  if (exists('pyproject.toml') || exists('requirements.txt')) {
+    const py =
+      readText(path.join(root, 'pyproject.toml')) + readText(path.join(root, 'requirements.txt'));
+    if (py.includes('pytest') || exists('pytest.ini')) add('test', 'pytest');
+    if (py.includes('ruff')) {
+      add('lint', 'ruff check .');
+      add('format', 'ruff format .');
+    }
+    if (py.includes('black')) add('format', 'black .');
+    if (py.includes('mypy')) add('typecheck', 'mypy .');
+  }
+  if (exists('pubspec.yaml')) {
+    const tool = readText(path.join(root, 'pubspec.yaml')).includes('flutter') ? 'flutter' : 'dart';
+    add('test', `${tool} test`);
+    add('lint', `${tool} analyze`);
+    add('format', 'dart format .');
+  }
+  if (exists('pom.xml')) {
+    add('build', 'mvn package');
+    add('test', 'mvn test');
+  }
+  if (exists('build.gradle') || exists('build.gradle.kts')) {
+    const gradle = exists('gradlew') ? './gradlew' : 'gradle';
+    add('build', `${gradle} build`);
+    add('test', `${gradle} test`);
+  }
+  if (exists('Gemfile')) {
+    const gemfile = readText(path.join(root, 'Gemfile'));
+    if (gemfile.includes('rspec')) add('test', 'bundle exec rspec');
+    if (gemfile.includes('rubocop')) add('lint', 'bundle exec rubocop');
+    if (gemfile.includes('rails')) add('dev', 'bin/rails server');
+  }
+  if (exists('composer.json')) {
+    const composer = readJson<{ scripts?: Record<string, unknown> }>(
+      path.join(root, 'composer.json'),
+    );
+    for (const name of Object.keys(composer?.scripts ?? {})) {
+      if (/^(test|lint|format|check|build)$/.test(name)) add(name, `composer ${name}`);
+    }
+  }
+  return scripts;
 }
 
 function detectConventions(root: string, devDeps: string[]): string[] {

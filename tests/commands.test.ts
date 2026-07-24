@@ -145,9 +145,11 @@ describe('generate command (one-shot AI kit)', () => {
     for (const f of [
       '.devpilot/project.json',
       '.devpilot/context.md',
-      '.devpilot/architecture.md',
       '.devpilot/rules.md',
-      '.devpilot/docs/onboarding.md',
+      'docs/architecture.md',
+      'docs/conventions.md',
+      'docs/engineer-workflow.md',
+      'docs/BEHAVIOUR_CONTRACT_TEMPLATE.md',
       'README_AI.md',
       'CLAUDE.md',
       'AGENTS.md',

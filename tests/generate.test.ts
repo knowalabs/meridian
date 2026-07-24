@@ -65,6 +65,12 @@ describe('isAllowedPath', () => {
     expect(isAllowedPath('src/index.ts', allowed)).toBe(false);
     expect(isAllowedPath('.devpilot/rules.md.evil', allowed)).toBe(false);
   });
+  it('confines the docs suite to docs/', () => {
+    expect(isAllowedPath('docs/architecture.md', ['docs/'])).toBe(true);
+    expect(isAllowedPath('docs/design-system-core-components.md', ['docs/'])).toBe(true);
+    expect(isAllowedPath('docs/../src/index.ts', ['docs/'])).toBe(false);
+    expect(isAllowedPath('docs-evil/notes.md', ['docs/'])).toBe(false);
+  });
 });
 
 describe('buildDigest', () => {
@@ -76,6 +82,20 @@ describe('buildDigest', () => {
       expect(digest.text).toContain('Express');
       expect(digest.text).toContain('File: README.md');
       expect(digest.text).toContain('test="vitest run"');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('samples sources from non-JS languages like C++', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cpp-'));
+    try {
+      fs.writeFileSync(path.join(root, 'CMakeLists.txt'), 'project(demo)\n');
+      fs.mkdirSync(path.join(root, 'src'));
+      fs.writeFileSync(path.join(root, 'src/main.cpp'), '#include <iostream>\nint main() {}\n');
+      const digest = buildDigest(root);
+      expect(digest.text).toContain('File: CMakeLists.txt');
+      expect(digest.text).toContain('File: src/main.cpp');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -92,6 +112,24 @@ describe('static fallbacks', () => {
         expect(files.length).toBeGreaterThan(0);
         for (const f of files) expect(isAllowedPath(f.file, kind.allowedPaths)).toBe(true);
       }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the ecosystem commands for a non-npm project', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-go-'));
+    try {
+      fs.writeFileSync(path.join(root, 'go.mod'), 'module demo\n\ngo 1.22\n');
+      fs.writeFileSync(path.join(root, 'main.go'), 'package main\n\nfunc main() {}\n');
+      const analysis = analyzeProject(root);
+      const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!.fallback(analysis);
+      const workflow = docs.find((f) => f.file === 'docs/engineer-workflow.md')!.content;
+      expect(workflow).toContain('go test ./...');
+      expect(workflow).not.toContain('npm run');
+      const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!.fallback(analysis);
+      const testCmd = commands.find((f) => f.file === '.claude/commands/test.md')!.content;
+      expect(testCmd).toContain('go test ./...');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -329,7 +367,7 @@ describe('generateCommand', () => {
       files: { file: string }[];
     };
     expect(doc.provider).toBeNull();
-    expect(doc.files.map((f) => f.file)).toContain('.devpilot/docs/onboarding.md');
+    expect(doc.files.map((f) => f.file)).toContain('docs/architecture.md');
   });
 
   it('dry-run and rerun report without rewriting', async () => {

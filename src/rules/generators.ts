@@ -67,7 +67,7 @@ ${rules}
 
 export const DEFAULT_RULES = `## General
 
-- Read .devpilot/context.md and .devpilot/architecture.md before making changes.
+- Read .devpilot/context.md and docs/architecture.md before making changes.
 - Keep changes small and focused; follow existing patterns in the codebase.
 - Write or update tests alongside code changes.
 - Update documentation when behavior changes.

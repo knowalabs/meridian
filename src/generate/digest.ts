@@ -28,6 +28,10 @@ const KEY_FILES = [
   'Gemfile',
   'pom.xml',
   'build.gradle',
+  'Makefile',
+  'CMakeLists.txt',
+  'requirements.txt',
+  'mix.exs',
   'lib/main.dart',
   'tsconfig.json',
   'src/index.ts',
@@ -81,7 +85,7 @@ function sampleSources(analysis: ProjectAnalysis, root: string, max: number): st
         if (!['node_modules', 'dist', 'build', 'coverage', 'vendor'].includes(entry.name))
           walk(full, depth + 1);
       } else if (
-        /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|py|go|rs|java|kt|rb|cs|php|swift|vue|svelte|astro|dart|ex|exs|scala)$/i.test(
+        /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|py|go|rs|java|kt|rb|cs|php|swift|vue|svelte|astro|dart|ex|exs|scala|c|cc|cpp|h|hpp|m|mm|erl|hs|lua|r|zig)$/i.test(
           entry.name,
         ) &&
         !seen.has(rel)

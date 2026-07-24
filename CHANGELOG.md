@@ -1,5 +1,12 @@
 # @sonalsithara/devpilot
 
+## 0.9.0
+
+### Minor Changes
+
+- Professional documentation suite: the `docs` artifact kind now writes a real `docs/` folder instead of `.devpilot/architecture.md` + onboarding notes. Seven core docs are always generated — `README.md` (index), `architecture.md`, `conventions.md`, `engineer-workflow.md`, `security.md`, `tech-debt.md` and `BEHAVIOUR_CONTRACT_TEMPLATE.md` — plus specialized docs only when the codebase shows evidence for them: `design-system*.md` (split into core/feature/input component docs for large component libraries), `di-registry.md`, `localization.md`, `navigation.md`, `networking.md` and `shared-utilities.md`. Every doc must cite the project's real paths, modules and commands; generic filler is treated as a failure. Static (`--no-ai`) fallbacks produce the core suite from analysis. The architecture doc's canonical home moved from `.devpilot/architecture.md` to `docs/architecture.md`; generated rules, agents, skills and prompts now point there.
+- First-class support for non-Node projects: the analyzer now derives runnable commands from each ecosystem's own manifests — Makefile targets (which win over defaults), Cargo.toml (`cargo test/clippy/fmt`), go.mod (`go test ./...`, `go vet`), pyproject/requirements (`pytest`, `ruff`, `black`, `mypy`), pubspec (`flutter`/`dart test`), Maven, Gradle, Gemfile (`rspec`, `rubocop`) and composer scripts — so verification checklists, slash commands, workflow docs and engineer-workflow content are real for Rust, Go, Python, Flutter, Java, Ruby and PHP projects instead of empty. The AI digest also excerpts sources for previously skipped languages (C, C++, Objective-C, Haskell, Lua, R, Zig, Erlang) and key manifests (`Makefile`, `CMakeLists.txt`, `requirements.txt`, `mix.exs`).
+
 ## 0.8.0
 
 ### Minor Changes

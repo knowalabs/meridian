@@ -37,7 +37,8 @@ async function chooseProvider(): Promise<string | undefined> {
 
 /**
  * `devpilot generate` — generate the complete AI kit for this project:
- * rules, subagents, skills, slash commands, prompts and onboarding docs,
+ * rules, subagents, skills, slash commands, prompts and a professional
+ * docs suite,
  * tailored by AI when a provider is configured.
  */
 export async function generateCommand(

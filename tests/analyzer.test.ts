@@ -38,6 +38,7 @@ describe('project analyzer', () => {
     expect(a.frameworks).toContain('Vitest');
     expect(a.dependencies).toContain('react');
     expect(a.conventions.join(' ')).toContain('ESLint');
+    expect(a.scriptRunner).toBe('npm run ');
   });
 
   it('ignores node_modules', () => {
@@ -48,6 +49,39 @@ describe('project analyzer', () => {
   it('finds API-looking files', () => {
     const a = analyzeProject(tmp);
     expect(a.apiRoutes.some((r) => r.includes('users.route.ts'))).toBe(true);
+  });
+
+  it('derives runnable commands for non-npm ecosystems, Makefile first', () => {
+    const rust = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-rust-'));
+    try {
+      fs.writeFileSync(path.join(rust, 'Cargo.toml'), '[package]\nname = "demo"\n');
+      fs.writeFileSync(path.join(rust, 'src.rs'), 'fn main() {}\n');
+      fs.writeFileSync(path.join(rust, 'Makefile'), 'test:\n\tcargo nextest run\n\nVAR:=1\n');
+      const a = analyzeProject(rust);
+      expect(a.scriptRunner).toBe('');
+      expect(a.scripts['test']).toBe('make test'); // Makefile wins over cargo default
+      expect(a.scripts['lint']).toBe('cargo clippy');
+      expect(a.scripts['build']).toBe('cargo build');
+    } finally {
+      fs.rmSync(rust, { recursive: true, force: true });
+    }
+  });
+
+  it('derives Python commands from pyproject tool mentions', () => {
+    const py = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-py-'));
+    try {
+      fs.writeFileSync(
+        path.join(py, 'pyproject.toml'),
+        '[tool.pytest.ini_options]\n[tool.ruff]\nline-length = 100\n',
+      );
+      const a = analyzeProject(py);
+      expect(a.scriptRunner).toBe('');
+      expect(a.scripts['test']).toBe('pytest');
+      expect(a.scripts['lint']).toBe('ruff check .');
+      expect(a.scripts['format']).toBe('ruff format .');
+    } finally {
+      fs.rmSync(py, { recursive: true, force: true });
+    }
   });
 
   it('renders markdown with all sections', () => {

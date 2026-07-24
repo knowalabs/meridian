@@ -69,7 +69,7 @@ describe('e2e: generate', () => {
     for (const f of [
       '.devpilot/project.json',
       '.devpilot/context.md',
-      '.devpilot/architecture.md',
+      'docs/architecture.md',
       '.devpilot/rules.md',
       'README_AI.md',
       'CLAUDE.md',

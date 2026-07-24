@@ -9,7 +9,7 @@ devpilot generate
 
 DevPilot installs, configures and manages AI coding assistants (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot), keeps your API keys in the OS-native secret store, generates AI-ready project context and rules, and installs MCP servers into every tool at once.
 
-You never hand-write an AI config file again: one command — `devpilot generate` — reviews your codebase and produces the **complete AI kit**: project context and architecture docs, canonical rules mirrored into every tool's format, Claude Code subagents, skills and slash commands, reusable prompts and onboarding docs — tailored to your stack by AI (with rich static fallbacks when no API key is configured).
+You never hand-write an AI config file again: one command — `devpilot generate` — reviews your codebase and produces the **complete AI kit**: project context, canonical rules mirrored into every tool's format, Claude Code subagents, skills and slash commands, reusable prompts and a professional `docs/` suite (architecture, conventions, engineer workflow, security, tech debt, and — when your stack has them — design system, DI registry, localization, navigation, networking and shared utilities) — tailored to your stack by AI (with rich static fallbacks when no API key is configured).
 
 Works on **macOS, Windows and Linux** (Node.js ≥ 18).
 
