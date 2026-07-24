@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { loadConfig } from '../core/config.js';
 import { openVault } from '../core/vault.js';
 import { runAsync, which } from '../core/exec.js';
@@ -28,6 +31,13 @@ export interface ProviderSpec {
 export function modelFor(spec: Pick<ProviderSpec, 'id' | 'model'>): string {
   return loadConfig().router.models?.[spec.id] ?? spec.model;
 }
+
+/**
+ * Sentinel model for CLI-backed providers whose model names churn: use
+ * whatever the signed-in CLI is configured with, unless the user overrides
+ * via `router.models.<id>`.
+ */
+export const CLI_DEFAULT_MODEL = 'cli-default';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -201,6 +211,60 @@ export const PROVIDERS: ProviderSpec[] = [
     },
   },
   {
+    // Uses the locally installed Codex CLI — a ChatGPT subscription works
+    // with no API key. Runs read-only and skips the git-repo check.
+    id: 'codex-cli',
+    name: 'Codex CLI (subscription)',
+    model: CLI_DEFAULT_MODEL,
+    cost: 0,
+    speed: 3,
+    quality: 2,
+    contextTokens: 200_000,
+    needsKey: false,
+    binary: 'codex',
+    async ask(prompt) {
+      const outFile = path.join(os.tmpdir(), `devpilot-codex-${process.pid}-${Date.now()}.txt`);
+      const args = [
+        'exec',
+        '-',
+        '--skip-git-repo-check',
+        '-s',
+        'read-only',
+        '--color',
+        'never',
+        '-o',
+        outFile,
+      ];
+      const model = modelFor(this);
+      if (model !== CLI_DEFAULT_MODEL) args.push('-m', model);
+      const res = await runImpl('codex', args, prompt, { timeoutMs: 600_000 });
+      let last = '';
+      try {
+        last = fs.readFileSync(outFile, 'utf8').trim();
+        fs.unlinkSync(outFile);
+      } catch {
+        /* fall back to stdout below */
+      }
+      if (res.notFound) {
+        throw new CliError('codex-cli: the "codex" CLI is not installed', {
+          hint: 'Install it with "devpilot install codex", then run "codex login".',
+        });
+      }
+      if (res.error?.includes('ETIMEDOUT')) {
+        throw new CliError('codex-cli: the codex CLI did not respond within 10 minutes', {
+          hint: 'Try again, or route elsewhere with --provider.',
+        });
+      }
+      if (!res.ok) {
+        throw new CliError(
+          `codex-cli: codex exec failed — ${(res.stderr || res.stdout || 'no output').slice(0, 300)}`,
+          { hint: 'Run "codex login" to sign in with your ChatGPT account, then retry.' },
+        );
+      }
+      return last || res.stdout;
+    },
+  },
+  {
     id: 'google',
     name: 'Google Gemini',
     model: 'gemini-2.5-flash',
@@ -217,6 +281,42 @@ export const PROVIDERS: ProviderSpec[] = [
         { provider: this.id },
       )) as { candidates: { content: { parts: { text: string }[] } }[] };
       return data.candidates[0]?.content.parts.map((p) => p.text).join('') ?? '';
+    },
+  },
+  {
+    // Uses the locally installed Gemini CLI — a Google account sign-in
+    // (the Antigravity/Gemini ecosystem) works with no API key.
+    id: 'gemini-cli',
+    name: 'Gemini CLI (Google account)',
+    model: CLI_DEFAULT_MODEL,
+    cost: 0,
+    speed: 3,
+    quality: 3,
+    contextTokens: 1_000_000,
+    needsKey: false,
+    binary: 'gemini',
+    async ask(prompt) {
+      const args: string[] = [];
+      const model = modelFor(this);
+      if (model !== CLI_DEFAULT_MODEL) args.push('-m', model);
+      const res = await runImpl('gemini', args, prompt, { timeoutMs: 600_000 });
+      if (res.notFound) {
+        throw new CliError('gemini-cli: the "gemini" CLI is not installed', {
+          hint: 'Install it with "devpilot install gemini", then run "gemini" once to sign in with your Google account.',
+        });
+      }
+      if (res.error?.includes('ETIMEDOUT')) {
+        throw new CliError('gemini-cli: the gemini CLI did not respond within 10 minutes', {
+          hint: 'Try again, or route elsewhere with --provider.',
+        });
+      }
+      if (!res.ok) {
+        throw new CliError(
+          `gemini-cli: gemini failed — ${(res.stderr || res.stdout || 'no output').slice(0, 300)}`,
+          { hint: 'Run "gemini" once to sign in with your Google account, then retry.' },
+        );
+      }
+      return res.stdout;
     },
   },
   {

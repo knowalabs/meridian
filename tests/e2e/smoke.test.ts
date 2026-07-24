@@ -37,7 +37,7 @@ describe('e2e: smoke', () => {
     // The host machine may have Claude Code or Ollama installed — disable
     // CLI-backed providers so this test sees a truly bare environment.
     const res = await runCli(['ask', 'hello'], sandbox, {
-      env: { DEVPILOT_DISABLE_PROVIDERS: 'claude-code,ollama' },
+      env: { DEVPILOT_DISABLE_PROVIDERS: 'claude-code,codex-cli,gemini-cli,ollama' },
     });
     expect(res.code).toBe(1);
     expect(res.stderr).toContain('devpilot auth');

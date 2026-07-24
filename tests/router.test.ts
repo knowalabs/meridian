@@ -49,10 +49,12 @@ describe('ai router', () => {
     expect(decision?.provider.id).toBe('google');
   });
 
-  it('registry lists all six providers from the docs', () => {
+  it('registry lists all eight providers from the docs', () => {
     expect(PROVIDERS.map((p) => p.id).sort()).toEqual([
       'anthropic',
       'claude-code',
+      'codex-cli',
+      'gemini-cli',
       'google',
       'ollama',
       'openai',

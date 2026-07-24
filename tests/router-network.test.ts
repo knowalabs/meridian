@@ -178,3 +178,72 @@ describe('claude-code CLI provider', () => {
     await expect(claudeCode.ask('hi', '')).rejects.toThrowError(/claude -p failed/);
   });
 });
+
+describe('codex-cli and gemini-cli providers', () => {
+  const codex = PROVIDERS.find((p) => p.id === 'codex-cli')!;
+  const gemini = PROVIDERS.find((p) => p.id === 'gemini-cli')!;
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cli-prov-'));
+    process.env.DEVPILOT_HOME = tmp;
+  });
+  afterEach(() => {
+    setRunForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('codex pipes stdin, prefers the last-message file, falls back to stdout', async () => {
+    let seen: { cmd: string; args: string[]; input?: string } | null = null;
+    setRunForTests((cmd, args = [], input) => {
+      seen = { cmd, args, input };
+      // Simulate codex writing the clean last message to the -o file.
+      const outFile = args[args.indexOf('-o') + 1]!;
+      fs.writeFileSync(outFile, 'clean final answer\n');
+      return { ok: true, stdout: 'noisy progress logs', stderr: '', code: 0 };
+    });
+    await expect(codex.ask('prompt', '')).resolves.toBe('clean final answer');
+    expect(seen!.cmd).toBe('codex');
+    expect(seen!.args.slice(0, 2)).toEqual(['exec', '-']);
+    expect(seen!.args).toContain('--skip-git-repo-check');
+    expect(seen!.input).toBe('prompt');
+
+    // Without the file, stdout is the answer.
+    setRunForTests(() => ({ ok: true, stdout: 'stdout answer', stderr: '', code: 0 }));
+    await expect(codex.ask('prompt', '')).resolves.toBe('stdout answer');
+  });
+
+  it('codex omits -m by default and maps failure to a sign-in hint', async () => {
+    let args: string[] = [];
+    setRunForTests((_c, a = []) => {
+      args = a;
+      return { ok: true, stdout: 'x', stderr: '', code: 0 };
+    });
+    await codex.ask('hi', '');
+    expect(args).not.toContain('-m');
+
+    setRunForTests(() => ({ ok: false, stdout: '', stderr: 'Not logged in', code: 1 }));
+    await expect(codex.ask('hi', '')).rejects.toThrowError(/codex exec failed/);
+  });
+
+  it('gemini pipes stdin and returns stdout', async () => {
+    let input: string | undefined;
+    setRunForTests((_c, _a, i) => {
+      input = i;
+      return { ok: true, stdout: 'gemini answer', stderr: '', code: 0 };
+    });
+    await expect(gemini.ask('ask this', '')).resolves.toBe('gemini answer');
+    expect(input).toBe('ask this');
+
+    setRunForTests(() => ({
+      ok: false,
+      stdout: '',
+      stderr: '',
+      code: null,
+      error: 'spawn gemini ENOENT',
+      notFound: true,
+    }));
+    await expect(gemini.ask('hi', '')).rejects.toThrowError(/not installed/);
+  });
+});
