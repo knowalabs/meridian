@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DevPilot — one command to set up every AI coding tool</title>
+    <meta
+      name="description"
+      content="DevPilot reviews your codebase and generates the complete AI kit — rules, subagents, skills, slash commands, harness config and docs — then keeps it fresh as your code evolves."
+    />
+    <style>
+      :root {
+        --bg: #0b0e14;
+        --bg-raised: #11151f;
+        --border: #1e2433;
+        --text: #e6e9f0;
+        --muted: #8b93a7;
+        --accent: #5eead4;
+        --accent-dim: #2dd4bf22;
+        --green: #4ade80;
+        --yellow: #facc15;
+        --cyan: #67e8f9;
+        --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .wrap {
+        max-width: 1060px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 22px 0;
+      }
+      .logo {
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+        color: var(--text);
+      }
+      .logo span {
+        color: var(--accent);
+      }
+      nav a {
+        color: var(--muted);
+        margin-left: 24px;
+        font-size: 14px;
+      }
+      nav a:hover {
+        color: var(--text);
+        text-decoration: none;
+      }
+      .hero {
+        padding: 72px 0 40px;
+        text-align: center;
+      }
+      .hero h1 {
+        font-size: clamp(32px, 5.5vw, 54px);
+        line-height: 1.12;
+        letter-spacing: -0.03em;
+        font-weight: 750;
+        max-width: 17ch;
+        margin: 0 auto;
+      }
+      .hero h1 em {
+        font-style: normal;
+        color: var(--accent);
+      }
+      .hero p.sub {
+        color: var(--muted);
+        max-width: 62ch;
+        margin: 22px auto 0;
+        font-size: 18px;
+      }
+      .install {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        margin: 34px auto 0;
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 13px 20px;
+        font-family: var(--mono);
+        font-size: 15px;
+      }
+      .install .dollar {
+        color: var(--muted);
+        user-select: none;
+      }
+      .install button {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--muted);
+        font: 12px var(--mono);
+        padding: 4px 9px;
+        cursor: pointer;
+      }
+      .install button:hover {
+        color: var(--text);
+        border-color: var(--muted);
+      }
+      .platforms {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 14px;
+      }
+      .term {
+        margin: 56px auto 0;
+        max-width: 780px;
+        background: #0d1117;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        text-align: left;
+        box-shadow: 0 24px 60px -24px #000c;
+      }
+      .term-bar {
+        display: flex;
+        gap: 7px;
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      .term-bar i {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #2b3245;
+        display: block;
+      }
+      .term pre {
+        padding: 18px 20px 22px;
+        font: 13px/1.75 var(--mono);
+        overflow-x: auto;
+        color: #c9d1d9;
+      }
+      .g {
+        color: var(--green);
+      }
+      .y {
+        color: var(--yellow);
+      }
+      .c {
+        color: var(--cyan);
+      }
+      .d {
+        color: var(--muted);
+      }
+      section {
+        padding: 72px 0 8px;
+      }
+      section h2 {
+        font-size: 26px;
+        letter-spacing: -0.02em;
+        margin-bottom: 8px;
+      }
+      section > .wrap > p.lead {
+        color: var(--muted);
+        max-width: 70ch;
+        margin-bottom: 36px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 22px;
+      }
+      .card h3 {
+        font-size: 16px;
+        margin-bottom: 8px;
+      }
+      .card h3 code,
+      .card p code,
+      td code,
+      p code {
+        font: 0.9em var(--mono);
+        background: var(--accent-dim);
+        color: var(--accent);
+        padding: 1px 6px;
+        border-radius: 5px;
+      }
+      .card p {
+        color: var(--muted);
+        font-size: 14.5px;
+      }
+      .steps {
+        counter-reset: step;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+      }
+      .step {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 22px;
+      }
+      .step::before {
+        counter-increment: step;
+        content: counter(step, decimal-leading-zero);
+        font: 700 13px var(--mono);
+        color: var(--accent);
+        display: block;
+        margin-bottom: 10px;
+      }
+      .step h3 {
+        font-size: 16px;
+        margin-bottom: 6px;
+      }
+      .step p {
+        color: var(--muted);
+        font-size: 14.5px;
+      }
+      .tbl {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14.5px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 13px;
+        background: var(--bg-raised);
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      td:first-child {
+        font-family: var(--mono);
+        font-size: 13.5px;
+        white-space: nowrap;
+        color: var(--accent);
+      }
+      td:last-child {
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 88px;
+        border-top: 1px solid var(--border);
+        padding: 30px 0 44px;
+        color: var(--muted);
+        font-size: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 28px;
+        justify-content: space-between;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <a class="logo" href="#">Dev<span>Pilot</span></a>
+        <nav>
+          <a href="#kit">The AI kit</a>
+          <a href="#sync">Sync</a>
+          <a href="#commands">Commands</a>
+          <a href="https://github.com/sonal-sithara/devpilot">GitHub</a>
+          <a href="https://www.npmjs.com/package/@sonalsithara/devpilot">npm</a>
+        </nav>
+      </header>
+
+      <main>
+        <div class="hero">
+          <h1>Make any codebase <em>AI-ready</em> in one command.</h1>
+          <p class="sub">
+            DevPilot reviews your project and generates the complete AI kit — rules, subagents,
+            skills, slash commands, harness config and real docs — for Claude Code, Cursor, Copilot,
+            Codex and Gemini. Then it keeps the kit fresh as your code evolves.
+          </p>
+          <div class="install">
+            <span class="dollar">$</span>
+            <span id="cmd">npm install -g @sonalsithara/devpilot</span>
+            <button
+              onclick="navigator.clipboard.writeText(document.getElementById('cmd').textContent)"
+            >
+              copy
+            </button>
+          </div>
+          <p class="platforms">macOS · Windows · Linux — Node.js ≥ 18 · MIT licensed</p>
+
+          <div class="term">
+            <div class="term-bar"><i></i><i></i><i></i></div>
+            <pre>
+$ devpilot generate
+<span class="g">✔</span> Reviewed 214 files <span class="d">— read src/cli.ts, src/server/router.ts, +12 more</span>
+<span class="d">→ generating with Claude Code [sonnet]</span>
+<span class="g">✔</span> AI read the codebase → .devpilot/docs/codebase-review.md
+<span class="g">✔</span> [1/7] Rules: 1 file <span class="d">(rules.md)</span>
+<span class="g">✔</span> [2/7] Subagents: 4 files <span class="d">(code-reviewer.md, test-fixer.md, …)</span>
+<span class="g">✔</span> [3/7] Skills: 6 files <span class="d">(commit, new-feature, fix-bug, …)</span>
+<span class="g">✔</span> [4/7] Slash commands: 5 files <span class="d">(verify.md, review.md, …)</span>
+<span class="g">✔</span> [5/7] Harness config: 1 file <span class="d">(settings.json)</span>
+<span class="g">✔</span> [6/7] Prompts: 4 files · <span class="g">✔</span> [7/7] Docs: 6 files
+
+<span class="c">Your project is AI-ready:</span> rules, agents, skills, commands and docs are in place.
+
+$ devpilot sync --check
+<span class="y">△</span> new script: e2e (playwright test)
+<span class="y">△</span> new top-level directory: workers
+<span class="d">Kit is stale — run devpilot sync to refresh.</span></pre>
+          </div>
+        </div>
+
+        <section id="kit">
+          <div class="wrap" style="padding: 0">
+            <h2>One command writes what you'd never write by hand</h2>
+            <p class="lead">
+              <code>devpilot generate</code> is AI-first: it digests your codebase — layout,
+              dependencies, scripts, conventions, source excerpts, a full symbol map — has your best
+              provider write a real codebase review, and grounds every generated file in it.
+            </p>
+            <div class="grid">
+              <div class="card">
+                <h3>Canonical rules, every tool</h3>
+                <p>
+                  One <code>rules.md</code> mirrored into <code>CLAUDE.md</code>,
+                  <code>AGENTS.md</code>, <code>GEMINI.md</code> and friends — written from your
+                  real conventions, not a template.
+                </p>
+              </div>
+              <div class="card">
+                <h3>Subagents, skills &amp; commands</h3>
+                <p>
+                  Project-tailored reviewers, test-fixers and workflow skills under
+                  <code>.claude/</code> — including an interactive, approval-gated commit skill with
+                  a hard stop on secrets.
+                </p>
+              </div>
+              <div class="card">
+                <h3>Harness config included</h3>
+                <p>
+                  <code>.claude/settings.json</code> pre-approves your project's own test, lint and
+                  build commands and denies reads of <code>.env</code> and key files — fewer
+                  prompts, safer defaults, for the whole team.
+                </p>
+              </div>
+              <div class="card">
+                <h3>No API key required</h3>
+                <p>
+                  Signed in to Claude Code, Codex CLI or Gemini CLI? DevPilot uses your subscription
+                  directly. Or bring an API key, or run local models via Ollama.
+                </p>
+              </div>
+              <div class="card">
+                <h3>A real docs suite</h3>
+                <p>
+                  Architecture, conventions, engineer workflow, security, tech debt — the documents
+                  a staff engineer would hand a new teammate, derived from your actual code.
+                </p>
+              </div>
+              <div class="card">
+                <h3>Safe by construction</h3>
+                <p>
+                  Every AI-suggested path is validated against a per-kind allowlist; failed
+                  generations write nothing and resume later; keys live in your OS secret store.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="sync">
+          <div class="wrap" style="padding: 0">
+            <h2>The kit stays alive</h2>
+            <p class="lead">
+              Generated config rots the day your code moves on. DevPilot records a manifest of what
+              it knew and what it wrote — so the kit can tell when it's stale.
+            </p>
+            <div class="steps">
+              <div class="step">
+                <h3>devpilot generate</h3>
+                <p>
+                  Writes the kit and a manifest: a fingerprint of your project plus a hash of every
+                  generated file.
+                </p>
+              </div>
+              <div class="step">
+                <h3>devpilot sync</h3>
+                <p>
+                  Detects drift — new scripts, frameworks, modules — and refreshes only stale files.
+                  Anything you hand-edited is detected by hash and always preserved.
+                </p>
+              </div>
+              <div class="step">
+                <h3>devpilot sync --check in CI</h3>
+                <p>
+                  Exits 1 when the kit is stale. No AI, no keys needed.
+                  <code>devpilot generate ci</code> writes the GitHub Action for you.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="commands">
+          <div class="wrap" style="padding: 0">
+            <h2>Command reference</h2>
+            <p class="lead">Run bare <code>devpilot</code> for the interactive launcher.</p>
+            <div class="tbl">
+              <table>
+                <tr>
+                  <th>Command</th>
+                  <th>What it does</th>
+                </tr>
+                <tr>
+                  <td>devpilot generate [kinds…]</td>
+                  <td>Review the codebase and generate the complete AI kit</td>
+                </tr>
+                <tr>
+                  <td>devpilot sync [--check]</td>
+                  <td>Detect drift and refresh the kit; --check is the CI gate</td>
+                </tr>
+                <tr>
+                  <td>devpilot doctor</td>
+                  <td>Detect installed AI tools and missing dependencies</td>
+                </tr>
+                <tr>
+                  <td>devpilot install &lt;tool&gt;</td>
+                  <td>Install &amp; configure Claude Code, Cursor, Codex, Gemini CLI…</td>
+                </tr>
+                <tr>
+                  <td>devpilot auth [provider]</td>
+                  <td>Store API keys in the OS-native secret store</td>
+                </tr>
+                <tr>
+                  <td>devpilot mcp search/install</td>
+                  <td>MCP marketplace — one install configures every detected tool</td>
+                </tr>
+                <tr>
+                  <td>devpilot ask "…"</td>
+                  <td>Ask AI via a cost/speed/quality-aware router</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <span>MIT © Sonal Sithara</span>
+        <span>
+          <a href="https://github.com/sonal-sithara/devpilot">GitHub</a> ·
+          <a href="https://www.npmjs.com/package/@sonalsithara/devpilot">npm</a> ·
+          <a href="https://github.com/sonal-sithara/devpilot/blob/main/CHANGELOG.md">Changelog</a>
+        </span>
+      </footer>
+    </div>
+  </body>
+</html>
