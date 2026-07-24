@@ -173,6 +173,12 @@ Quality bar:
   the project does not have yet, mark it explicitly as an adoption step —
   never present an unverified command or file as already existing.
 - Write rules and steps as imperatives; no filler sentences, no hedging.
+- Any workflow step that is destructive or hard to reverse — committing,
+  pushing, tagging, publishing, deleting, migrating — must be gated on
+  explicit user approval: the workflow shows exactly what it is about to do
+  and waits for the user's reply before doing it. Suspected secrets or
+  sensitive data are a hard stop with no "continue anyway" option. Never
+  generate a workflow that amends or force-pushes.
 
 ${kindInstructions}
 
@@ -391,6 +397,19 @@ committing is a universal workflow, but its content must be as
 project-specific as the rest: the exact ordered verification chain to run
 before committing, the repository's real commit-message conventions, and
 what must never be staged here. A generic five-liner is a failure.
+The commit skill is INTERACTIVE — it must be structured as ordered steps
+that each stop for the user:
+1. Inspect what is staged (git status/diff --cached) and summarize it;
+   stop if nothing is staged. Unstaged changes are not part of the commit.
+2. Scan the staged diff for secrets/credentials/keys (hard stop, no
+   override), plus this project's own red flags visible in the digest —
+   debug output, generated files staged without their sources, leftover
+   TODOs — and ask the user whether to continue when found.
+3. Propose the full commit message in this repository's real convention
+   and wait for the user to approve, edit or cancel before committing.
+4. Only commit after approval; never amend, never stage extra files the
+   user did not approve.
+5. Ask before any push; never force-push.
 
 Illustrative examples of the other kinds of skills a project might warrant
 (pick, rename, replace or invent as the digest dictates — none are
@@ -500,17 +519,28 @@ ${testDir ? `4. Add tests in \`${testDir}/\`, mirroring the existing test style.
         ),
         skill(
           'commit',
-          `Prepare and write a clean commit for ${a.name}.`,
+          `Prepare and commit staged changes to ${a.name}, gated on user approval at every step.`,
           `# Committing to ${a.name}
 
-1. Review the full diff (\`git status\` + \`git diff\`): remove debug output,
-   stray files and anything unrelated to this change.
-2. Never commit secrets, credentials, or generated/build artifacts.
+This workflow is interactive: never stage extra files, amend, commit or
+push until the user approves the relevant step.
+
+1. Inspect the staged changes (\`git status --short\`, \`git diff --cached\`)
+   and summarize what they actually change. If nothing is staged, stop and
+   ask the user to stage the intended files. Unstaged changes are not part
+   of this commit.
+2. Scan the staged diff for secrets, credentials, API keys or private
+   keys — any suspected secret is a hard stop with no "continue anyway".
+   For debug output, stray files, generated/build artifacts or leftover
+   TODOs, show the exact file and line and ask whether to continue.
 3. ${verify}
-4. Read \`git log --oneline -10\` and match this repository's message style;
-   subject line in the imperative, under 72 characters.
-5. Stage only the files belonging to this change, then commit. Split
-   unrelated work into separate commits.`,
+4. Read \`git log --oneline -10\`, match this repository's message style
+   (imperative subject, under 72 characters), and show the full proposed
+   message. Wait for the user to approve, edit or cancel.
+5. Commit only after approval; never amend an existing commit. Split
+   unrelated work into separate commits.
+6. Ask before pushing; never force-push. Report the commit hash, subject
+   and push status.`,
         ),
       ];
       if (hasApiLayer(a)) {

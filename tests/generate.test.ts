@@ -227,6 +227,33 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('makes the commit skill interactive: approval-gated, secret hard stop, no amend/force-push', () => {
+    const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!;
+    const prompt = skills.prompt('digest');
+    expect(prompt).toContain('INTERACTIVE');
+    expect(prompt).toContain('hard stop');
+    expect(prompt).toContain('never force-push');
+    const root = makeProject();
+    try {
+      const commit = skills
+        .fallback(analyzeProject(root))
+        .find((f) => f.file === '.claude/skills/commit/SKILL.md')!;
+      expect(commit.content).toContain('git diff --cached');
+      expect(commit.content).toContain('hard stop');
+      expect(commit.content).toContain('Wait for the user to approve');
+      expect(commit.content).toContain('never amend');
+      expect(commit.content).toContain('Ask before pushing; never force-push');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('gates destructive workflow steps on user approval in every artifact prompt', () => {
+    for (const kind of ARTIFACT_KINDS) {
+      expect(kind.prompt('digest')).toContain('explicit user approval');
+    }
+  });
+
   it('adds the screen skill only for UI projects', () => {
     const root = makeProject();
     try {
