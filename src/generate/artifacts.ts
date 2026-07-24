@@ -324,6 +324,7 @@ Given a feature or fix request:
     description: 'Claude Code skills (.claude/skills/)',
     allowedPaths: ['.claude/skills/'],
     minFiles: 4,
+    requiredFiles: ['.claude/skills/commit/SKILL.md'],
     prompt: (digest) =>
       commonPrompt(
         `Generate 4–8 Claude Code skills, each at
@@ -332,13 +333,19 @@ repeatable workflows. Derive the set from the codebase itself — its
 architecture, layers and everyday engineering tasks — and name each skill
 in the project's own vocabulary.
 
-Illustrative examples of the kind of skills a project might warrant (pick,
-rename, replace or invent as the digest dictates — none are required):
-"new-feature", "fix-bug", "refactor", "feature-info", "new-utility",
-"commit", "implement-api" for a project with an API layer, "new-screen"
-for a UI app, or fully domain-specific ones — a CLI tool might want
-"new-command", a library "new-public-api", a project with a release
-process "release", one with schema migrations "new-migration".
+One skill is required in every project: ".claude/skills/commit/SKILL.md" —
+committing is a universal workflow, but its content must be as
+project-specific as the rest: the exact ordered verification chain to run
+before committing, the repository's real commit-message conventions, and
+what must never be staged here. A generic five-liner is a failure.
+
+Illustrative examples of the other kinds of skills a project might warrant
+(pick, rename, replace or invent as the digest dictates — none are
+required): "new-feature", "fix-bug", "refactor", "feature-info",
+"new-utility", "implement-api" for a project with an API layer,
+"new-screen" for a UI app, or fully domain-specific ones — a CLI tool
+might want "new-command", a library "new-public-api", a project with a
+release process "release", one with schema migrations "new-migration".
 
 Two hard rules: never generate a skill for a workflow this project does
 not have, and prefer a skill grounded in the digest's real structure over

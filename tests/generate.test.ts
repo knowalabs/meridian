@@ -149,6 +149,19 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('requires a commit skill from AI responses and always includes one statically', () => {
+    const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!;
+    expect(skills.requiredFiles).toContain('.claude/skills/commit/SKILL.md');
+    expect(skills.prompt('digest')).toContain('.claude/skills/commit/SKILL.md');
+    const root = makeProject();
+    try {
+      const files = skills.fallback(analyzeProject(root)).map((f) => f.file);
+      expect(files).toContain('.claude/skills/commit/SKILL.md');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('adds the screen skill only for UI projects', () => {
     const root = makeProject();
     try {
