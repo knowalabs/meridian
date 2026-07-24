@@ -117,6 +117,30 @@ function verificationChecklist(a: ProjectAnalysis): string[] {
     .map((s) => commandFor(a, s));
 }
 
+/**
+ * Gaps between the project as scanned and a professional/enterprise
+ * baseline, each phrased as the concrete adoption step that closes it.
+ * Language-agnostic: derived from the ecosystem-detected scripts and
+ * conventions, not from any single stack's tooling.
+ */
+function raisingTheBar(a: ProjectAnalysis): string[] {
+  const gaps: string[] = [];
+  const hasScript = (name: string) => Object.keys(a.scripts).some((s) => s.startsWith(name));
+  if (!hasScript('test'))
+    gaps.push(
+      'Adopt an automated test suite wired to a single `test` command — new behavior must not land unverified.',
+    );
+  if (!hasScript('lint') && !a.conventions.some((c) => /lint/i.test(c)))
+    gaps.push(
+      "Adopt a linter for the project's primary language and fix its findings incrementally.",
+    );
+  if (!hasScript('format') && !a.conventions.some((c) => /format|prettier/i.test(c)))
+    gaps.push('Adopt an auto-formatter so style stays uniform as contributors join.');
+  if (!a.conventions.some((c) => /\bci\b|workflow|jenkins|circleci|pipeline/i.test(c)))
+    gaps.push('Add a CI pipeline that runs the full verification chain on every push.');
+  return gaps;
+}
+
 function commonPrompt(kindInstructions: string, digest: string): string {
   return `You are DevPilot, a tool that makes codebases AI-assistant-ready.
 First review the project digest below carefully — the layout, the real
@@ -133,6 +157,16 @@ Quality bar:
 - Content should be thorough and immediately useful — a developer should not
   need to edit it afterwards. Depth beats brevity; cover the edge cases you
   can see in the code.
+- The generated files ARE this repository's engineering standard, whatever
+  the language. Encode the professional, enterprise-grade practices of this
+  stack's own ecosystem — error handling, input validation, security,
+  test discipline, dependency hygiene — as concrete rules grounded in the
+  code you can see, so every future change is held to that bar.
+- Write for where the project is going, not only where it is: use the
+  maturity gaps and trajectory from the codebase review so the kit keeps
+  the code professional as it grows. When you recommend a practice or tool
+  the project does not have yet, mark it explicitly as an adoption step —
+  never present an unverified command or file as already existing.
 - Write rules and steps as imperatives; no filler sentences, no hedging.
 
 ${kindInstructions}
@@ -170,8 +204,13 @@ rules for AI assistants working in this repository. Structure it as:
   change must include, exact commands to run
 ## Verification — the exact ordered commands to run before work is done
 ## Safety — secrets, destructive operations, files never to touch
+## Raising the bar — the standards this project should adopt next to reach
+   enterprise quality, taken from the maturity gaps and trajectory in your
+   codebase review. Each is an imperative with its concrete first step, and
+   each is clearly an adoption step — never disguised as something the
+   project already has.
 
-Every rule is an imperative one-liner an AI can follow. Aim for 60–120 lines
+Every rule is an imperative one-liner an AI can follow. Aim for 60–140 lines
 of genuinely project-specific rules.`,
         digest,
       ),
@@ -222,6 +261,15 @@ ${checklist.length ? `Run, in order, before considering any work done:\n\n${chec
 - Never commit secrets, API keys or credentials.
 - Ask before running destructive commands (deletes, force-pushes, migrations).
 - Never edit generated files by hand (\`dist/\`, coverage output, lockfiles except via the package manager).
+
+## Raising the bar
+
+${
+  raisingTheBar(a)
+    .map((g) => `- ${g}`)
+    .join('\n') ||
+  '- Tooling baseline is solid — keep tests, lint, formatting and CI green as the project grows.'
+}
 `,
         },
       ];
@@ -662,6 +710,12 @@ warrants. Illustrative examples (pick, rename or invent as the digest
 dictates — none are required): "security.md" (secrets/config handling,
 input validation, code paths to treat with care), "tech-debt.md" (an
 honest register: area | description | impact | suggested fix),
+"engineering-standards.md" (the enterprise bar for this stack, how the
+repo measures against it today, and the adoption step for each gap —
+sourced from the Maturity & gaps of your codebase review),
+"roadmap.md" (ONLY when the digest shows real trajectory signals —
+CHANGELOG history, ROADMAP/TODO files, half-built modules — with every
+item grounded in that evidence, never invented),
 "BEHAVIOUR_CONTRACT_TEMPLATE.md" (a fill-in template for specifying
 observable behavior before changing it), "design-system.md" for UI
 component libraries (split into core/feature/input component docs when

@@ -173,8 +173,22 @@ function detectFrameworks(root: string, deps: string[]): string[] {
   if (fs.existsSync(path.join(root, 'pyproject.toml'))) found.push('Python (pyproject)');
   if (fs.existsSync(path.join(root, 'requirements.txt'))) found.push('Python (pip)');
   if (fs.existsSync(path.join(root, 'pubspec.yaml'))) found.push('Flutter/Dart (pubspec)');
-  if (fs.existsSync(path.join(root, 'composer.json'))) found.push('PHP (Composer)');
-  if (fs.existsSync(path.join(root, 'Gemfile'))) found.push('Ruby (Bundler)');
+  if (fs.existsSync(path.join(root, 'manage.py'))) found.push('Django');
+  if (fs.existsSync(path.join(root, 'composer.json'))) {
+    found.push('PHP (Composer)');
+    if (readText(path.join(root, 'composer.json')).includes('laravel/framework'))
+      found.push('Laravel');
+  }
+  if (fs.existsSync(path.join(root, 'Gemfile'))) {
+    found.push('Ruby (Bundler)');
+    if (/^\s*gem ['"]rails['"]/m.test(readText(path.join(root, 'Gemfile'))))
+      found.push('Ruby on Rails');
+  }
+  if (fs.existsSync(path.join(root, 'mix.exs'))) found.push('Elixir (Mix)');
+  if (fs.existsSync(path.join(root, 'Package.swift'))) found.push('Swift (SwiftPM)');
+  if (fs.existsSync(path.join(root, 'deno.json')) || fs.existsSync(path.join(root, 'deno.jsonc')))
+    found.push('Deno');
+  if (hasDotnetProject(root)) found.push('.NET');
   if (fs.existsSync(path.join(root, 'pom.xml'))) found.push('Java (Maven)');
   if (
     fs.existsSync(path.join(root, 'build.gradle')) ||
@@ -190,6 +204,15 @@ function readText(file: string): string {
     return fs.readFileSync(file, 'utf8');
   } catch {
     return '';
+  }
+}
+
+/** True when the root holds a .NET project/solution file. */
+function hasDotnetProject(root: string): boolean {
+  try {
+    return fs.readdirSync(root).some((f) => /\.(csproj|fsproj|sln|slnx)$/i.test(f));
+  } catch {
+    return false;
   }
 }
 
@@ -237,11 +260,34 @@ function detectEcosystemScripts(root: string): Record<string, string> {
     if (py.includes('black')) add('format', 'black .');
     if (py.includes('mypy')) add('typecheck', 'mypy .');
   }
+  if (exists('manage.py')) {
+    add('test', 'python manage.py test');
+    add('dev', 'python manage.py runserver');
+  }
   if (exists('pubspec.yaml')) {
     const tool = readText(path.join(root, 'pubspec.yaml')).includes('flutter') ? 'flutter' : 'dart';
     add('test', `${tool} test`);
     add('lint', `${tool} analyze`);
     add('format', 'dart format .');
+  }
+  if (exists('mix.exs')) {
+    add('build', 'mix compile');
+    add('test', 'mix test');
+    add('format', 'mix format');
+  }
+  if (exists('Package.swift')) {
+    add('build', 'swift build');
+    add('test', 'swift test');
+  }
+  if (exists('deno.json') || exists('deno.jsonc')) {
+    add('test', 'deno test');
+    add('lint', 'deno lint');
+    add('format', 'deno fmt');
+  }
+  if (hasDotnetProject(root)) {
+    add('build', 'dotnet build');
+    add('test', 'dotnet test');
+    add('format', 'dotnet format');
   }
   if (exists('pom.xml')) {
     add('build', 'mvn package');
@@ -281,6 +327,12 @@ function detectConventions(root: string, devDeps: string[]): string[] {
   if (devDeps.includes('jest')) conventions.push('Tests with Jest');
   if (exists('.editorconfig')) conventions.push('EditorConfig');
   if (exists('.github')) conventions.push('GitHub workflows / CI');
+  if (exists('.gitlab-ci.yml')) conventions.push('GitLab CI');
+  if (exists('Jenkinsfile')) conventions.push('Jenkins CI');
+  if (exists('.circleci/config.yml')) conventions.push('CircleCI');
+  if (exists('azure-pipelines.yml')) conventions.push('Azure Pipelines');
+  if (exists('CODEOWNERS') || exists('.github/CODEOWNERS'))
+    conventions.push('Code ownership (CODEOWNERS)');
   return conventions;
 }
 

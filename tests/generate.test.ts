@@ -119,6 +119,21 @@ describe('buildDigest', () => {
     }
   });
 
+  it('includes future-signal files (CHANGELOG, ROADMAP, TODO) when present', () => {
+    const root = makeProject();
+    try {
+      fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n## 1.0.0\n- shipped\n');
+      fs.writeFileSync(path.join(root, 'ROADMAP.md'), '# Roadmap\n- plugin system\n');
+      fs.writeFileSync(path.join(root, 'TODO.md'), '- [ ] add auth\n');
+      const digest = buildDigest(root);
+      expect(digest.text).toContain('File: CHANGELOG.md');
+      expect(digest.text).toContain('File: ROADMAP.md');
+      expect(digest.text).toContain('File: TODO.md');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('samples sources from non-JS languages like C++', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cpp-'));
     try {
@@ -144,6 +159,52 @@ describe('static fallbacks', () => {
         expect(files.length).toBeGreaterThan(0);
         for (const f of files) expect(isAllowedPath(f.file, kind.allowedPaths)).toBe(true);
       }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('every prompt demands enterprise-grade, future-aware output', () => {
+    for (const kind of ARTIFACT_KINDS) {
+      const prompt = kind.prompt('digest');
+      expect(prompt).toContain('enterprise-grade');
+      expect(prompt).toContain('maturity gaps and trajectory');
+    }
+    const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+    expect(rules.prompt('digest')).toContain('Raising the bar');
+  });
+
+  it('rules fallback lists adoption steps for tooling the project lacks', () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-bare-'));
+    try {
+      // No scripts, lint, formatter or CI → every gap is reported.
+      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      const content = rules.fallback(analyzeProject(bare))[0]!.content;
+      expect(content).toContain('## Raising the bar');
+      expect(content).toContain('automated test suite');
+      expect(content).toContain('CI pipeline');
+      expect(content).toContain('linter');
+      expect(content).toContain('auto-formatter');
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it('rules fallback praises a solid baseline instead of inventing gaps', () => {
+    const root = makeProject();
+    try {
+      fs.writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({
+          name: 'solid-app',
+          scripts: { test: 'vitest run', lint: 'eslint src', format: 'prettier -w .' },
+        }),
+      );
+      fs.mkdirSync(path.join(root, '.github'));
+      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      const content = rules.fallback(analyzeProject(root))[0]!.content;
+      expect(content).toContain('Tooling baseline is solid');
+      expect(content).not.toContain('Adopt an automated test suite');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

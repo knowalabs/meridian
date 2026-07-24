@@ -84,6 +84,61 @@ describe('project analyzer', () => {
     }
   });
 
+  it('detects Elixir, SwiftPM, Deno and .NET projects with their commands', () => {
+    const cases: [string, string, string, Record<string, string>][] = [
+      ['mix.exs', 'defmodule Demo do\nend\n', 'Elixir (Mix)', { test: 'mix test' }],
+      ['Package.swift', '// swift-tools-version:5.9\n', 'Swift (SwiftPM)', { test: 'swift test' }],
+      ['deno.json', '{}', 'Deno', { test: 'deno test', format: 'deno fmt' }],
+      ['demo.csproj', '<Project />', '.NET', { test: 'dotnet test', build: 'dotnet build' }],
+    ];
+    for (const [file, content, framework, scripts] of cases) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-eco-'));
+      try {
+        fs.writeFileSync(path.join(dir, file), content);
+        const a = analyzeProject(dir);
+        expect(a.frameworks).toContain(framework);
+        for (const [name, cmd] of Object.entries(scripts)) expect(a.scripts[name]).toBe(cmd);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('detects Django and Rails on top of their base ecosystems', () => {
+    const dj = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-dj-'));
+    const rails = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-rails-'));
+    try {
+      fs.writeFileSync(path.join(dj, 'manage.py'), '#!/usr/bin/env python\n');
+      const a = analyzeProject(dj);
+      expect(a.frameworks).toContain('Django');
+      expect(a.scripts['test']).toBe('python manage.py test');
+      expect(a.scripts['dev']).toBe('python manage.py runserver');
+
+      fs.writeFileSync(path.join(rails, 'Gemfile'), "source 'https://rubygems.org'\ngem 'rails'\n");
+      const r = analyzeProject(rails);
+      expect(r.frameworks).toContain('Ruby (Bundler)');
+      expect(r.frameworks).toContain('Ruby on Rails');
+    } finally {
+      fs.rmSync(dj, { recursive: true, force: true });
+      fs.rmSync(rails, { recursive: true, force: true });
+    }
+  });
+
+  it('detects CI systems beyond GitHub Actions as conventions', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-ci-'));
+    try {
+      fs.writeFileSync(path.join(dir, '.gitlab-ci.yml'), 'stages: [test]\n');
+      fs.writeFileSync(path.join(dir, 'Jenkinsfile'), 'pipeline {}\n');
+      fs.writeFileSync(path.join(dir, 'CODEOWNERS'), '* @owner\n');
+      const a = analyzeProject(dir);
+      expect(a.conventions).toContain('GitLab CI');
+      expect(a.conventions).toContain('Jenkins CI');
+      expect(a.conventions).toContain('Code ownership (CODEOWNERS)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('renders markdown with all sections', () => {
     const md = renderContextMarkdown(analyzeProject(tmp));
     for (const section of [

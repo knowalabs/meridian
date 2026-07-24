@@ -16,7 +16,12 @@ export interface ProjectDigest {
   includedFiles: string[];
 }
 
-/** Files whose contents say the most about a project, in priority order. */
+/**
+ * Files whose contents say the most about a project, in priority order.
+ * Includes future-signal files (CHANGELOG, ROADMAP, TODO) on purpose: the
+ * generated kit should reflect where the project is headed, not only where
+ * it is today.
+ */
 const KEY_FILES = [
   'README.md',
   'package.json',
@@ -28,10 +33,18 @@ const KEY_FILES = [
   'Gemfile',
   'pom.xml',
   'build.gradle',
+  'build.gradle.kts',
   'Makefile',
   'CMakeLists.txt',
   'requirements.txt',
+  'setup.py',
+  'manage.py',
   'mix.exs',
+  'Package.swift',
+  'deno.json',
+  'CHANGELOG.md',
+  'ROADMAP.md',
+  'TODO.md',
   'lib/main.dart',
   'tsconfig.json',
   'src/index.ts',
@@ -46,9 +59,16 @@ const KEY_FILES = [
   'jest.config.js',
   'eslint.config.js',
   '.github/workflows/ci.yml',
+  '.gitlab-ci.yml',
+  'Jenkinsfile',
+  '.circleci/config.yml',
+  'azure-pipelines.yml',
   'Dockerfile',
   'docker-compose.yml',
   'CONTRIBUTING.md',
+  'SECURITY.md',
+  'CODEOWNERS',
+  '.github/CODEOWNERS',
 ];
 
 const PER_FILE_CAP = 6_000;

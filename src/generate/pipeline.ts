@@ -100,9 +100,19 @@ the dependencies and scripts — and write a deep codebase review in markdown:
 ## Testing & verification — frameworks, where tests live, the exact commands
 ## Gotchas — platform quirks, generated files, ordering constraints, anything
    an AI assistant could get wrong here
+## Maturity & gaps — measure the project against the professional/enterprise
+   bar for its stack: testing depth, CI, security posture, error handling,
+   release discipline, documentation. Name only gaps the digest actually
+   shows (or conspicuously lacks) — no speculation.
+## Trajectory — where this project is headed, from the evidence: README
+   goals, CHANGELOG history, roadmap/TODO files, half-built modules,
+   dependency choices. State what the codebase is growing toward so the
+   generated kit prepares it for that future, not just its present.
 
 Be concrete and cite real paths. This review will be the foundation for
-generating the project's AI configuration files. Output markdown only.
+generating the project's AI configuration files — the maturity gaps and
+trajectory you identify here must shape the standards those files set.
+Output markdown only.
 
 --- PROJECT DIGEST ---
 `;
