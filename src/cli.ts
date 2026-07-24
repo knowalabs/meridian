@@ -11,6 +11,7 @@ import {
   keysRepairCommand,
 } from './commands/auth.js';
 import { generateCommand } from './commands/generate.js';
+import { syncCommand } from './commands/sync.js';
 import {
   mcpInstallCommand,
   mcpListCommand,
@@ -143,13 +144,28 @@ Examples:
     .option('--no-ai', 'use static templates even if an AI provider is configured')
     .addHelpText(
       'after',
-      '\nKinds: rules, agents, skills, commands, prompts, docs (default: all)\nExamples:\n  $ devpilot generate                   generate everything\n  $ devpilot generate agents commands   only subagents and slash commands\n  $ devpilot generate --dry-run         preview without writing',
+      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nOpt-in kinds (only when named): ci — a GitHub Action running "devpilot sync --check"\nExamples:\n  $ devpilot generate                   generate everything\n  $ devpilot generate agents commands   only subagents and slash commands\n  $ devpilot generate ci                add the CI kit-freshness check\n  $ devpilot generate --dry-run         preview without writing',
     )
     .action(
       async (
         kinds: string[],
         opts: { provider?: string; force?: boolean; dryRun?: boolean; ai?: boolean },
       ) => done(await generateCommand(kinds ?? [], opts)),
+    );
+
+  program
+    .command('sync')
+    .description('Detect drift between the codebase and the generated AI kit, and refresh it')
+    .option('--check', 'report only; exit 1 when the kit is stale (no AI needed — made for CI)')
+    .option('-p, --provider <id>', 'force a specific AI provider for the refresh')
+    .option('--dry-run', 'show what would be refreshed without writing')
+    .option('--no-ai', 'refresh from static templates instead of AI')
+    .addHelpText(
+      'after',
+      '\nHand-edited generated files are always preserved.\nExamples:\n  $ devpilot sync                       refresh whatever is stale\n  $ devpilot sync --check               CI gate: fail when the kit is stale',
+    )
+    .action(async (opts: { check?: boolean; provider?: string; dryRun?: boolean; ai?: boolean }) =>
+      done(await syncCommand(opts)),
     );
 
   const mcp = program.command('mcp').description('Search and install MCP servers');

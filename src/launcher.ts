@@ -52,6 +52,7 @@ ${row('devpilot auth', 'store an API key in the secure vault')}
 ${row('devpilot generate', 'make your project AI-ready in one shot')}
 
 ${pc.bold('Everyday:')}
+${row('devpilot sync', 'refresh the AI kit when the codebase drifts')}
 ${row('devpilot ask "…"', 'ask AI via the smart router')}
 ${row('devpilot mcp search', 'find & install MCP servers')}
 
@@ -80,6 +81,11 @@ const MENU: MenuItem[] = [
     command: 'generate',
     label: 'Generate AI kit',
     description: 'review the codebase, generate context, rules, agents, skills, commands',
+  },
+  {
+    command: 'sync',
+    label: 'Sync AI kit',
+    description: 'detect codebase drift and refresh stale kit files (edits preserved)',
   },
   { command: 'mcp search', label: 'MCP servers', description: 'browse the MCP marketplace' },
   {

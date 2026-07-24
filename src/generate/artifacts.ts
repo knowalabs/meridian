@@ -28,6 +28,8 @@ export interface ArtifactKind {
   minFiles?: number;
   /** Exact paths a well-formed AI response must include. */
   requiredFiles?: string[];
+  /** Only generated when explicitly requested by id, never as part of "all". */
+  optIn?: boolean;
   prompt(digest: string): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
 }
@@ -83,7 +85,7 @@ function stack(a: ProjectAnalysis): string {
 }
 
 /** Top-level directories parsed out of the rendered tree. */
-function topLevelDirs(a: ProjectAnalysis): string[] {
+export function topLevelDirs(a: ProjectAnalysis): string[] {
   return a.tree
     .split('\n')
     .filter((line) => /^(├── |└── ).*\/$/.test(line))
@@ -887,8 +889,118 @@ agreed contract the change is verified against.
       ];
     },
   },
+  {
+    id: 'harness',
+    name: 'Harness config',
+    description: 'Claude Code harness settings (.claude/settings.json)',
+    allowedPaths: ['.claude/settings.json'],
+    requiredFiles: ['.claude/settings.json'],
+    prompt: (digest) =>
+      commonPrompt(
+        `Generate exactly one file: ".claude/settings.json" — the checked-in
+Claude Code harness configuration for this repository. It must be a single
+valid JSON object (no comments, no trailing commas) with:
+
+- "$schema": "https://json.schemastore.org/claude-code-settings.json"
+- "permissions.allow": permission rules for the commands a session on THIS
+  project runs constantly, so they stop prompting: the real verification
+  scripts from the digest (test, lint, build, format, typecheck — as the
+  developer actually invokes them, e.g. "Bash(npm run test:*)") and
+  read-only git inspection ("Bash(git status)", "Bash(git diff:*)",
+  "Bash(git log:*)"). Allowlist ONLY commands that appear in the digest and
+  are read-only or repo-local. NEVER allowlist anything destructive or
+  outward-facing: no push, publish, deploy, tag, rm, sudo, curl, or package
+  installs.
+- "permissions.deny": deny reads of the secret material this project could
+  hold — ".env" files and any credential/key paths the digest shows (e.g.
+  "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)").
+- "hooks": OPTIONAL, and only when the digest shows a command that is
+  clearly safe to run automatically (e.g. a formatter). A hook must use a
+  command from the digest verbatim, must be read-only or formatting-only,
+  and must never commit, push, install or delete. When in doubt, omit
+  hooks entirely — a wrong hook is worse than none.
+
+The file is shared by the whole team via git, so keep it minimal and
+uncontroversial; personal preferences belong in settings.local.json, which
+you must not generate.`,
+        digest,
+      ),
+    fallback: (a) => {
+      const allow = new Set<string>(['Bash(git status)', 'Bash(git diff:*)', 'Bash(git log:*)']);
+      const commands = new Set([
+        ...verificationChecklist(a),
+        ...workflowScripts(a).map(([name]) => commandFor(a, name)),
+      ]);
+      for (const c of commands) {
+        allow.add(`Bash(${c})`);
+        allow.add(`Bash(${c}:*)`);
+      }
+      const settings = {
+        $schema: 'https://json.schemastore.org/claude-code-settings.json',
+        permissions: {
+          allow: [...allow].sort(),
+          deny: ['Read(./.env)', 'Read(./.env.*)', 'Read(./**/*.pem)', 'Read(./**/*.key)'],
+        },
+      };
+      return [{ file: '.claude/settings.json', content: JSON.stringify(settings, null, 2) + '\n' }];
+    },
+  },
+  {
+    id: 'ci',
+    name: 'CI kit check',
+    description: 'GitHub Action that fails when the AI kit is stale (opt-in: devpilot generate ci)',
+    allowedPaths: ['.github/workflows/devpilot-sync.yml'],
+    requiredFiles: ['.github/workflows/devpilot-sync.yml'],
+    optIn: true,
+    prompt: (digest) =>
+      commonPrompt(
+        `Generate exactly one file: ".github/workflows/devpilot-sync.yml" — a
+GitHub Actions workflow that keeps this repository's generated AI kit
+honest: it runs "npx -y @sonalsithara/devpilot sync --check", which exits
+non-zero when the codebase has drifted from the kit recorded in
+.devpilot/manifest.json.
+
+Rules for the workflow:
+- Trigger on pull_request, and on push only for the default branch the
+  digest shows (fall back to "main" if none is visible).
+- One job, ubuntu-latest: checkout (actions/checkout@v4), setup-node
+  (actions/setup-node@v4) with the Node version the digest shows the
+  project uses (engines, CI configs, .nvmrc) or 20 otherwise, then the
+  sync --check step. The check is static analysis only — it needs no AI
+  provider, no API keys and no secrets; do not reference any.
+- The workflow is strictly read-only: it must never commit, push, publish,
+  deploy or write to the repository.`,
+        digest,
+      ),
+    fallback: () => [
+      {
+        file: '.github/workflows/devpilot-sync.yml',
+        content: `name: DevPilot kit check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  kit-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Static drift check against .devpilot/manifest.json — no AI provider
+      # or secrets needed. Exits 1 when the kit is stale.
+      - run: npx -y @sonalsithara/devpilot sync --check
+`,
+      },
+    ],
+  },
 ];
 
 export function kindsById(ids: string[]): ArtifactKind[] {
-  return ids.length ? ARTIFACT_KINDS.filter((k) => ids.includes(k.id)) : ARTIFACT_KINDS;
+  return ids.length
+    ? ARTIFACT_KINDS.filter((k) => ids.includes(k.id))
+    : ARTIFACT_KINDS.filter((k) => !k.optIn);
 }

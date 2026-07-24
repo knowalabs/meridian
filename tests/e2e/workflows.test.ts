@@ -86,6 +86,39 @@ describe('e2e: generate', () => {
   });
 });
 
+describe('e2e: sync', () => {
+  let sandbox: Sandbox;
+  beforeEach(() => (sandbox = makeSandbox()));
+  afterEach(() => sandbox.cleanup());
+
+  it('check gates on drift, sync refreshes, edits survive', async () => {
+    fs.writeFileSync(path.join(sandbox.project, 'main.ts'), 'export const x = 1;\n');
+    fs.writeFileSync(
+      path.join(sandbox.project, 'package.json'),
+      JSON.stringify({ name: 'sync-e2e', scripts: { test: 'vitest run' } }),
+    );
+    expect((await runCli(['generate', '--no-ai'], sandbox)).code).toBe(0);
+    expect((await runCli(['sync', '--check'], sandbox)).code).toBe(0);
+
+    // The codebase drifts: a new script appears, a hand edit lands.
+    fs.writeFileSync(
+      path.join(sandbox.project, 'package.json'),
+      JSON.stringify({ name: 'sync-e2e', scripts: { test: 'vitest run', lint: 'eslint .' } }),
+    );
+    const rules = path.join(sandbox.project, '.devpilot/rules.md');
+    const edited = fs.readFileSync(rules, 'utf8') + '\n- my own rule\n';
+    fs.writeFileSync(rules, edited);
+
+    const check = await runCli(['sync', '--check'], sandbox);
+    expect(check.code).toBe(1);
+
+    expect((await runCli(['sync', '--no-ai'], sandbox)).code).toBe(0);
+    expect(fs.readFileSync(rules, 'utf8')).toBe(edited); // hand edit preserved
+    expect(fs.existsSync(path.join(sandbox.project, '.claude/commands/lint.md'))).toBe(true);
+    expect((await runCli(['sync', '--check'], sandbox)).code).toBe(0);
+  });
+});
+
 describe('e2e: mcp configure', () => {
   let sandbox: Sandbox;
   beforeEach(() => (sandbox = makeSandbox()));

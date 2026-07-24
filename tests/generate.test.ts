@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ARTIFACT_KINDS, isAllowedPath, parseFileBlocks } from '../src/generate/artifacts.js';
+import {
+  ARTIFACT_KINDS,
+  isAllowedPath,
+  kindsById,
+  parseFileBlocks,
+} from '../src/generate/artifacts.js';
 import { buildDigest } from '../src/generate/digest.js';
 import { runGenerate } from '../src/generate/pipeline.js';
 import { setFetchForTests } from '../src/providers/router.js';
@@ -272,6 +277,49 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('harness fallback allowlists the real scripts and denies secret reads', () => {
+    const root = makeProject();
+    try {
+      const harness = ARTIFACT_KINDS.find((k) => k.id === 'harness')!;
+      const [settings] = harness.fallback(analyzeProject(root));
+      expect(settings!.file).toBe('.claude/settings.json');
+      const parsed = JSON.parse(settings!.content) as {
+        permissions: { allow: string[]; deny: string[] };
+      };
+      expect(parsed.permissions.allow).toContain('Bash(npm run test:*)');
+      expect(parsed.permissions.allow).toContain('Bash(npm run lint)');
+      expect(parsed.permissions.allow).toContain('Bash(git status)');
+      expect(parsed.permissions.deny).toContain('Read(./.env)');
+      // Nothing destructive sneaks into the allowlist.
+      expect(parsed.permissions.allow.join(' ')).not.toMatch(/push|publish|rm |sudo/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('never allowlists destructive commands in the harness prompt', () => {
+    const harness = ARTIFACT_KINDS.find((k) => k.id === 'harness')!;
+    const prompt = harness.prompt('digest');
+    expect(prompt).toContain('.claude/settings.json');
+    expect(prompt).toContain('NEVER allowlist anything destructive');
+  });
+
+  it('keeps the ci kind opt-in and points it at sync --check', () => {
+    const ci = ARTIFACT_KINDS.find((k) => k.id === 'ci')!;
+    expect(ci.optIn).toBe(true);
+    expect(kindsById([]).map((k) => k.id)).not.toContain('ci');
+    expect(kindsById(['ci']).map((k) => k.id)).toEqual(['ci']);
+    const root = makeProject();
+    try {
+      const [workflow] = ci.fallback(analyzeProject(root));
+      expect(workflow!.file).toBe('.github/workflows/devpilot-sync.yml');
+      expect(workflow!.content).toContain('devpilot sync --check');
+      expect(workflow!.content).not.toMatch(/secrets\./);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('uses the ecosystem commands for a non-npm project', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-go-'));
     try {
@@ -328,6 +376,9 @@ describe('runGenerate', () => {
     // Express project → API skill generated, no UI layer → no screen skill.
     expect(written).toContain('.claude/skills/implement-api/SKILL.md');
     expect(written).not.toContain('.claude/skills/new-screen/SKILL.md');
+    // Harness config is part of the default kit; the CI workflow is opt-in.
+    expect(written).toContain('.claude/settings.json');
+    expect(written).not.toContain('.github/workflows/devpilot-sync.yml');
     // Rules were propagated to every tool's instruction file.
     expect(result.propagated).toContain('CLAUDE.md');
     expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(true);
