@@ -1,5 +1,12 @@
 # @sonalsithara/devpilot
 
+## 0.11.0
+
+### Minor Changes
+
+- Generated commit skills are now interactive and approval-gated: the required `.claude/skills/commit/SKILL.md` walks through inspecting the staged diff (stopping when nothing is staged, excluding unstaged changes), a safety scan where any suspected secret/credential is a hard stop with no "continue anyway" path (project-specific red flags like debug output, generated files staged without their sources or leftover TODOs prompt the user instead), proposing the full commit message in the repository's real convention and waiting for approve/edit/cancel, committing only after approval (never amending, never staging unapproved files), and asking before any push — force-pushing is banned. Both the AI prompt and the static (`--no-ai`) fallback follow this flow.
+- Every artifact kind's prompt (rules, agents, skills, commands, prompts, docs) now carries a shared safety rule: any generated workflow step that is destructive or hard to reverse — committing, pushing, tagging, publishing, deleting, migrating — must show exactly what it is about to do and wait for explicit user approval, with suspected secrets as a hard stop and amend/force-push never generated. This covers AI-generated release skills and slash commands, not just the commit skill.
+
 ## 0.10.0
 
 ### Minor Changes
