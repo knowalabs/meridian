@@ -12,6 +12,8 @@ export interface ProjectDigest {
   analysis: ProjectAnalysis;
   /** Rendered digest text handed to the AI provider. */
   text: string;
+  /** Files whose contents made it into the digest, in order. */
+  includedFiles: string[];
 }
 
 /** Files whose contents say the most about a project, in priority order. */
@@ -118,13 +120,15 @@ export function buildDigest(root: string, analysis?: ProjectAnalysis): ProjectDi
 
   let budget = TOTAL_CAP;
   const files = [...KEY_FILES, ...sampleSources(a, root, 10)];
+  const includedFiles: string[] = [];
   for (const rel of files) {
     if (budget <= 0) break;
     const content = excerpt(path.join(root, rel), Math.min(PER_FILE_CAP, budget));
     if (content === null) continue;
     sections.push(`\n## File: ${rel}\n\n\`\`\`\n${content}\n\`\`\``);
+    includedFiles.push(rel);
     budget -= content.length;
   }
 
-  return { analysis: a, text: sections.join('\n') };
+  return { analysis: a, text: sections.join('\n'), includedFiles };
 }

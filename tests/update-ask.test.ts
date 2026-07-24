@@ -6,6 +6,7 @@ import path from 'node:path';
 const runLiveMock = vi.fn<(cmd: string, args?: string[]) => boolean>();
 vi.mock('../src/core/exec.js', () => ({
   run: vi.fn(() => ({ ok: true, stdout: '', stderr: '', code: 0 })),
+  runAsync: vi.fn(async () => ({ ok: true, stdout: '', stderr: '', code: 0 })),
   runLive: (cmd: string, args?: string[]) => runLiveMock(cmd, args),
   which: vi.fn(() => null),
   versionOf: vi.fn(() => null),

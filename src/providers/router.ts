@@ -1,6 +1,6 @@
 import { loadConfig } from '../core/config.js';
 import { openVault } from '../core/vault.js';
-import { run, which } from '../core/exec.js';
+import { runAsync, which } from '../core/exec.js';
 import { CliError } from '../core/errors.js';
 
 /**
@@ -40,11 +40,15 @@ export function setFetchForTests(f: typeof globalThis.fetch | null): void {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-let runImpl: typeof run = run;
+type CliRunner = (
+  ...args: Parameters<typeof runAsync>
+) => ReturnType<typeof runAsync> | Awaited<ReturnType<typeof runAsync>>;
+
+let runImpl: CliRunner = runAsync;
 
 /** Test seam: replace the CLI runner used by CLI-backed providers. */
-export function setRunForTests(r: typeof run | null): void {
-  runImpl = r ?? run;
+export function setRunForTests(r: CliRunner | null): void {
+  runImpl = r ?? runAsync;
 }
 
 interface PostContext {
@@ -147,9 +151,8 @@ export const PROVIDERS: ProviderSpec[] = [
     contextTokens: 200_000,
     needsKey: false,
     binary: 'claude',
-    // eslint-disable-next-line @typescript-eslint/require-await -- CLI call is synchronous; async keeps errors as rejections like every other provider
     async ask(prompt) {
-      const res = runImpl(
+      const res = await runImpl(
         'claude',
         ['-p', '--output-format', 'text', '--model', modelFor(this)],
         prompt,

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 export interface ExecResult {
@@ -53,6 +53,62 @@ export function run(
     code: res.status,
     ...(res.error ? { error: res.error.message, notFound } : {}),
   };
+}
+
+/**
+ * Async variant of {@link run}: spawns without blocking the event loop, so
+ * spinners and timers keep going while a slow CLI (e.g. `claude -p`) works.
+ */
+export function runAsync(
+  cmd: string,
+  args: string[] = [],
+  input?: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<ExecResult> {
+  return new Promise((resolve) => {
+    const child = spawn(resolveCommand(cmd), args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    const settle = (result: ExecResult): void => {
+      if (!settled) {
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve(result);
+      }
+    };
+    const timer = opts.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill();
+        }, opts.timeoutMs)
+      : null;
+    child.stdout.setEncoding('utf8').on('data', (d: string) => (stdout += d));
+    child.stderr.setEncoding('utf8').on('data', (d: string) => (stderr += d));
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      settle({
+        ok: false,
+        stdout: '',
+        stderr: '',
+        code: null,
+        error: err.message,
+        notFound: err.code === 'ENOENT',
+      });
+    });
+    child.on('close', (code) => {
+      settle({
+        ok: code === 0 && !timedOut,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        code,
+        ...(timedOut ? { error: 'ETIMEDOUT' } : {}),
+      });
+    });
+    child.stdin.on('error', () => {}); // EPIPE if the child exits before reading
+    if (input !== undefined) child.stdin.write(input);
+    child.stdin.end();
+  });
 }
 
 /** Run a command inheriting stdio (for interactive installs). */

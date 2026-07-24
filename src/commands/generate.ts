@@ -1,7 +1,39 @@
 import pc from 'picocolors';
 import { ARTIFACT_KINDS } from '../generate/artifacts.js';
 import { pickProvider, runGenerate } from '../generate/pipeline.js';
+import { availableProviders, modelFor, PROVIDERS } from '../providers/router.js';
+import { loadConfig } from '../core/config.js';
+import { promptChoice } from '../core/prompt.js';
 import { jsonMode, log } from '../core/logger.js';
+
+/**
+ * Interactive provider choice: shown when several providers could serve this
+ * run and the user hasn't already decided (via --provider or a saved
+ * preference). Scripts and pipes skip it — the router auto-picks as before.
+ */
+async function chooseProvider(): Promise<string | undefined> {
+  const available = availableProviders();
+  const interactive = process.stdin.isTTY && process.stdout.isTTY && !jsonMode();
+  if (available.length < 2 || loadConfig().router.prefer || !interactive) return undefined;
+
+  const recommended = pickProvider()?.id;
+  const choices = available.map((id) => {
+    const p = PROVIDERS.find((x) => x.id === id)!;
+    const notes = [
+      p.needsKey ? 'API key' : id === 'claude-code' ? 'subscription, no key' : 'local, free',
+      id === recommended ? 'recommended' : '',
+    ];
+    return {
+      value: id,
+      label: `${p.name} ${pc.dim(`[${modelFor(p)}]`)}`,
+      note: notes.filter(Boolean).join(' — '),
+    };
+  });
+  log.title('Which AI should generate your kit?');
+  const picked = await promptChoice(`Provider ${pc.dim(`[Enter = ${recommended}]`)}:`, choices);
+  log.dim(`(skip this next time with --provider <id> or "devpilot router --prefer <id>")`);
+  return picked ?? recommended;
+}
 
 /**
  * `devpilot generate` — generate the complete AI kit for this project:
@@ -18,6 +50,10 @@ export async function generateCommand(
   if (unknown.length) {
     log.fail(`Unknown artifact kind(s): ${unknown.join(', ')}. Known: ${known.join(', ')}`);
     return 1;
+  }
+
+  if (opts.ai !== false && !opts.provider) {
+    opts.provider = await chooseProvider();
   }
 
   // Generation is AI-first: the whole point is content written after actually
