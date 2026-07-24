@@ -51,7 +51,7 @@ export async function generateCommand(
 
   if (jsonMode()) {
     log.json(result);
-    return 0;
+    return result.failed.length ? 1 : 0;
   }
 
   const written = result.files.filter((f) => f.action === 'written');
@@ -65,8 +65,19 @@ export async function generateCommand(
   for (const f of result.propagated) log.ok(`${f} ${pc.dim('(rules propagated)')}`);
   for (const f of skipped) log.dim(`  kept existing ${f.file} (use --force to overwrite)`);
   for (const f of rejected) log.warn(`rejected unsafe path from provider: ${f.file}`);
-  if (result.degraded.length)
-    log.warn(`AI failed for: ${result.degraded.join(', ')} — static fallbacks were used.`);
+
+  if (result.failed.length) {
+    if (result.aborted) {
+      log.warn(`Stopped early — the provider hit a limit: ${result.aborted.slice(0, 200)}`);
+    }
+    log.warn(`Not generated yet: ${result.failed.join(', ')}.`);
+    log.info(
+      `\nEverything already written is kept. Re-run ${pc.bold('devpilot generate')} later ` +
+        `(e.g. when your usage window resets) — it continues where it left off, ` +
+        `or route elsewhere now with ${pc.bold('--provider')}.`,
+    );
+    return 1;
+  }
 
   if (!written.length && !planned.length && !result.propagated.length) {
     log.ok('Everything already exists — nothing to do (use --force to regenerate).');
@@ -75,7 +86,7 @@ export async function generateCommand(
       `\nYour project is AI-ready: rules, agents, skills, commands and docs are in place.` +
         (result.provider
           ? ''
-          : `\nTip: add an API key (${pc.bold('devpilot auth')}) and re-run with --force for AI-tailored content.`),
+          : `\nNote: generated from offline templates (--no-ai). Re-run with AI + --force for tailored content.`),
     );
   }
   return 0;

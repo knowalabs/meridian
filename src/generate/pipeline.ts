@@ -57,8 +57,18 @@ export interface GenerateResult {
   files: FileResult[];
   /** Tool instruction files propagated from the generated rules. */
   propagated: string[];
-  /** Kinds where the AI call failed and the static fallback was used. */
-  degraded: string[];
+  /**
+   * Kinds whose AI generation failed. Nothing is written for them — a later
+   * re-run picks them up, since existing files are skipped by default.
+   */
+  failed: string[];
+  /** Set when the run stopped early (e.g. usage limit); the provider's message. */
+  aborted?: string;
+}
+
+/** Errors that will keep failing for the rest of the run (limits, quota). */
+function isQuotaError(message: string): boolean {
+  return /usage limit|limit reached|rate.?limit|quota|429|exhaust/i.test(message);
 }
 
 export function pickProvider(forced?: string): ProviderSpec | null {
@@ -96,21 +106,23 @@ async function generateKind(
   provider: ProviderSpec | null,
   apiKey: string,
   analysis: ProjectAnalysis,
-): Promise<{ files: ArtifactFile[]; source: 'ai' | 'static'; degraded: boolean }> {
-  if (provider) {
+): Promise<{ files: ArtifactFile[]; source: 'ai' | 'static'; error?: string }> {
+  if (!provider) return { files: kind.fallback(analysis), source: 'static' };
+
+  // AI mode never silently writes static templates: a failed kind writes
+  // nothing, so a later re-run regenerates it with AI. One retry covers the
+  // occasional response that forgets the file-block protocol.
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await provider.ask(kind.prompt(digest), apiKey);
       const files = parseFileBlocks(response);
-      if (files.length > 0) return { files, source: 'ai', degraded: false };
-      log.warn(`${kind.name}: provider returned no file blocks — using static fallback.`);
+      if (files.length > 0) return { files, source: 'ai' };
+      log.warn(`${kind.name}: provider returned no file blocks${attempt ? '' : ' — retrying'}.`);
     } catch (err) {
-      log.warn(
-        `${kind.name}: AI call failed (${err instanceof Error ? err.message : String(err)}) — using static fallback.`,
-      );
+      return { files: [], source: 'ai', error: err instanceof Error ? err.message : String(err) };
     }
-    return { files: kind.fallback(analysis), source: 'static', degraded: true };
   }
-  return { files: kind.fallback(analysis), source: 'static', degraded: false };
+  return { files: [], source: 'ai', error: 'provider returned no file blocks after a retry' };
 }
 
 /** Scaffold + context files produced by the codebase review itself. */
@@ -172,7 +184,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     model: provider ? modelFor(provider) : null,
     files: [],
     propagated: [],
-    degraded: [],
+    failed: [],
   };
 
   const write = (
@@ -227,21 +239,29 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
         log.dim('→ review saved to .devpilot/docs/codebase-review.md');
       }
     } catch (err) {
-      log.warn(
-        `Codebase review pass failed (${err instanceof Error ? err.message : String(err)}) — generating from the raw digest.`,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      if (isQuotaError(message)) {
+        // Every following call would fail the same way — stop now, cleanly.
+        result.aborted = message;
+        result.failed = kinds.map((k) => k.id);
+        return result;
+      }
+      log.warn(`Codebase review pass failed (${message}) — generating from the raw digest.`);
     }
   }
 
   for (const kind of kinds) {
-    const { files, source, degraded } = await generateKind(
-      kind,
-      context,
-      provider,
-      apiKey,
-      analysis,
-    );
-    if (degraded) result.degraded.push(kind.id);
+    if (result.aborted) {
+      result.failed.push(kind.id);
+      continue;
+    }
+    const { files, source, error } = await generateKind(kind, context, provider, apiKey, analysis);
+    if (error) {
+      result.failed.push(kind.id);
+      log.warn(`${kind.name}: AI generation failed — ${error}`);
+      if (isQuotaError(error)) result.aborted = error;
+      continue;
+    }
     write(kind.id, files, source, kind.allowedPaths, kind.alwaysOverwrite ?? []);
 
     // Fresh rules should reach every tool's instruction file.

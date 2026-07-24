@@ -62,7 +62,9 @@ devpilot generate --force            # regenerate over existing files
 devpilot generate --no-ai            # static templates only (offline)
 ```
 
-Derived files that mirror the code (`.devpilot/context.md`, `.devpilot/docs/codebase-review.md`) are refreshed on every run; everything you might have hand-edited is never overwritten without `--force`. AI output paths are validated against a per-kind allowlist, and any failed AI call degrades to a static template built from the codebase analysis — a started run always leaves the project fully set up.
+Derived files that mirror the code (`.devpilot/context.md`, `.devpilot/docs/codebase-review.md`) are refreshed on every run; everything you might have hand-edited is never overwritten without `--force`. AI output paths are validated against a per-kind allowlist.
+
+**Runs are resumable.** If the provider fails mid-run — say your Claude subscription's 5-hour usage window runs out — DevPilot keeps every AI-generated file, writes nothing for the failed kinds (no silent downgrade to generic templates), and exits with a note. Re-run `devpilot generate` after the window resets and it continues where it left off, generating only what's missing; or finish immediately with another provider via `--provider`.
 
 ### Model selection
 

@@ -241,7 +241,7 @@ describe('runGenerate', () => {
     );
   });
 
-  it('falls back to static content when the AI call fails', async () => {
+  it('writes nothing for a kind whose AI call fails, so a re-run can resume it', async () => {
     openVault().set('anthropic', 'test-key');
     setFetchForTests(async () => new Response('boom', { status: 500 }));
     const result = await runGenerate({
@@ -252,8 +252,30 @@ describe('runGenerate', () => {
       dryRun: false,
       noAi: false,
     });
-    expect(result.degraded).toContain('agents');
-    expect(result.files.some((f) => f.file === '.claude/agents/code-reviewer.md')).toBe(true);
+    expect(result.failed).toContain('agents');
+    // No silent static fallback in AI mode — the kind stays missing.
+    expect(fs.existsSync(path.join(root, '.claude'))).toBe(false);
+  });
+
+  it('aborts the run when the provider hits a usage limit', async () => {
+    openVault().set('anthropic', 'test-key');
+    let calls = 0;
+    setFetchForTests(async () => {
+      calls++;
+      return new Response('5-hour usage limit reached ∙ resets 6pm', { status: 429 });
+    });
+    const result = await runGenerate({
+      root,
+      kinds: [],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+    });
+    expect(result.aborted).toMatch(/limit/i);
+    // Review call aborts everything — no per-kind calls afterwards.
+    expect(result.failed.length).toBeGreaterThanOrEqual(6);
+    expect(calls).toBeLessThanOrEqual(2); // review call (+1 internal 429 retry)
   });
 });
 
