@@ -61,7 +61,7 @@ export interface GenerateResult {
   degraded: string[];
 }
 
-function pickProvider(forced?: string): ProviderSpec | null {
+export function pickProvider(forced?: string): ProviderSpec | null {
   const available = availableProviders();
   if (forced) {
     const p = PROVIDERS.find((p) => p.id === forced);
@@ -70,6 +70,25 @@ function pickProvider(forced?: string): ProviderSpec | null {
   }
   return route('generate ai project artifacts', available)?.provider ?? null;
 }
+
+const REVIEW_PROMPT = `You are DevPilot, a tool that makes codebases AI-assistant-ready.
+Read the project digest below thoroughly — every file excerpt, the layout,
+the dependencies and scripts — and write a deep codebase review in markdown:
+
+## What this project is — purpose and domain, in the project's own terms
+## Architecture — each real directory/module, its responsibility, and how
+   control/data flows between them (cite actual files)
+## Conventions & idioms — naming, error handling, typing, patterns you can
+   SEE in the source excerpts, with a file reference for each
+## Testing & verification — frameworks, where tests live, the exact commands
+## Gotchas — platform quirks, generated files, ordering constraints, anything
+   an AI assistant could get wrong here
+
+Be concrete and cite real paths. This review will be the foundation for
+generating the project's AI configuration files. Output markdown only.
+
+--- PROJECT DIGEST ---
+`;
 
 async function generateKind(
   kind: ArtifactKind,
@@ -187,10 +206,35 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   const scaffold = scaffoldFiles(analysis);
   write('scan', scaffold.files, 'static', null, scaffold.derived);
 
+  // AI reading pass: the provider studies the codebase once and writes a
+  // review that grounds every artifact it generates afterwards.
+  let context = digest.text;
+  if (provider && !opts.dryRun) {
+    log.dim('→ AI is reading the codebase…');
+    try {
+      const review = (await provider.ask(REVIEW_PROMPT + digest.text, apiKey)).trim();
+      if (review) {
+        context = `${digest.text}\n\n--- YOUR CODEBASE REVIEW (you wrote this after reading the project) ---\n${review}`;
+        write(
+          'scan',
+          [{ file: '.devpilot/docs/codebase-review.md', content: review + '\n' }],
+          'ai',
+          null,
+          ['.devpilot/docs/codebase-review.md'],
+        );
+        log.dim('→ review saved to .devpilot/docs/codebase-review.md');
+      }
+    } catch (err) {
+      log.warn(
+        `Codebase review pass failed (${err instanceof Error ? err.message : String(err)}) — generating from the raw digest.`,
+      );
+    }
+  }
+
   for (const kind of kinds) {
     const { files, source, degraded } = await generateKind(
       kind,
-      digest.text,
+      context,
       provider,
       apiKey,
       analysis,

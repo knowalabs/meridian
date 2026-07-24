@@ -50,7 +50,7 @@ devpilot ask "explain this repo" --json | jq -r .answer
 
 ### The AI kit
 
-`devpilot generate` reviews the codebase first — layout, dependencies, scripts, conventions and excerpts of the most informative source files — then routes that digest to your best configured provider and writes every artifact a developer would otherwise author by hand:
+`devpilot generate` is AI-first: it builds a deep digest of the codebase — layout, dependencies, scripts, conventions and excerpts of the most informative source files — has your best configured provider **read it and write a codebase review** (saved to `.devpilot/docs/codebase-review.md`), then generates every artifact grounded in that review. It refuses to run without a provider (add one with `devpilot auth`, or install Ollama for a free local model); plain templates are an explicit opt-in via `--no-ai`.
 
 ```bash
 devpilot generate                    # everything: context, rules, agents, skills, commands, prompts, docs
@@ -60,7 +60,7 @@ devpilot generate --force            # regenerate over existing files
 devpilot generate --no-ai            # static templates only (offline)
 ```
 
-Derived files that mirror the code (`.devpilot/context.md`, `.devpilot/architecture.md`) are refreshed on every run; everything you might have hand-edited is never overwritten without `--force`. AI output paths are validated against a per-kind allowlist, and any failed AI call degrades to a rich static template built from the codebase analysis — the command always leaves the project fully set up.
+Derived files that mirror the code (`.devpilot/context.md`, `.devpilot/docs/codebase-review.md`) are refreshed on every run; everything you might have hand-edited is never overwritten without `--force`. AI output paths are validated against a per-kind allowlist, and any failed AI call degrades to a static template built from the codebase analysis — a started run always leaves the project fully set up.
 
 ### Model selection
 

@@ -1,6 +1,6 @@
 import pc from 'picocolors';
 import { ARTIFACT_KINDS } from '../generate/artifacts.js';
-import { runGenerate } from '../generate/pipeline.js';
+import { pickProvider, runGenerate } from '../generate/pipeline.js';
 import { jsonMode, log } from '../core/logger.js';
 
 /**
@@ -20,6 +20,24 @@ export async function generateCommand(
     return 1;
   }
 
+  // Generation is AI-first: the whole point is content written after actually
+  // reading the codebase. Offline templates are an explicit opt-in.
+  if (opts.ai !== false && !pickProvider(opts.provider)) {
+    if (opts.provider) {
+      log.fail(
+        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`devpilot auth ${opts.provider}`)}.`,
+      );
+    } else {
+      log.fail('devpilot generate reads your codebase with AI, but no AI provider is configured.');
+      log.info(
+        `\n  Add a key:            ${pc.bold('devpilot auth anthropic')}  (or openai, google, openrouter)` +
+          `\n  Or use a local model: install Ollama (${pc.bold('ollama serve')})` +
+          `\n  Offline templates:    ${pc.bold('devpilot generate --no-ai')}  (explicitly skip AI)`,
+      );
+    }
+    return 1;
+  }
+
   log.info(opts.dryRun ? 'Planning AI kit (dry run)…' : 'Generating AI kit…');
   const result = await runGenerate({
     root: cwd,
@@ -29,13 +47,6 @@ export async function generateCommand(
     dryRun: opts.dryRun ?? false,
     noAi: opts.ai === false,
   });
-
-  if (opts.provider && result.provider === null) {
-    log.fail(
-      `Provider "${opts.provider}" is not available. Add a key with ${pc.bold('devpilot auth')}.`,
-    );
-    return 1;
-  }
 
   if (jsonMode()) {
     log.json(result);

@@ -21,6 +21,12 @@ const KEY_FILES = [
   'pyproject.toml',
   'go.mod',
   'Cargo.toml',
+  'pubspec.yaml',
+  'composer.json',
+  'Gemfile',
+  'pom.xml',
+  'build.gradle',
+  'lib/main.dart',
   'tsconfig.json',
   'src/index.ts',
   'src/index.js',
@@ -72,7 +78,12 @@ function sampleSources(analysis: ProjectAnalysis, root: string, max: number): st
       if (entry.isDirectory()) {
         if (!['node_modules', 'dist', 'build', 'coverage', 'vendor'].includes(entry.name))
           walk(full, depth + 1);
-      } else if (/\.(ts|tsx|js|jsx|py|go|rs|java|kt|rb|cs)$/.test(entry.name) && !seen.has(rel)) {
+      } else if (
+        /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|py|go|rs|java|kt|rb|cs|php|swift|vue|svelte|astro|dart|ex|exs|scala)$/i.test(
+          entry.name,
+        ) &&
+        !seen.has(rel)
+      ) {
         try {
           picks.push({ file: rel, size: fs.statSync(full).size });
         } catch {

@@ -31,8 +31,33 @@ const LANGUAGE_BY_EXT: Record<string, string> = {
   '.cs': 'C#',
   '.c': 'C',
   '.cpp': 'C++',
+  '.cc': 'C++',
+  '.h': 'C/C++ header',
+  '.hpp': 'C++',
   '.sh': 'Shell',
   '.sql': 'SQL',
+  '.mjs': 'JavaScript',
+  '.cjs': 'JavaScript',
+  '.mts': 'TypeScript',
+  '.cts': 'TypeScript',
+  '.vue': 'Vue',
+  '.svelte': 'Svelte',
+  '.astro': 'Astro',
+  '.dart': 'Dart',
+  '.html': 'HTML',
+  '.css': 'CSS',
+  '.scss': 'CSS (SCSS)',
+  '.less': 'CSS (Less)',
+  '.scala': 'Scala',
+  '.ex': 'Elixir',
+  '.exs': 'Elixir',
+  '.erl': 'Erlang',
+  '.hs': 'Haskell',
+  '.lua': 'Lua',
+  '.r': 'R',
+  '.zig': 'Zig',
+  '.m': 'Objective-C',
+  '.mm': 'Objective-C++',
 };
 
 export interface ProjectAnalysis {
@@ -69,7 +94,7 @@ export function analyzeProject(root: string): ProjectAnalysis {
         walk(path.join(dir, entry.name), depth + 1);
       } else {
         totalFiles++;
-        const lang = LANGUAGE_BY_EXT[path.extname(entry.name)];
+        const lang = LANGUAGE_BY_EXT[path.extname(entry.name).toLowerCase()];
         if (lang) langCounts.set(lang, (langCounts.get(lang) ?? 0) + 1);
         if (/route|controller|handler|endpoint/i.test(entry.name)) {
           apiRoutes.push(path.relative(root, path.join(dir, entry.name)));
@@ -128,10 +153,23 @@ function detectFrameworks(root: string, deps: string[]): string[] {
   if (has('electron')) found.push('Electron');
   if (has('vitest')) found.push('Vitest');
   if (has('jest')) found.push('Jest');
+  if (has('@angular/core')) found.push('Angular');
+  if (has('astro')) found.push('Astro');
+  if (has('tailwindcss')) found.push('Tailwind CSS');
+  if (has('vite')) found.push('Vite');
   if (fs.existsSync(path.join(root, 'go.mod'))) found.push('Go module');
   if (fs.existsSync(path.join(root, 'Cargo.toml'))) found.push('Rust (Cargo)');
   if (fs.existsSync(path.join(root, 'pyproject.toml'))) found.push('Python (pyproject)');
   if (fs.existsSync(path.join(root, 'requirements.txt'))) found.push('Python (pip)');
+  if (fs.existsSync(path.join(root, 'pubspec.yaml'))) found.push('Flutter/Dart (pubspec)');
+  if (fs.existsSync(path.join(root, 'composer.json'))) found.push('PHP (Composer)');
+  if (fs.existsSync(path.join(root, 'Gemfile'))) found.push('Ruby (Bundler)');
+  if (fs.existsSync(path.join(root, 'pom.xml'))) found.push('Java (Maven)');
+  if (
+    fs.existsSync(path.join(root, 'build.gradle')) ||
+    fs.existsSync(path.join(root, 'build.gradle.kts'))
+  )
+    found.push('JVM (Gradle)');
   if (fs.existsSync(path.join(root, 'Dockerfile'))) found.push('Docker');
   return found;
 }

@@ -211,6 +211,8 @@ describe('runGenerate', () => {
     const byFile = Object.fromEntries(result.files.map((f) => [f.file, f.action]));
     expect(byFile['.claude/agents/api-reviewer.md']).toBe('written');
     expect(byFile['../../outside.md']).toBe('rejected-path');
+    // The AI reading pass saved its codebase review.
+    expect(byFile['.devpilot/docs/codebase-review.md']).toBe('written');
     expect(fs.existsSync(path.join(root, '.claude/agents/api-reviewer.md'))).toBe(true);
     expect(fs.existsSync(path.join(path.dirname(root), 'outside.md'))).toBe(false);
   });
@@ -283,6 +285,18 @@ describe('generateCommand', () => {
 
   it('fails when a forced provider is unavailable', async () => {
     expect(await generateCommand([], { provider: 'anthropic' }, root)).toBe(1);
+  });
+
+  it('fails without any AI provider unless --no-ai is passed', async () => {
+    const oldPath = process.env.PATH;
+    process.env.PATH = ''; // hide any local ollama binary
+    try {
+      expect(await generateCommand([], {}, root)).toBe(1);
+      expect(fs.existsSync(path.join(root, '.devpilot'))).toBe(false);
+      expect(await generateCommand([], { ai: false }, root)).toBe(0);
+    } finally {
+      process.env.PATH = oldPath;
+    }
   });
 
   it('emits a JSON document in --json mode', async () => {
