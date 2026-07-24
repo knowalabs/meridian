@@ -87,6 +87,38 @@ describe('buildDigest', () => {
     }
   });
 
+  it('scales file excerpts with the provided budget', () => {
+    const root = makeProject();
+    try {
+      fs.writeFileSync(path.join(root, 'README.md'), '# demo-app\n' + 'x'.repeat(9_000));
+      const small = buildDigest(root);
+      const large = buildDigest(root, undefined, 240_000);
+      expect(small.text).toContain('… (truncated)');
+      expect(large.text).not.toContain('… (truncated)');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('guarantees a test file a seat among the sampled sources', () => {
+    const root = makeProject();
+    try {
+      // Enough padded modules to fill every sampling slot by size alone.
+      for (let i = 0; i < 12; i++) {
+        fs.writeFileSync(
+          path.join(root, `src/mod${i}.ts`),
+          `export const m${i} = ${i};\n` + '// padding\n'.repeat(200),
+        );
+      }
+      fs.mkdirSync(path.join(root, 'src/__tests__'));
+      fs.writeFileSync(path.join(root, 'src/__tests__/app.test.ts'), 'it("works", () => {});\n');
+      const digest = buildDigest(root);
+      expect(digest.includedFiles).toContain('src/__tests__/app.test.ts');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('samples sources from non-JS languages like C++', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cpp-'));
     try {
@@ -299,6 +331,58 @@ describe('runGenerate', () => {
     expect(result.provider).toBe('anthropic');
     expect(result.files).toContainEqual(
       expect.objectContaining({ file: '.devpilot/prompts/x.md', action: 'written' }),
+    );
+  });
+
+  it('accepts a complete response without retrying', async () => {
+    openVault().set('anthropic', 'test-key');
+    let calls = 0;
+    const aiText = '<<<FILE .devpilot/rules.md>>>\n## General\n- Be good.\n<<<END>>>';
+    setFetchForTests(async () => {
+      calls++;
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const result = await runGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+    });
+    expect(calls).toBe(2); // review pass + one generation call
+    expect(result.files).toContainEqual(
+      expect.objectContaining({ file: '.devpilot/rules.md', action: 'written' }),
+    );
+  });
+
+  it('retries an incomplete response once, then keeps what was returned', async () => {
+    openVault().set('anthropic', 'test-key');
+    let calls = 0;
+    // The prompts kind expects at least 3 files — one is incomplete.
+    const aiText = '<<<FILE .devpilot/prompts/only-one.md>>>\nhi\n<<<END>>>';
+    setFetchForTests(async () => {
+      calls++;
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const result = await runGenerate({
+      root,
+      kinds: ['prompts'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+    });
+    expect(calls).toBe(3); // review pass + first attempt + retry
+    expect(result.failed).toEqual([]);
+    expect(result.files).toContainEqual(
+      expect.objectContaining({ file: '.devpilot/prompts/only-one.md', action: 'written' }),
     );
   });
 

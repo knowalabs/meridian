@@ -24,6 +24,10 @@ export interface ArtifactKind {
   allowedPaths: string[];
   /** Derived files rewritten on every run (they mirror the code). */
   alwaysOverwrite?: string[];
+  /** Minimum files a well-formed AI response contains (default 1). */
+  minFiles?: number;
+  /** Exact paths a well-formed AI response must include. */
+  requiredFiles?: string[];
   prompt(digest: string): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
 }
@@ -124,12 +128,18 @@ Quality bar:
   scripts and configuration by name. Generic advice that would fit any
   project is a failure.
 - Never invent files, scripts, commands or dependencies not shown in the
-  digest.
+  digest. The digest is your single source of truth; file excerpts may be
+  truncated — describe only what you can actually see.
 - Content should be thorough and immediately useful — a developer should not
   need to edit it afterwards. Depth beats brevity; cover the edge cases you
   can see in the code.
+- Write rules and steps as imperatives; no filler sentences, no hedging.
 
 ${kindInstructions}
+
+Final self-check before responding: every path, script, command and
+dependency you mention must appear in the digest — remove any that do not,
+and confirm you produced every file the instructions require.
 
 ${FORMAT_SPEC}
 
@@ -145,6 +155,7 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
     name: 'Rules',
     description: 'canonical project rules (.devpilot/rules.md → all tools)',
     allowedPaths: ['.devpilot/rules.md'],
+    requiredFiles: ['.devpilot/rules.md'],
     prompt: (digest) =>
       commonPrompt(
         `Generate exactly one file: ".devpilot/rules.md" — the canonical coding
@@ -221,6 +232,7 @@ ${checklist.length ? `Run, in order, before considering any work done:\n\n${chec
     name: 'Subagents',
     description: 'Claude Code subagents (.claude/agents/)',
     allowedPaths: ['.claude/agents/'],
+    minFiles: 3,
     prompt: (digest) =>
       commonPrompt(
         `Generate 3–4 Claude Code subagent files under ".claude/agents/", each a
@@ -311,6 +323,7 @@ Given a feature or fix request:
     name: 'Skills',
     description: 'Claude Code skills (.claude/skills/)',
     allowedPaths: ['.claude/skills/'],
+    minFiles: 4,
     prompt: (digest) =>
       commonPrompt(
         `Generate 4–8 Claude Code skills, each at
@@ -493,6 +506,7 @@ ${testDir ? `4. Add tests in \`${testDir}/\`, mirroring the existing test style.
     name: 'Slash commands',
     description: 'Claude Code slash commands (.claude/commands/)',
     allowedPaths: ['.claude/commands/'],
+    minFiles: 4,
     prompt: (digest) =>
       commonPrompt(
         `Generate 4–7 Claude Code slash-command files under ".claude/commands/".
@@ -550,6 +564,7 @@ project-specific instruction to execute well (5–20 lines).`,
     name: 'Prompts',
     description: 'reusable prompt library (.devpilot/prompts/)',
     allowedPaths: ['.devpilot/prompts/'],
+    minFiles: 3,
     prompt: (digest) =>
       commonPrompt(
         `Generate 3–4 reusable prompt files under ".devpilot/prompts/" that a
@@ -606,6 +621,13 @@ sentence, then apply the smallest fix and prove it with a test.
     name: 'Docs',
     description: 'professional docs suite (docs/)',
     allowedPaths: ['docs/'],
+    minFiles: 4,
+    requiredFiles: [
+      'docs/README.md',
+      'docs/architecture.md',
+      'docs/conventions.md',
+      'docs/engineer-workflow.md',
+    ],
     prompt: (digest) =>
       commonPrompt(
         `Generate a professional engineering documentation suite under "docs/" —

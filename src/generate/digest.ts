@@ -53,6 +53,18 @@ const KEY_FILES = [
 
 const PER_FILE_CAP = 6_000;
 const TOTAL_CAP = 60_000;
+/** Never grow past this even for million-token providers — keeps calls fast. */
+const MAX_CAP = 400_000;
+const MIN_CAP = 20_000;
+
+/**
+ * Digest budget (chars) for a provider context window: ~30% of the window at
+ * ~4 chars/token, leaving the rest for instructions, the review pass and the
+ * response. `buildDigest` clamps the result to sane bounds.
+ */
+export function digestBudgetFor(contextTokens: number): number {
+  return Math.floor(contextTokens * 4 * 0.3);
+}
 
 function excerpt(file: string, cap: number): string | null {
   let raw: string;
@@ -65,7 +77,16 @@ function excerpt(file: string, cap: number): string | null {
   return raw.length > cap ? raw.slice(0, cap) + '\n… (truncated)' : raw;
 }
 
-/** A few extra source files, largest first, to show real code conventions. */
+const isTestFile = (rel: string): boolean =>
+  /(^|\/)(tests?|__tests__|spec)\//i.test(rel) || /\.(test|spec)\.[^.]+$/i.test(rel);
+
+/**
+ * Extra source files to show real code conventions. Spread round-robin across
+ * top-level directories — largest first within each — so one big folder can't
+ * crowd out the rest, and guarantee test files a seat: they document intended
+ * behavior and the project's test style, which the generated artifacts must
+ * describe.
+ */
 function sampleSources(analysis: ProjectAnalysis, root: string, max: number): string[] {
   const seen = new Set(KEY_FILES);
   const picks: { file: string; size: number }[] = [];
@@ -99,13 +120,46 @@ function sampleSources(analysis: ProjectAnalysis, root: string, max: number): st
     }
   };
   walk(root, 0);
-  return picks
-    .sort((a, b) => b.size - a.size)
-    .slice(0, max)
-    .map((p) => p.file);
+
+  const groups = new Map<string, { file: string; size: number }[]>();
+  for (const p of picks) {
+    const top = p.file.split('/')[0]!;
+    const group = groups.get(top);
+    if (group) group.push(p);
+    else groups.set(top, [p]);
+  }
+  const lists = [...groups.values()];
+  for (const list of lists) list.sort((a, b) => b.size - a.size);
+
+  const ordered: string[] = [];
+  for (let round = 0; ordered.length < picks.length; round++) {
+    for (const list of lists) {
+      const pick = list[round];
+      if (pick) ordered.push(pick.file);
+    }
+  }
+
+  const chosen = ordered.slice(0, max);
+  if (!chosen.some(isTestFile)) {
+    for (const file of ordered.slice(max)) {
+      if (isTestFile(file)) {
+        if (chosen.length >= max) chosen.pop();
+        chosen.push(file);
+        break;
+      }
+    }
+  }
+  return chosen;
 }
 
-export function buildDigest(root: string, analysis?: ProjectAnalysis): ProjectDigest {
+export function buildDigest(
+  root: string,
+  analysis?: ProjectAnalysis,
+  budgetChars?: number,
+): ProjectDigest {
+  const cap = Math.min(MAX_CAP, Math.max(MIN_CAP, budgetChars ?? TOTAL_CAP));
+  const perFileCap = Math.min(12_000, Math.max(PER_FILE_CAP, Math.floor(cap / 15)));
+  const sampleMax = Math.max(10, Math.min(40, Math.floor(cap / 12_000)));
   const a = analysis ?? analyzeProject(root);
   const sections: string[] = [
     `# Project: ${a.name}`,
@@ -122,12 +176,12 @@ export function buildDigest(root: string, analysis?: ProjectAnalysis): ProjectDi
     `\n## Layout\n\n${a.tree}`,
   ];
 
-  let budget = TOTAL_CAP;
-  const files = [...KEY_FILES, ...sampleSources(a, root, 10)];
+  let budget = cap;
+  const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax)];
   const includedFiles: string[] = [];
   for (const rel of files) {
     if (budget <= 0) break;
-    const content = excerpt(path.join(root, rel), Math.min(PER_FILE_CAP, budget));
+    const content = excerpt(path.join(root, rel), Math.min(perFileCap, budget));
     if (content === null) continue;
     sections.push(`\n## File: ${rel}\n\n\`\`\`\n${content}\n\`\`\``);
     includedFiles.push(rel);

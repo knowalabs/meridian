@@ -143,7 +143,14 @@ export const PROVIDERS: ProviderSpec[] = [
       const data = (await post(
         'https://api.anthropic.com/v1/messages',
         { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        { model: modelFor(this), max_tokens: 8192, messages: [{ role: 'user', content: prompt }] },
+        {
+          model: modelFor(this),
+          // Multi-file artifact responses (e.g. the docs suite) need real
+          // output headroom; 8k tokens silently truncated trailing files.
+          max_tokens: 16_384,
+          temperature: 0.2,
+          messages: [{ role: 'user', content: prompt }],
+        },
         { provider: this.id },
       )) as { content: { type: string; text?: string }[] };
       return data.content.map((b) => b.text ?? '').join('');
@@ -277,7 +284,7 @@ export const PROVIDERS: ProviderSpec[] = [
       const data = (await post(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelFor(this)}:generateContent?key=${apiKey}`,
         {},
-        { contents: [{ parts: [{ text: prompt }] }] },
+        { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } },
         { provider: this.id },
       )) as { candidates: { content: { parts: { text: string }[] } }[] };
       return data.candidates[0]?.content.parts.map((p) => p.text).join('') ?? '';
@@ -332,7 +339,7 @@ export const PROVIDERS: ProviderSpec[] = [
       const data = (await post(
         'https://openrouter.ai/api/v1/chat/completions',
         { authorization: `Bearer ${apiKey}` },
-        { model: modelFor(this), messages: [{ role: 'user', content: prompt }] },
+        { model: modelFor(this), temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
         { provider: this.id },
       )) as { choices: { message: { content: string } }[] };
       return data.choices[0]?.message.content ?? '';
@@ -352,7 +359,7 @@ export const PROVIDERS: ProviderSpec[] = [
       const data = (await post(
         'http://localhost:11434/api/generate',
         {},
-        { model: modelFor(this), prompt, stream: false },
+        { model: modelFor(this), prompt, stream: false, options: { temperature: 0.2 } },
         { provider: this.id },
       )) as { response: string };
       return data.response;
