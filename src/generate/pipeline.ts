@@ -95,6 +95,10 @@ the dependencies and scripts — and write a deep codebase review in markdown:
 ## What this project is — purpose and domain, in the project's own terms
 ## Architecture — each real directory/module, its responsibility, and how
    control/data flows between them (cite actual files)
+## Core concepts — the domain model, from the digest's Code map: the key
+   classes, functions, interfaces and types, what each represents, and how
+   they relate. Cover every load-bearing symbol — a concept missing here
+   will be missing from every generated file.
 ## Conventions & idioms — naming, error handling, typing, patterns you can
    SEE in the source excerpts, with a file reference for each
 ## Testing & verification — frameworks, where tests live, the exact commands

@@ -139,6 +139,65 @@ describe('project analyzer', () => {
     }
   });
 
+  it('builds a code map of classes, functions and types', () => {
+    fs.writeFileSync(
+      path.join(tmp, 'src', 'vault.ts'),
+      [
+        'export class KeychainVault {}',
+        'export async function openVault() {}',
+        'export interface Vault {}',
+        'export type Backend = string;',
+        'export const DEFAULT_BACKEND = "file";',
+        'class InternalHelper {}',
+      ].join('\n'),
+    );
+    const a = analyzeProject(tmp);
+    const entry = a.codeMap.find((e) => e.file === 'src/vault.ts');
+    expect(entry?.symbols).toEqual(
+      expect.arrayContaining([
+        'class KeychainVault',
+        'function openVault',
+        'interface Vault',
+        'type Backend',
+        'const DEFAULT_BACKEND',
+        'class InternalHelper',
+      ]),
+    );
+  });
+
+  it('extracts symbols from non-JS languages', () => {
+    const cases: [string, string, string[]][] = [
+      [
+        'service.py',
+        'class VaultManager:\n    pass\n\nasync def open_vault():\n    pass\n',
+        ['class VaultManager', 'function open_vault'],
+      ],
+      [
+        'server.go',
+        'package main\n\ntype Server struct {}\n\nfunc NewServer() *Server { return nil }\n',
+        ['type Server', 'function NewServer'],
+      ],
+      [
+        'router.rs',
+        'pub struct Router;\n\npub fn route() {}\n',
+        ['struct Router', 'function route'],
+      ],
+      ['App.java', 'public class App {}\ninterface Runner {}\n', ['class App', 'interface Runner']],
+    ];
+    for (const [file, content, expected] of cases) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-sym-'));
+      try {
+        fs.writeFileSync(path.join(dir, file), content);
+        const a = analyzeProject(dir);
+        expect(a.codeMap.find((e) => e.file === file)?.symbols).toEqual(
+          expect.arrayContaining(expected),
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
   it('renders markdown with all sections', () => {
     const md = renderContextMarkdown(analyzeProject(tmp));
     for (const section of [
@@ -147,6 +206,7 @@ describe('project analyzer', () => {
       '## Dependencies',
       '## Coding Conventions',
       '## API Surface',
+      '## Code Map',
     ]) {
       expect(md).toContain(section);
     }

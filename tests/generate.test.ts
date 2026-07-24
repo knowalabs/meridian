@@ -82,6 +82,9 @@ describe('buildDigest', () => {
       expect(digest.text).toContain('Express');
       expect(digest.text).toContain('File: README.md');
       expect(digest.text).toContain('test="vitest run"');
+      // The code map lists src/index.ts's symbols ahead of file excerpts.
+      expect(digest.text).toContain('## Code map');
+      expect(digest.text).toContain('src/index.ts: const app');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -169,6 +172,7 @@ describe('static fallbacks', () => {
       const prompt = kind.prompt('digest');
       expect(prompt).toContain('enterprise-grade');
       expect(prompt).toContain('maturity gaps and trajectory');
+      expect(prompt).toContain('Code map');
     }
     const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
     expect(rules.prompt('digest')).toContain('Raising the bar');

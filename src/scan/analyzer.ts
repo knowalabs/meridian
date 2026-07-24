@@ -60,6 +60,162 @@ const LANGUAGE_BY_EXT: Record<string, string> = {
   '.mm': 'Objective-C++',
 };
 
+/* --------------------------------- code map --------------------------------- */
+
+/**
+ * The code map is a per-file outline of the project's symbols — classes,
+ * functions, interfaces, types — extracted with line-anchored patterns per
+ * language family. It exists so the AI sees every core concept in the
+ * project even when a file's contents don't fit the digest budget.
+ */
+export interface CodeMapEntry {
+  /** Project-relative POSIX path. */
+  file: string;
+  /** Rendered symbols, e.g. "class KeychainVault", "function openVault". */
+  symbols: string[];
+}
+
+interface SymbolMatcher {
+  /** Global, multiline regex: group 1 = kind keyword, group 2 = name. */
+  re: RegExp;
+  /** Override for the rendered kind when the keyword isn't the right label. */
+  kind?: string;
+}
+
+const KIND_LABEL: Record<string, string> = {
+  def: 'function',
+  defp: 'function',
+  fn: 'function',
+  func: 'function',
+  fun: 'function',
+  defmodule: 'module',
+  defprotocol: 'protocol',
+};
+
+const JS_MATCHERS: SymbolMatcher[] = [
+  {
+    re: /^export\s+(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(class|function|interface|enum)\s+([A-Za-z0-9_$]+)/gm,
+  },
+  { re: /^export\s+(?:declare\s+)?(type|const)\s+([A-Za-z0-9_$]+)/gm },
+  { re: /^(?:abstract\s+)?(class)\s+([A-Za-z0-9_$]+)/gm },
+  { re: /^(?:async\s+)?(function)\s+([A-Za-z0-9_$]+)/gm },
+];
+const PY_MATCHERS: SymbolMatcher[] = [
+  { re: /^(class)\s+([A-Za-z_][A-Za-z0-9_]*)/gm },
+  { re: /^(?:async\s+)?(def)\s+([A-Za-z_][A-Za-z0-9_]*)/gm },
+];
+const GO_MATCHERS: SymbolMatcher[] = [
+  { re: /^(func)\s+(?:\([^)]*\)\s+)?([A-Za-z0-9_]+)/gm },
+  { re: /^(type)\s+([A-Za-z0-9_]+)\s+(?:struct|interface)/gm },
+];
+const RUST_MATCHERS: SymbolMatcher[] = [
+  { re: /^\s*pub\s+(?:async\s+)?(fn|struct|enum|trait)\s+([A-Za-z0-9_]+)/gm },
+];
+const JVM_MATCHERS: SymbolMatcher[] = [
+  {
+    re: /^\s*(?:public\s+|private\s+|protected\s+|internal\s+|open\s+|final\s+|abstract\s+|sealed\s+|data\s+|case\s+|static\s+)*(class|interface|enum|object|trait|record|struct)\s+([A-Za-z0-9_]+)/gm,
+  },
+  { re: /^\s*(?:suspend\s+)?(fun)\s+([A-Za-z0-9_]+)/gm },
+];
+const SWIFT_MATCHERS: SymbolMatcher[] = [
+  {
+    re: /^\s*(?:public\s+|open\s+|internal\s+|final\s+)*(class|struct|enum|protocol|extension)\s+([A-Za-z0-9_]+)/gm,
+  },
+  { re: /^\s*(?:public\s+|open\s+|internal\s+)*(func)\s+([A-Za-z0-9_]+)/gm },
+];
+const RUBY_MATCHERS: SymbolMatcher[] = [
+  { re: /^\s*(class|module)\s+([A-Z][A-Za-z0-9_:]*)/gm },
+  { re: /^\s*(def)\s+(?:self\.)?([a-zA-Z_][a-zA-Z0-9_?!]*)/gm },
+];
+const PHP_MATCHERS: SymbolMatcher[] = [
+  { re: /^\s*(?:abstract\s+|final\s+)?(class|interface|trait|function)\s+([A-Za-z0-9_]+)/gm },
+];
+const DART_MATCHERS: SymbolMatcher[] = [
+  { re: /^(?:abstract\s+)?(class|enum|mixin)\s+([A-Za-z0-9_]+)/gm },
+];
+const ELIXIR_MATCHERS: SymbolMatcher[] = [
+  { re: /^\s*(defmodule|defprotocol)\s+([A-Za-z0-9_.]+)/gm },
+  { re: /^\s+(def|defp)\s+([a-z_][a-z0-9_?!]*)/gm },
+];
+const CPP_MATCHERS: SymbolMatcher[] = [
+  { re: /^\s*(?:template\s*<[^>]*>\s*)?(class|struct)\s+([A-Za-z0-9_]+)\s*[:{]/gm },
+];
+
+const MATCHERS_BY_EXT: Record<string, SymbolMatcher[]> = {
+  '.ts': JS_MATCHERS,
+  '.tsx': JS_MATCHERS,
+  '.js': JS_MATCHERS,
+  '.jsx': JS_MATCHERS,
+  '.mjs': JS_MATCHERS,
+  '.cjs': JS_MATCHERS,
+  '.mts': JS_MATCHERS,
+  '.cts': JS_MATCHERS,
+  '.vue': JS_MATCHERS,
+  '.svelte': JS_MATCHERS,
+  '.astro': JS_MATCHERS,
+  '.py': PY_MATCHERS,
+  '.go': GO_MATCHERS,
+  '.rs': RUST_MATCHERS,
+  '.java': JVM_MATCHERS,
+  '.kt': JVM_MATCHERS,
+  '.scala': JVM_MATCHERS,
+  '.cs': JVM_MATCHERS,
+  '.swift': SWIFT_MATCHERS,
+  '.rb': RUBY_MATCHERS,
+  '.php': PHP_MATCHERS,
+  '.dart': DART_MATCHERS,
+  '.ex': ELIXIR_MATCHERS,
+  '.exs': ELIXIR_MATCHERS,
+  '.c': CPP_MATCHERS,
+  '.cc': CPP_MATCHERS,
+  '.cpp': CPP_MATCHERS,
+  '.h': CPP_MATCHERS,
+  '.hpp': CPP_MATCHERS,
+};
+
+const PER_FILE_SYMBOL_CAP = 30;
+/** Skip huge/minified files — they are not hand-written concepts. */
+const SYMBOL_FILE_SIZE_CAP = 200_000;
+const CODE_MAP_FILE_CAP = 500;
+
+export function extractFileSymbols(content: string, ext: string): string[] {
+  const matchers = MATCHERS_BY_EXT[ext.toLowerCase()];
+  if (!matchers || !content || content.length > SYMBOL_FILE_SIZE_CAP) return [];
+  const seen = new Set<string>();
+  const symbols: string[] = [];
+  for (const { re, kind } of matchers) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      if (symbols.length >= PER_FILE_SYMBOL_CAP) return symbols;
+      const label = `${kind ?? KIND_LABEL[m[1]!] ?? m[1]!} ${m[2]!}`;
+      if (!seen.has(label)) {
+        seen.add(label);
+        symbols.push(label);
+      }
+    }
+  }
+  return symbols;
+}
+
+/** Render the code map as compact `file: symbols` lines within a char budget. */
+export function renderCodeMap(codeMap: CodeMapEntry[], maxChars = 24_000): string {
+  const lines: string[] = [];
+  let used = 0;
+  let dropped = 0;
+  for (const entry of codeMap) {
+    const line = `${entry.file}: ${entry.symbols.join(', ')}`;
+    if (used + line.length > maxChars) {
+      dropped++;
+      continue;
+    }
+    used += line.length + 1;
+    lines.push(line);
+  }
+  if (dropped) lines.push(`… (+${dropped} more files with symbols)`);
+  return lines.join('\n');
+}
+
 export interface ProjectAnalysis {
   root: string;
   name: string;
@@ -79,12 +235,19 @@ export interface ProjectAnalysis {
   tree: string;
   conventions: string[];
   apiRoutes: string[];
+  /**
+   * Per-file symbol outline (classes, functions, interfaces, types) — the
+   * project's core concepts, visible to the AI even for files whose
+   * contents don't fit the digest.
+   */
+  codeMap: CodeMapEntry[];
   totalFiles: number;
 }
 
 export function analyzeProject(root: string): ProjectAnalysis {
   const langCounts = new Map<string, number>();
   const apiRoutes: string[] = [];
+  const codeMap: CodeMapEntry[] = [];
   let totalFiles = 0;
 
   const walk = (dir: string, depth: number): void => {
@@ -102,15 +265,23 @@ export function analyzeProject(root: string): ProjectAnalysis {
         walk(path.join(dir, entry.name), depth + 1);
       } else {
         totalFiles++;
-        const lang = LANGUAGE_BY_EXT[path.extname(entry.name).toLowerCase()];
+        const full = path.join(dir, entry.name);
+        const rel = path.relative(root, full);
+        const ext = path.extname(entry.name).toLowerCase();
+        const lang = LANGUAGE_BY_EXT[ext];
         if (lang) langCounts.set(lang, (langCounts.get(lang) ?? 0) + 1);
         if (/route|controller|handler|endpoint/i.test(entry.name)) {
-          apiRoutes.push(path.relative(root, path.join(dir, entry.name)));
+          apiRoutes.push(rel);
+        }
+        if (codeMap.length < CODE_MAP_FILE_CAP && MATCHERS_BY_EXT[ext]) {
+          const symbols = extractFileSymbols(readText(full), ext);
+          if (symbols.length) codeMap.push({ file: rel.split(path.sep).join('/'), symbols });
         }
       }
     }
   };
   walk(root, 0);
+  codeMap.sort((a, b) => a.file.localeCompare(b.file));
 
   const pkg = readJson<{
     name?: string;
@@ -138,6 +309,7 @@ export function analyzeProject(root: string): ProjectAnalysis {
     tree: renderTree(root),
     conventions: detectConventions(root, devDependencies),
     apiRoutes: apiRoutes.slice(0, 30),
+    codeMap,
     totalFiles,
   };
 }
@@ -412,6 +584,14 @@ ${list(a.conventions)}
 ## API Surface
 
 ${list(a.apiRoutes.map((r) => `\`${r}\``))}
+
+## Code Map
+
+Classes, functions and types per file — the project's core concepts.
+
+\`\`\`
+${renderCodeMap(a.codeMap, 16_000) || '(no symbols detected)'}
+\`\`\`
 `;
 }
 

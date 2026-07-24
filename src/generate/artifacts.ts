@@ -154,6 +154,11 @@ Quality bar:
 - Never invent files, scripts, commands or dependencies not shown in the
   digest. The digest is your single source of truth; file excerpts may be
   truncated — describe only what you can actually see.
+- Cover the core concepts: the digest's Code map lists every class,
+  function and type in the project, including files whose contents are not
+  excerpted. Name and account for the load-bearing ones — an artifact that
+  ignores the real domain model (its key classes, central functions, data
+  structures) is a failure.
 - Content should be thorough and immediately useful — a developer should not
   need to edit it afterwards. Depth beats brevity; cover the edge cases you
   can see in the code.

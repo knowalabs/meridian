@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { analyzeProject, ProjectAnalysis } from '../scan/analyzer.js';
+import { analyzeProject, ProjectAnalysis, renderCodeMap } from '../scan/analyzer.js';
 
 /**
  * Project digest (Phase 5): a compact, deterministic text snapshot of the
@@ -181,6 +181,9 @@ export function buildDigest(
   const perFileCap = Math.min(12_000, Math.max(PER_FILE_CAP, Math.floor(cap / 15)));
   const sampleMax = Math.max(10, Math.min(40, Math.floor(cap / 12_000)));
   const a = analysis ?? analyzeProject(root);
+  // The code map goes in ahead of file excerpts: every class/function in the
+  // project stays visible to the AI even when file contents don't fit.
+  const codeMapText = renderCodeMap(a.codeMap, Math.min(24_000, Math.floor(cap / 4)));
   const sections: string[] = [
     `# Project: ${a.name}`,
     `Languages: ${a.languages.map((l) => `${l.language} (${l.files} files)`).join(', ') || 'unknown'}`,
@@ -194,9 +197,10 @@ export function buildDigest(
     `Dependencies: ${a.dependencies.join(', ') || '(none)'}`,
     `Dev dependencies: ${a.devDependencies.join(', ') || '(none)'}`,
     `\n## Layout\n\n${a.tree}`,
+    `\n## Code map — every class, function and type per file\n\n${codeMapText || '(no symbols detected)'}`,
   ];
 
-  let budget = cap;
+  let budget = cap - codeMapText.length;
   const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax)];
   const includedFiles: string[] = [];
   for (const rel of files) {
