@@ -1,6 +1,6 @@
 import { loadConfig } from '../core/config.js';
 import { openVault } from '../core/vault.js';
-import { which } from '../core/exec.js';
+import { run, which } from '../core/exec.js';
 import { CliError } from '../core/errors.js';
 
 /**
@@ -19,6 +19,8 @@ export interface ProviderSpec {
   quality: number; // lower = smarter
   contextTokens: number;
   needsKey: boolean;
+  /** For keyless providers: the CLI binary that must be on PATH. */
+  binary?: string;
   ask(prompt: string, apiKey: string): Promise<string>;
 }
 
@@ -37,6 +39,13 @@ export function setFetchForTests(f: typeof globalThis.fetch | null): void {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+let runImpl: typeof run = run;
+
+/** Test seam: replace the CLI runner used by CLI-backed providers. */
+export function setRunForTests(r: typeof run | null): void {
+  runImpl = r ?? run;
+}
 
 interface PostContext {
   provider: string;
@@ -127,6 +136,49 @@ export const PROVIDERS: ProviderSpec[] = [
     },
   },
   {
+    // Uses the locally installed Claude Code CLI — a Claude subscription
+    // (Pro/Max) works with no API key at all.
+    id: 'claude-code',
+    name: 'Claude Code (subscription)',
+    model: 'sonnet',
+    cost: 0,
+    speed: 3,
+    quality: 1,
+    contextTokens: 200_000,
+    needsKey: false,
+    binary: 'claude',
+    // eslint-disable-next-line @typescript-eslint/require-await -- CLI call is synchronous; async keeps errors as rejections like every other provider
+    async ask(prompt) {
+      const res = runImpl(
+        'claude',
+        ['-p', '--output-format', 'text', '--model', modelFor(this)],
+        prompt,
+        {
+          timeoutMs: 600_000,
+        },
+      );
+      if (res.notFound) {
+        throw new CliError('claude-code: the "claude" CLI is not installed', {
+          hint: 'Install it with "devpilot install claude", then run "claude" once to sign in.',
+        });
+      }
+      if (res.error?.includes('ETIMEDOUT')) {
+        throw new CliError('claude-code: the claude CLI did not respond within 10 minutes', {
+          hint: 'Try again, or route elsewhere with --provider.',
+        });
+      }
+      if (!res.ok) {
+        throw new CliError(
+          `claude-code: claude -p failed — ${(res.stderr || res.stdout || 'no output').slice(0, 300)}`,
+          {
+            hint: 'Run "claude" once to sign in with your subscription, then retry. A different model can be set in ~/.devpilot/config.json under router.models.claude-code.',
+          },
+        );
+      }
+      return res.stdout;
+    },
+  },
+  {
     id: 'openai',
     name: 'OpenAI',
     model: 'gpt-5',
@@ -192,6 +244,7 @@ export const PROVIDERS: ProviderSpec[] = [
     quality: 4,
     contextTokens: 32_000,
     needsKey: false,
+    binary: 'ollama',
     async ask(prompt) {
       const data = (await post(
         'http://localhost:11434/api/generate',
@@ -232,11 +285,18 @@ export function route(prompt: string, availableIds: string[]): RouteDecision | n
   return { provider: best, reason: `optimized for ${metric}, context ~${estTokens} tokens` };
 }
 
-/** Providers usable right now (key in vault, or local daemon). */
+/** Providers usable right now (key in vault, or a CLI/daemon on PATH). */
 export function availableProviders(): string[] {
   const vault = openVault();
   const keys = vault.list();
-  const ids = PROVIDERS.filter((p) => !p.needsKey || keys.includes(p.id)).map((p) => p.id);
-  // Ollama only counts if the binary exists.
-  return ids.filter((id) => id !== 'ollama' || which('ollama') !== null);
+  // Opt-out for specific providers, e.g. DEVPILOT_DISABLE_PROVIDERS=claude-code,ollama
+  const disabled = new Set(
+    (process.env.DEVPILOT_DISABLE_PROVIDERS ?? '').split(',').map((s) => s.trim()),
+  );
+  return PROVIDERS.filter(
+    (p) =>
+      !disabled.has(p.id) &&
+      (!p.needsKey || keys.includes(p.id)) &&
+      (!p.binary || which(p.binary) !== null),
+  ).map((p) => p.id);
 }

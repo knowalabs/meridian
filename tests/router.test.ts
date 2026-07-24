@@ -49,13 +49,27 @@ describe('ai router', () => {
     expect(decision?.provider.id).toBe('google');
   });
 
-  it('registry lists all five providers from the docs', () => {
+  it('registry lists all six providers from the docs', () => {
     expect(PROVIDERS.map((p) => p.id).sort()).toEqual([
       'anthropic',
+      'claude-code',
       'google',
       'ollama',
       'openai',
       'openrouter',
     ]);
+  });
+
+  it('prefers the Claude Code CLI when optimizing for cost', () => {
+    const config = loadConfig();
+    config.router.optimize = 'cost';
+    saveConfig(config);
+    const decision = route('hello', ['anthropic', 'claude-code', 'ollama']);
+    expect(decision?.provider.id).toBe('claude-code'); // subscription: no per-token cost
+  });
+
+  it('prefers the anthropic API over the CLI on quality ties', () => {
+    const decision = route('hello', ['anthropic', 'claude-code']);
+    expect(decision?.provider.id).toBe('anthropic');
   });
 });

@@ -50,7 +50,9 @@ devpilot ask "explain this repo" --json | jq -r .answer
 
 ### The AI kit
 
-`devpilot generate` is AI-first: it builds a deep digest of the codebase — layout, dependencies, scripts, conventions and excerpts of the most informative source files — has your best configured provider **read it and write a codebase review** (saved to `.devpilot/docs/codebase-review.md`), then generates every artifact grounded in that review. It refuses to run without a provider (add one with `devpilot auth`, or install Ollama for a free local model); plain templates are an explicit opt-in via `--no-ai`.
+`devpilot generate` is AI-first: it builds a deep digest of the codebase — layout, dependencies, scripts, conventions and excerpts of the most informative source files — has your best configured provider **read it and write a codebase review** (saved to `.devpilot/docs/codebase-review.md`), then generates every artifact grounded in that review. It refuses to run without a provider; plain templates are an explicit opt-in via `--no-ai`.
+
+**No API key required if you have a Claude subscription**: with [Claude Code](https://claude.com/claude-code) installed and signed in, DevPilot uses it automatically as the `claude-code` provider (it pipes prompts through `claude -p`, so generation is covered by your Pro/Max plan). Otherwise add an API key with `devpilot auth`, or install Ollama for a free local model. Pick the CLI's model via `router.models.claude-code` (defaults to `sonnet`).
 
 ```bash
 devpilot generate                    # everything: context, rules, agents, skills, commands, prompts, docs

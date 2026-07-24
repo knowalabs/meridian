@@ -32,11 +32,17 @@ function resolveCommand(cmd: string): string {
 }
 
 /** Run a command without a shell. Never throws. */
-export function run(cmd: string, args: string[] = [], input?: string): ExecResult {
+export function run(
+  cmd: string,
+  args: string[] = [],
+  input?: string,
+  opts: { timeoutMs?: number } = {},
+): ExecResult {
   const res = spawnSync(resolveCommand(cmd), args, {
     encoding: 'utf8',
     input,
     stdio: ['pipe', 'pipe', 'pipe'],
+    ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
   });
   const notFound =
     res.error !== undefined && (res.error as NodeJS.ErrnoException).code === 'ENOENT';

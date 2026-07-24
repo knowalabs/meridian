@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PROVIDERS, modelFor, setFetchForTests } from '../src/providers/router.js';
+import { PROVIDERS, modelFor, setFetchForTests, setRunForTests } from '../src/providers/router.js';
 import { CliError } from '../src/core/errors.js';
 import { saveConfig, loadConfig } from '../src/core/config.js';
 
@@ -116,5 +116,65 @@ describe('provider network behavior', () => {
     });
     await anthropic.ask('hi', 'key');
     expect(sentModel).toBe('claude-opus-4-8');
+  });
+});
+
+describe('claude-code CLI provider', () => {
+  const claudeCode = PROVIDERS.find((p) => p.id === 'claude-code')!;
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cc-'));
+    process.env.DEVPILOT_HOME = tmp;
+  });
+  afterEach(() => {
+    setRunForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('pipes the prompt via stdin and returns stdout', async () => {
+    let seen: { cmd: string; args: string[]; input?: string } | null = null;
+    setRunForTests((cmd, args = [], input) => {
+      seen = { cmd, args, input };
+      return { ok: true, stdout: 'generated answer', stderr: '', code: 0 };
+    });
+    await expect(claudeCode.ask('big prompt', '')).resolves.toBe('generated answer');
+    expect(seen!.cmd).toBe('claude');
+    expect(seen!.args).toContain('-p');
+    expect(seen!.input).toBe('big prompt'); // stdin, not argv — survives huge digests
+  });
+
+  it('honors a model override from config', async () => {
+    const config = loadConfig();
+    config.router.models = { 'claude-code': 'opus' };
+    saveConfig(config);
+    let args: string[] = [];
+    setRunForTests((_c, a = []) => {
+      args = a;
+      return { ok: true, stdout: 'x', stderr: '', code: 0 };
+    });
+    await claudeCode.ask('hi', '');
+    expect(args).toContain('opus');
+  });
+
+  it('maps missing binary and CLI failure to actionable CliErrors', async () => {
+    setRunForTests(() => ({
+      ok: false,
+      stdout: '',
+      stderr: '',
+      code: null,
+      error: 'spawn claude ENOENT',
+      notFound: true,
+    }));
+    await expect(claudeCode.ask('hi', '')).rejects.toThrowError(/not installed/);
+
+    setRunForTests(() => ({
+      ok: false,
+      stdout: '',
+      stderr: 'Invalid API key. Please run /login',
+      code: 1,
+    }));
+    await expect(claudeCode.ask('hi', '')).rejects.toThrowError(/claude -p failed/);
   });
 });

@@ -212,7 +212,9 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   if (provider && !opts.dryRun) {
     log.dim('→ AI is reading the codebase…');
     try {
-      const review = (await provider.ask(REVIEW_PROMPT + digest.text, apiKey)).trim();
+      let review = (await provider.ask(REVIEW_PROMPT + digest.text, apiKey)).trim();
+      const fenced = /^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/.exec(review);
+      if (fenced) review = fenced[1]!.trim();
       if (review) {
         context = `${digest.text}\n\n--- YOUR CODEBASE REVIEW (you wrote this after reading the project) ---\n${review}`;
         write(

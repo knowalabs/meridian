@@ -30,8 +30,9 @@ export async function generateCommand(
     } else {
       log.fail('devpilot generate reads your codebase with AI, but no AI provider is configured.');
       log.info(
-        `\n  Add a key:            ${pc.bold('devpilot auth anthropic')}  (or openai, google, openrouter)` +
-          `\n  Or use a local model: install Ollama (${pc.bold('ollama serve')})` +
+        `\n  Claude subscription:  ${pc.bold('devpilot install claude')}, run ${pc.bold('claude')} once to sign in — no API key needed` +
+          `\n  Or add an API key:    ${pc.bold('devpilot auth anthropic')}  (or openai, google, openrouter)` +
+          `\n  Or a local model:     install Ollama (${pc.bold('ollama serve')})` +
           `\n  Offline templates:    ${pc.bold('devpilot generate --no-ai')}  (explicitly skip AI)`,
       );
     }

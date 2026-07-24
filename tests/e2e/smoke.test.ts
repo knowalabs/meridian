@@ -34,7 +34,11 @@ describe('e2e: smoke', () => {
   });
 
   it('ask without providers exits 1 with guidance on stderr', async () => {
-    const res = await runCli(['ask', 'hello'], sandbox);
+    // The host machine may have Claude Code or Ollama installed — disable
+    // CLI-backed providers so this test sees a truly bare environment.
+    const res = await runCli(['ask', 'hello'], sandbox, {
+      env: { DEVPILOT_DISABLE_PROVIDERS: 'claude-code,ollama' },
+    });
     expect(res.code).toBe(1);
     expect(res.stderr).toContain('devpilot auth');
   });
