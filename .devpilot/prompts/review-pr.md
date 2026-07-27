@@ -1,48 +1,39 @@
-# Review a Pull Request in DevPilot
+# Review a DevPilot Pull Request
 
-Review the following diff against `@sonalsithara/devpilot`'s conventions. This is a strict-TypeScript, ESM-only Node.js CLI (`devpilot`) — do not conflate "the target project" (what `devpilot generate` scans) with this repo itself.
+## When to use
 
-Check every item below and call out violations with file:line references. Skip items that don't apply to this diff.
+Before merging a PR that touches `src/**/*.ts` or `tests/**/*.ts` in `@sonalsithara/devpilot` — the CLI that makes other codebases AI-assistant-ready.
 
-**Module boundaries**
+## Context
 
-- Commands in `src/commands/*.ts` stay thin — parse/validate input, delegate to `core`/`generate`/`providers`/`scan`, return an exit code via the `done()` wrapper pattern in `src/cli.ts`. Flag any business logic sitting directly inside a Commander `.action()` callback.
-- No `process.exit()` anywhere in `src/commands/*` or code reachable from `src/launcher.ts` — it would kill the interactive TUI session after one action. Exit codes flow through `process.exitCode` only.
-- `src/scan/analyzer.ts` must stay read-only — it must never write files.
-- Generated output (`.devpilot/`, `CLAUDE.md`, `AGENTS.md`, etc.) is written only from the `generate` pipeline (`src/generate/pipeline.ts`) and `src/rules/generators.ts` — flag any other module writing to those paths.
-- `src/index.ts` must import `./core/colorflag.js` first, before anything else — it mutates `NO_COLOR`/color state before `picocolors` reads it at load time. Flag any reordering of that import.
+- Node.js/TypeScript CLI (`devpilot`), ESM only (`"type": "module"`), strict `tsconfig.json` with `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`.
+- Relative imports must use explicit `.js` extensions (NodeNext resolution) — e.g. `import './core/colorflag.js'` in `src/index.ts`.
+- ESLint (`eslint.config.js`) errors on `src/**` for `@typescript-eslint/no-explicit-any`, `no-floating-promises`, `no-misused-promises`.
+- Module boundaries: `src/commands/*.ts` are thin adapters (parse/validate, call `core`/`generate`/`providers`/`scan`, return an exit code) — no business logic in a Commander `.action()`. `src/scan/analyzer.ts` is read-only and must never write files. Only `src/generate/` and `src/rules/generators.ts` write generated output.
+- Commands never call `process.exit()` — every action returns a number and `src/cli.ts`'s `done()` closure sets `process.exitCode`, because `src/launcher.ts` runs commands in-process (`buildCli({ exitOverride: true }).parseAsync`) and a raw exit would kill the interactive TUI.
+- User-facing failures throw `CliError` (`src/core/errors.ts`) with an actionable `hint`, never a raw `Error` — see the pattern in `src/providers/router.ts`'s `classifyStatus`.
+- Any AI-suggested or dynamically constructed file path in `src/generate/*.ts` must be validated through `isAllowedPath` (`src/generate/artifacts.ts`) — never bypassed.
+- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` seam — see `setFetchForTests`/`setRunForTests` in `src/providers/router.ts` — instead of a mocking library.
+- Secrets avoid `argv` where possible (stdin-based `security -i`, `secret-tool`) per `KeychainVault.set`/`SecretToolVault.set` in `src/core/vault.ts`; secret file writes use `writeFileAtomic` (`src/core/fsx.ts`) with `mode: 0o600`.
+- `src/index.ts` imports `./core/colorflag.js` first, before anything else — reordering breaks `--no-color`.
 
-**Generate pipeline invariants** (if the diff touches `src/generate/*.ts`)
+## Task
 
-- Any AI-suggested or dynamically constructed file path must be validated through `isAllowedPath` (`src/generate/artifacts.ts`) before writing — never bypassed.
-- A new/changed `ArtifactKind` in `ARTIFACT_KINDS` must supply both `prompt(digest)` and `fallback(analysis)`.
-- `generateKind` in `src/generate/pipeline.ts` is fail-closed: a failed AI call must write nothing for that kind, never silently fall back to the static template mid-run. Flag any change that weakens this.
+1. Read the diff in full before commenting on any single hunk.
+2. Check module placement: does new logic in `src/commands/*.ts` belong there, or should it live in `core`/`generate`/`providers`/`scan`? Flag business logic sitting directly in a `.action()` callback.
+3. Check for any `process.exit()` call in `src/commands/*` or code reachable from the launcher — this is a hard violation.
+4. Check every user-facing failure path throws `CliError` with a `hint`, not a raw `Error` or a silent `console.error`.
+5. If the diff touches `src/generate/*.ts`, confirm every AI-suggested or constructed path goes through `isAllowedPath` before being written, and that a failed/incomplete AI response still writes nothing (fail-closed — see `generateKind` in `src/generate/pipeline.ts`).
+6. Check relative imports use `.js` extensions, and that no new `any` type, floating promise, or unchecked indexed access was introduced (`noUncheckedIndexedAccess` means `arr[i]` is possibly `undefined`).
+7. If the diff adds a new side-effecting singleton, confirm it exposes a `setXForTests` seam rather than requiring a mocking library in tests.
+8. If secrets or vault code changed, confirm no secret reaches `argv` and any new sensitive file write uses `writeFileAtomic` with an explicit `mode`.
+9. Do not speculate — every finding must cite a `file:line`. If you can't point at the line, drop the claim.
+10. Do not approve, merge, or push anything — this is a read-only review. Flag anything destructive (publish gating changes in `.github/workflows/ci.yml`, tag pushes) as a hard stop requiring explicit human confirmation.
 
-**Code style**
+## Output
 
-- Strict TypeScript: no `any` (`@typescript-eslint/no-explicit-any` is `error` on `src/**`), no floating/misused promises, `noUncheckedIndexedAccess` respected (explicit checks on indexed access, no unchecked `!`).
-- Relative imports use explicit `.js` extensions (NodeNext resolution) — flag any `.ts` or extensionless relative import.
-- User-facing failures throw `CliError` (`src/core/errors.ts`) with an actionable `hint`, never a raw `Error`.
-- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` seam like `setFetchForTests`/`setRunForTests` in `src/providers/router.ts` — flag any new mocking-library usage instead.
-- File writes needing atomicity/permissions go through `writeFileAtomic` (`src/core/fsx.ts`); secrets use `mode: 0o600` explicitly.
-- Secrets avoid `argv` where possible (stdin-based invocation, per `KeychainVault.set`/`SecretToolVault.set` in `src/core/vault.ts`).
-- Naming: PascalCase types/interfaces, camelCase functions/variables, `UPPER_SNAKE_CASE` module constants.
-
-**Testing**
-
-- Changes to `src/generate/*.ts` keep `isAllowedPath`/`parseFileBlocks` coverage current in `tests/generate.test.ts`.
-- Changes to `src/providers/router.ts` network/retry/timeout behavior use `setFetchForTests`/`setRunForTests` + `vi.useFakeTimers()`/`vi.advanceTimersByTimeAsync` — no real network calls or real `setTimeout` delays.
-- Tests sandbox filesystem/vault state via `process.env.DEVPILOT_HOME` (temp dir) and `process.env.DEVPILOT_VAULT = 'file'`, cleaned up in `afterEach` — never touch the real OS keychain or `~/.devpilot`.
-- New source files shouldn't drag coverage below the `vitest.config.ts` thresholds (70% lines, 60% branches over `src/**/*.ts`, excluding `src/launcher.ts`/`src/index.ts`).
-
-**Safety**
-
-- No real API keys/tokens/vault contents written to disk outside `core/vault.ts`'s backends; `keys/index.json` stores only account names.
-- `.github/workflows/ci.yml`'s publish gating (tag-vs-version check, `refs/tags/v*` trigger) is untouched unless explicitly requested.
-- `DpapiProtector`'s legacy plain-hex fallback in `unprotect` is not removed (backward compatibility for pre-`dpapi:` stored keys).
-
-Here is the diff:
+A findings list ordered most-severe first. Each finding: `file:line`, the concrete rule violated (quote the CLAUDE.md/convention it breaks), why it matters here, and the smallest fix. End with a one-line verdict: approve, approve with nits, or request changes.
 
 ```
-<paste diff here>
+<paste the PR diff here>
 ```

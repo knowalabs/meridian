@@ -1,14 +1,29 @@
 ---
 description: Scaffold a new devpilot-generate artifact kind
+argument-hint: <kind-id>
 ---
 
-Add a new `ArtifactKind` named `$ARGUMENTS` to `ARTIFACT_KINDS` in `src/generate/artifacts.ts`:
+## Context
 
-1. Define `id`, `name`, `description`, and `allowedPaths` (path prefixes or exact files this kind may write — validated later by `isAllowedPath`, which blocks absolute paths, drive letters, and `..` traversal).
-2. Implement `prompt(digest)` using the `commonPrompt(kindInstructions, digest)` helper, describing exactly which file(s) to produce and their required structure — be as specific as the `rules` kind's prompt (multi-section outline).
-3. Implement `fallback(analysis: ProjectAnalysis)` returning at least one `ArtifactFile` under `allowedPaths` with no AI provider — derive content from real analysis fields (`analysis.scripts`, `analysis.frameworks`, `analysis.tree`, etc.), never hardcoded generic text.
-4. Both `prompt()` and `fallback()` are mandatory — the `static fallbacks` test in `tests/generate.test.ts` iterates `ARTIFACT_KINDS` and asserts every kind's `fallback()` output passes `isAllowedPath`. Add a case there.
-5. If this kind should propagate anywhere (like `rules` mirrors into `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` via `src/rules/generators.ts`), wire that explicitly — it does not happen automatically.
-6. Confirm `generateKind` in `src/generate/pipeline.ts` still fails closed for this kind (no static fallback written after a failed AI call mid-run).
+- `src/generate/artifacts.ts` — `ARTIFACT_KINDS`, `ArtifactKind` interface, `commonPrompt`, `isAllowedPath`
+- `src/generate/pipeline.ts`'s `generateKind` — the fail-closed contract every kind runs under
+- `tests/generate.test.ts`'s `describe('static fallbacks')` block — the invariant every kind must satisfy
 
-Run `npm run test:coverage` after to confirm the new kind's fallback path is exercised.
+## Task
+
+If `$ARGUMENTS` is empty, ask the user for the new kind's id and what it should produce before doing anything else.
+
+1. Add an `ArtifactKind` entry named `$ARGUMENTS` to `ARTIFACT_KINDS` in `src/generate/artifacts.ts`, with `id`, `name`, `description`, and `allowedPaths` (exact files or path prefixes this kind may write — enforced later by `isAllowedPath`, which blocks absolute paths, drive letters and `..` traversal).
+2. Implement `prompt(digest)` via `commonPrompt(kindInstructions, digest)`, naming the exact file(s) to produce and their required section structure, as specific as the `rules` kind's outline.
+3. Implement `fallback(analysis: ProjectAnalysis)` returning at least one `ArtifactFile` under `allowedPaths`, derived from real `analysis` fields (`scripts`, `frameworks`, `tree`, `codeMap`, `workspaces`) — never generic boilerplate text.
+4. Add a case to `tests/generate.test.ts`'s `describe('static fallbacks')` block asserting the new kind's `fallback()` output passes `isAllowedPath`.
+5. If this kind should propagate elsewhere (as `rules` mirrors into `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` via `src/rules/generators.ts`), wire that explicitly — propagation never happens automatically.
+6. Run `npm run test:coverage` to confirm the new kind's fallback path is exercised.
+
+## Report
+
+The new `ArtifactKind` id, its `allowedPaths`, the test added, and the coverage result.
+
+## Constraints
+
+Never bypass `isAllowedPath` for this kind's writes. Never make `generateKind` fall back to static templates after a failed AI call — a failed kind must write nothing so a re-run can retry it.

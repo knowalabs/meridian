@@ -5,14 +5,17 @@
 ## Overview
 
 - **Project:** @sonalsithara/devpilot
-- **Files scanned:** 103
-- **Primary languages:** TypeScript (54), JavaScript (1)
+- **Files scanned:** 120
+- **Primary languages:** TypeScript (64), JavaScript (1), HTML (1)
 - **Frameworks / tooling:** CLI (Commander/oclif), Vitest
 
 ## Folder Structure
 
 ```
 DevPilot/
+├── .github/
+│   ├── workflows/
+│   └── copilot-instructions.md
 ├── DevPilot_Docs/
 │   ├── api/
 │   ├── architecture/
@@ -26,6 +29,8 @@ DevPilot/
 │   ├── 04-roadmap.md
 │   ├── 05-monetization.md
 │   └── DevPilot_Product_Plan.md
+├── site/
+│   └── index.html
 ├── src/
 │   ├── commands/
 │   ├── core/
@@ -41,11 +46,14 @@ DevPilot/
 ├── tests/
 │   ├── e2e/
 │   ├── analyzer.test.ts
+│   ├── ask-stream.test.ts
 │   ├── commands.test.ts
 │   ├── config.test.ts
+│   ├── doctor.test.ts
 │   ├── errors.test.ts
 │   ├── fsx.test.ts
 │   ├── generate.test.ts
+│   ├── ignore.test.ts
 │   ├── launcher.test.ts
 │   ├── mcp.test.ts
 │   ├── platform.test.ts
@@ -54,14 +62,20 @@ DevPilot/
 │   ├── router-network.test.ts
 │   ├── router.test.ts
 │   ├── rules.test.ts
+│   ├── sync.test.ts
 │   ├── update-ask.test.ts
 │   ├── vault-backends.test.ts
-│   └── vault.test.ts
+│   ├── vault.test.ts
+│   └── workspaces.test.ts
+├── AGENTS.md
 ├── CHANGELOG.md
+├── CLAUDE.md
 ├── eslint.config.js
+├── GEMINI.md
 ├── LICENSE
 ├── package-lock.json
 ├── package.json
+├── README_AI.md
 ├── README.md
 ├── tsconfig.build.json
 ├── tsconfig.json
@@ -114,3 +128,55 @@ DevPilot/
 - `src/providers/router.ts`
 - `tests/router-network.test.ts`
 - `tests/router.test.ts`
+
+## Code Map
+
+Classes, functions and types per file — the project's core concepts.
+
+```
+src/cli.ts: interface CliOptions, function buildCli, function addGlobalFlags
+src/commands/ask.ts: function askCommand, function routerConfigCommand, function readPipedInput
+src/commands/auth.ts: function authCommand, function keysListCommand, function keysRepairCommand, function keysRemoveCommand, function maskKey, function resolveProvider
+src/commands/doctor.ts: interface DoctorReportJson, function doctorCommand, function environmentChecks, function toolStatuses, function safeVaultKeys, function providerStatuses, function vaultStatus, function kitStatus, function line, function render, function renderKit, function renderNextSteps
+src/commands/generate.ts: function generateCommand, function chooseProvider, function estimateCommand
+src/commands/install.ts: function installCommand, function uninstallCommand, function updateToolsCommand, function unknownTool, function pickTool
+src/commands/mcp.ts: function mcpSearchCommand, function mcpInstallCommand, function mcpRemoveCommand, function mcpListCommand
+src/commands/sync.ts: function syncCommand
+src/commands/update.ts: function updateCommand, function loginCommand
+src/core/config.ts: interface RouterConfig, interface DevPilotConfig, function loadConfig, function saveConfig, function defaults
+src/core/errors.ts: interface CliErrorOptions, class CliError, function renderError, const EXIT, function causeChain
+src/core/exec.ts: interface ExecResult, function run, function runAsync, function runLive, function which, function versionOf, function resolveCommand
+src/core/fsx.ts: function writeFileAtomic, function backupFile, function readJsonFile, type JsonReadResult
+src/core/logger.ts: function configureLogger, function jsonMode, function currentLevel, type LogLevel, const log
+src/core/paths.ts: function devpilotHome, function ensureHome, function globalConfigPath, function projectDir, const HOME_SUBDIRS
+src/core/pkg.ts: const PACKAGE_NAME, const VERSION
+src/core/plugin.ts: interface DoctorReport, interface ToolPlugin, class PluginRegistry
+src/core/prompt.ts: function promptLine, function promptSecret, interface Choice, function promptChoice, function didYouMean, function levenshtein
+src/core/spinner.ts: interface Spinner, function startSpinner
+src/core/validate.ts: function isRecord, function coerceConfig, function looksLikeMcpConfig
+src/core/vault.ts: interface Vault, function repairVault, function openVault, type VaultBackend, class KeychainVault, class SecretToolVault, class PlainProtector, class DpapiProtector, class FileVault, function indexPath, function indexRead, function indexWrite, function indexAdd, function indexRemove, function restrictWindowsAcl
+src/generate/artifacts.ts: interface ArtifactFile, interface ArtifactKind, function parseFileBlocks, function isAllowedPath, function topLevelDirs, function kindsById, const ARTIFACT_KINDS, function stack, function workflowScripts, function verificationChecklist, function raisingTheBar, function commonPrompt
+src/generate/cache.ts: interface ReviewKey, function reviewCacheKey, function readCachedReview, function writeCachedReview, function cacheDir, function entryPath, function pruneCache
+src/generate/digest.ts: interface ProjectDigest, function digestBudgetFor, function buildDigest, function excerpt, function sampleSources
+src/generate/manifest.ts: interface KitFingerprint, interface KitManifest, function hashContent, function fingerprintOf, function diffFingerprints, function readManifest, function writeManifest, interface FileStates, function fileStates, const MANIFEST_FILE
+src/generate/pipeline.ts: interface GenerateOptions, interface FileResult, interface GenerateResult, function concurrencyFor, function pickProvider, interface GenerateEstimate, function estimateGenerate, function runGenerate, function inPool, function isQuotaError, function pcDimFiles, function generateKind, function scaffoldFiles
+src/index.ts: function main
+src/launcher.ts: function showBanner, function showWelcome, function tokenize, function runInteractive, function bannerRows, function menuPrompt, function runCommandLine
+src/mcp/configure.ts: interface McpWriteReport, function mcpConfigTargets, function addServer, function removeServer, function listInstalled, function claudeDesktopConfig, function toEntry, function readConfig, function writeConfig, function skip, function installedPath, function recordInstalled, function recordRemoved
+src/mcp/registry.ts: interface McpServerSpec, function searchMcp, function getMcp, const MCP_REGISTRY
+src/plugins/tools.ts: interface ToolSpec, function detect, function makePlugin, function buildRegistry, const TOOL_SPECS, function hasBrew, function hasWinget, function expandEnv, function platformAppPaths, function installHint
+src/providers/router.ts: interface ProviderSpec, interface ModelPricing, function pricingFor, function setRuntimeModel, function modelFor, function setFetchForTests, function setRunForTests, function setRetryDelayForTests, interface RouteDecision, function route, function verifyApiKey, function availableProviders, const CLI_DEFAULT_MODEL, const PROVIDERS, type KeyVerification, class TransientNetworkError, function retryAfterMs, function rawPost, function post, function classifyStatus, function postStream, function openAiDelta, function openAiCompatible
+src/rules/generators.ts: interface RuleTarget, function loadRules, interface GeneratedFile, function generateRules, const RULE_TARGETS, const DEFAULT_RULES, function standardBody
+src/scan/analyzer.ts: interface CodeMapEntry, function extractFileSymbols, function renderCodeMap, interface ProjectAnalysis, function analyzeProject, function renderTree, function renderContextMarkdown, function renderArchitectureMarkdown, function readJson, function detectFrameworks, function readText, function hasDotnetProject, function detectEcosystemScripts, function detectConventions
+src/scan/ignore.ts: interface CompiledRule, function compileGitignoreRule, interface IgnoreMatcher, function createIgnore, const ALWAYS_IGNORED_DIRS, const NULL_IGNORE, function escapeRegexChar, function parseRules
+src/scan/workspaces.ts: interface WorkspacePackage, interface WorkspaceInfo, function detectWorkspaces, function renderWorkspaces, type WorkspaceTool, function readText, function readJson, function expandGlob, function listDirs, function isDir, function describePackage, function parsePnpmWorkspace, function parseCargoMembers, function parseGoWork
+tests/ask-stream.test.ts: function sseResponse
+tests/commands.test.ts: function stdout, function lastJson
+tests/doctor.test.ts: function report, function runDoctor
+tests/e2e/helpers.ts: interface CliResult, interface Sandbox, function makeSandbox, function runCli, const CLI_PATH
+tests/generate.test.ts: function makeProject
+tests/platform.test.ts: function setPlatform
+tests/router-network.test.ts: function jsonResponse
+tests/sync.test.ts: function makeProject, function generateKit
+tests/vault-backends.test.ts: function setPlatform
+```

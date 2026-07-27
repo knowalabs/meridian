@@ -1,16 +1,43 @@
 ---
 name: add-ai-provider
-description: Use when adding a new AI provider (hosted API or keyless CLI) to DevPilot's router.
+description: Use when adding a new AI provider (hosted API or keyless CLI) to the router in src/providers/router.ts.
 ---
 
-# Adding a provider to `src/providers/router.ts`
+# Add AI Provider
 
-Every provider — hosted API (e.g. `anthropic`) or keyless CLI (e.g. `claude-code`) — is one entry in the `PROVIDERS: ProviderSpec[]` array in `src/providers/router.ts`, selected by `route()`/`pickProvider` (`src/generate/pipeline.ts`) on cost/speed/quality/context.
+## When to use
 
-1. Add an object to `PROVIDERS` implementing `ProviderSpec`: `id`, `name`, `model` (default model string, or the `CLI_DEFAULT_MODEL` sentinel `'cli-default'` for CLI-backed providers whose model naming isn't yours to pin), `cost`/`speed`/`quality` (lower = better, ranked _relative to existing entries_ — look at `anthropic`'s `cost: 3, speed: 2, quality: 1` and `claude-code`'s `cost: 0` for calibration), `contextTokens`, `needsKey` (`false` for CLI-backed providers), and for CLI-backed providers a `binary` (the PATH executable name, e.g. `'claude'`).
-2. Implement `async ask(prompt, apiKey)`. For an HTTP provider, call the shared `post(url, headers, body, { provider: this.id })` helper — it already handles timeout (`DEFAULT_TIMEOUT_MS = 60_000`), one retry on HTTP 429, and maps 401/403 → auth-failed `CliError` with hint `Run "devpilot auth ${ctx.provider}" to update it.`, 404 → model-not-found hint pointing at `router.models.<id>` config. Do not reimplement retry/timeout/error-mapping per provider.
-3. For a CLI-backed provider, shell out via `runImpl`/`runAsync` (see `claude-code`'s `ask`) instead of `post()`, check `res.notFound` for a missing-binary `CliError` with a `devpilot install <tool>` hint, and give it a generous timeout (`claude-code` uses `timeoutMs: 600_000` — 10 minutes — not the 60s HTTP default) since it's a full CLI session, not a request/response call.
-4. Always resolve the model through `modelFor(this)` (never read `this.model` directly) so `router.models.<id>` config overrides are honored.
-5. Use `CliError` (`src/core/errors.ts`) for every failure path with an actionable `hint`, never a raw `Error` — match the pattern already in `post()`.
-6. Test it in `tests/router-network.test.ts` using the existing seams: `setFetchForTests`/`setRunForTests` (never real network/subprocess calls) plus `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync` for retry/timeout behavior — mirror the `anthropic`/`claude-code` describe blocks (success, 401, 429-retry-then-fail, timeout via `AbortController`, connection-failure hint).
-7. Run `npm run lint && npm run build && npm run test:coverage` — `router.ts` network/retry logic is coverage-sensitive (70% lines / 60% branches over `src/**`), so untested branches in your new `ask()` can drop the whole suite below threshold.
+Adding a new entry to `PROVIDERS` in `src/providers/router.ts` — a hosted API (like the existing `groq`/`deepseek`/`mistral`/`xai`/`openrouter` OpenAI-compatible providers) or a keyless CLI-backed provider (like `claude-code`/`codex-cli`/`gemini-cli`). Not for changing routing logic itself (`route()`), and not for artifact generation — that's `@.claude/skills/add-artifact-kind/SKILL.md`.
+
+## Before you start
+
+- @src/providers/router.ts — `ProviderSpec`, `post`/`postStream`, `classifyStatus`, `openAiCompatible`, `RETRYABLE_STATUS`, `MAX_ATTEMPTS`
+- @tests/router-network.test.ts — retry/backoff/timeout test patterns using `setFetchForTests`/`setRunForTests`/`setRetryDelayForTests` + `vi.useFakeTimers()`
+- @tests/ask-stream.test.ts — the streaming-provider test table (`groq`, `deepseek`, `mistral`, `xai`, `openrouter`)
+- @CLAUDE.md — "no floating or misused promises", "Secrets must avoid `argv` when possible"
+
+## Steps
+
+1. Add a `ProviderSpec` to `PROVIDERS`: `id`, `name`, `model`, `cost`/`speed`/`quality`/`contextTokens` set _relative to existing entries_ (don't invent an absolute scale), `needsKey`, and `binary`/`parallel` if it's a CLI-backed provider.
+2. For a hosted OpenAI-compatible API, reuse `openAiCompatible` the way `groq`/`deepseek`/`mistral`/`xai`/`openrouter` do — implement `ask()` via the shared `post()` helper and `askStream()` via `postStream()` with `openAiDelta`, rather than writing a new HTTP client.
+3. For a keyless CLI-backed provider, follow the `claude-code`/`codex-cli`/`gemini-cli` pattern: spawn the binary via `runAsync`, pipe the prompt over **stdin**, never as an argv value.
+4. If the model has a published per-million-token price, add it to `MODEL_PRICING` in `router.ts` — otherwise leave it out; `pricingFor`/`devpilot generate --estimate` correctly reports "no price on file" rather than guessing.
+5. No manual doctor wiring needed — `providerStatuses` in `src/commands/doctor.ts` iterates `PROVIDERS` automatically, so a new entry shows up in `devpilot doctor` for free.
+6. Add a network test to `tests/router-network.test.ts` (success, 401 → CliError with the `devpilot auth <provider>` hint, retry-then-succeed on a transient status) and, if it streams, a case in `tests/ask-stream.test.ts`.
+
+## Verification
+
+Run in order: `npm run format`, `npm run lint`, `npm run build`, `npm run test:coverage` (watch `tests/router-network.test.ts` and `tests/ask-stream.test.ts`). `npm run test:e2e` is not required unless the change also touches `generate` or `cli.ts`.
+
+## Done when
+
+- [ ] The provider's `ask()`/`askStream()` go through the shared `post()`/`postStream()` retry/backoff/timeout path.
+- [ ] No secret is ever placed in argv.
+- [ ] A network test using `setFetchForTests`/`setRunForTests` (never a real network call) covers success and one failure mode.
+- [ ] The full verification chain is green.
+
+## Never
+
+- Never bypass `post()`/`postStream()` with a raw `fetch` call — that loses retry, backoff, and `CliError` classification.
+- Never add a real network call or real `setTimeout` delay to a test — use the seams and `vi.useFakeTimers()`.
+- Never pass a secret as a CLI argument for a spawned binary.
