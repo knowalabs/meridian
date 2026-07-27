@@ -9,8 +9,17 @@ import {
   parseFileBlocks,
 } from '../src/generate/artifacts.js';
 import { buildDigest } from '../src/generate/digest.js';
-import { runGenerate } from '../src/generate/pipeline.js';
-import { setFetchForTests } from '../src/providers/router.js';
+import {
+  concurrencyFor,
+  estimateGenerate,
+  runGenerate,
+  type GenerateOptions,
+} from '../src/generate/pipeline.js';
+import {
+  setFetchForTests,
+  setRetryDelayForTests,
+  type ProviderSpec,
+} from '../src/providers/router.js';
 import { openVault } from '../src/core/vault.js';
 import { analyzeProject } from '../src/scan/analyzer.js';
 import { generateCommand } from '../src/commands/generate.js';
@@ -348,9 +357,13 @@ describe('runGenerate', () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-'));
     process.env.DEVPILOT_HOME = home;
     process.env.DEVPILOT_VAULT = 'file';
+    // Retry backoff is exercised in router-network.test.ts; here it would
+    // only add real seconds of sleep to every failure path.
+    setRetryDelayForTests(0);
   });
   afterEach(() => {
     setFetchForTests(null);
+    setRetryDelayForTests(null);
     delete process.env.DEVPILOT_HOME;
     delete process.env.DEVPILOT_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
@@ -576,7 +589,7 @@ describe('runGenerate', () => {
     expect(result.aborted).toMatch(/limit/i);
     // Review call aborts everything — no per-kind calls afterwards.
     expect(result.failed.length).toBeGreaterThanOrEqual(6);
-    expect(calls).toBeLessThanOrEqual(2); // review call (+1 internal 429 retry)
+    expect(calls).toBeLessThanOrEqual(3); // review call + its 429 retries
   });
 });
 
@@ -639,5 +652,287 @@ describe('generateCommand', () => {
     expect(await generateCommand(['commands'], { ai: false }, root)).toBe(0);
     expect(await generateCommand(['commands'], { ai: false }, root)).toBe(0); // all skipped
     expect(await generateCommand(['commands'], { ai: false, force: true }, root)).toBe(0);
+  });
+});
+
+describe('concurrencyFor', () => {
+  const spec = (parallel?: number): ProviderSpec =>
+    ({ id: 'x', parallel }) as unknown as ProviderSpec;
+
+  it('never pools static generation', () => {
+    expect(concurrencyFor(null, 8, 7)).toBe(1);
+  });
+
+  it('uses the provider limit, then the default', () => {
+    expect(concurrencyFor(spec(2), undefined, 7)).toBe(2);
+    expect(concurrencyFor(spec(), undefined, 7)).toBe(3);
+  });
+
+  it('lets an explicit override win but never exceeds the work available', () => {
+    expect(concurrencyFor(spec(2), 6, 7)).toBe(6);
+    expect(concurrencyFor(spec(4), 6, 2)).toBe(2);
+  });
+
+  it('falls back to the provider limit for a nonsense override', () => {
+    // A NaN here would produce a pool of zero workers and generate nothing.
+    expect(concurrencyFor(spec(2), Number.NaN, 7)).toBe(2);
+    expect(concurrencyFor(spec(2), 0, 7)).toBe(2);
+    expect(concurrencyFor(spec(2), -1, 7)).toBe(2);
+  });
+});
+
+/* --- shared stubs for the AI-backed pipeline describes below --- */
+
+const aiResponse = (text: string): Response =>
+  new Response(JSON.stringify({ content: [{ type: 'text', text }] }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+const promptOf = (init: RequestInit | undefined): string =>
+  (JSON.parse(init?.body as string) as { messages: { content: string }[] }).messages[0]!.content;
+
+/** The reading pass is the only prompt that asks for a codebase review. */
+const isReviewPrompt = (text: string): boolean => text.includes('deep codebase review');
+
+/**
+ * A complete, allowed response for whichever kind is being asked for — each
+ * kind enforces its own allowedPaths and minFiles, so a stub that ignores
+ * them would be retried and skew call counts.
+ */
+const filesFor = (prompt: string): string => {
+  const block = (file: string, body: string): string => `<<<FILE ${file}>>>\n${body}\n<<<END>>>`;
+  if (prompt.includes('.devpilot/prompts/')) {
+    return [1, 2, 3].map((n) => block(`.devpilot/prompts/p${n}.md`, `# Prompt ${n}`)).join('\n');
+  }
+  return block('.devpilot/rules.md', '## General\n\n- Be good.');
+};
+
+describe('parallel kind generation', () => {
+  let root: string;
+  let home: string;
+
+  beforeEach(() => {
+    root = makeProject();
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-par-'));
+    process.env.DEVPILOT_HOME = home;
+    process.env.DEVPILOT_VAULT = 'file';
+    setRetryDelayForTests(0);
+    openVault().set('anthropic', 'test-key');
+  });
+  afterEach(() => {
+    setFetchForTests(null);
+    setRetryDelayForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    delete process.env.DEVPILOT_VAULT;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('runs kinds concurrently and still reports them in kind order', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 10));
+      inFlight--;
+      return aiResponse(filesFor(text));
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['rules', 'prompts'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+      concurrency: 2,
+    });
+
+    expect(peak).toBe(2);
+    expect(result.failed).toEqual([]);
+    // Reporting order follows the requested kinds, not completion order.
+    const kinds = result.files.filter((f) => f.kind !== 'scan').map((f) => f.kind);
+    expect(kinds[0]).toBe('rules');
+    expect(kinds[kinds.length - 1]).toBe('prompts');
+  });
+
+  it('propagates rules to tool files even when rules finishes out of order', async () => {
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      // Rules answers last, so propagation cannot depend on call order.
+      if (text.includes('.devpilot/rules.md')) await new Promise((r) => setTimeout(r, 20));
+      return aiResponse(filesFor(text));
+    });
+    const result = await runGenerate({
+      root,
+      kinds: ['prompts', 'rules'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+      concurrency: 2,
+    });
+    expect(result.failed).toEqual([]);
+    expect(result.propagated).toContain('CLAUDE.md');
+    expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(true);
+  });
+});
+
+describe('codebase review cache', () => {
+  let root: string;
+  let home: string;
+
+  beforeEach(() => {
+    root = makeProject();
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-cache-'));
+    process.env.DEVPILOT_HOME = home;
+    process.env.DEVPILOT_VAULT = 'file';
+    setRetryDelayForTests(0);
+    openVault().set('anthropic', 'test-key');
+  });
+  afterEach(() => {
+    setFetchForTests(null);
+    setRetryDelayForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    delete process.env.DEVPILOT_VAULT;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  const run = (extra: Partial<GenerateOptions> = {}) =>
+    runGenerate({
+      root,
+      kinds: ['prompts'],
+      provider: 'anthropic',
+      force: true,
+      dryRun: false,
+      noAi: false,
+      ...extra,
+    });
+
+  const stubProvider = (): { reviewCalls: () => number } => {
+    let reviewCalls = 0;
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) {
+        reviewCalls++;
+        return aiResponse('# Review\n\nAll good.');
+      }
+      return aiResponse(filesFor(text));
+    });
+    return { reviewCalls: () => reviewCalls };
+  };
+
+  it('reuses the review when the digest is unchanged', async () => {
+    const { reviewCalls } = stubProvider();
+    // The first run writes the kit, which itself changes the project — so the
+    // digest only settles from the second run on.
+    expect((await run()).reviewFromCache).toBe(false);
+    await run();
+    const settled = await run();
+    expect(settled.reviewFromCache).toBe(true);
+    expect(reviewCalls()).toBe(2);
+    // The cached review still lands in the kit.
+    expect(fs.existsSync(path.join(root, '.devpilot/docs/codebase-review.md'))).toBe(true);
+  });
+
+  it('re-reads the codebase when --no-cache is passed', async () => {
+    const { reviewCalls } = stubProvider();
+    await run();
+    await run();
+    const before = reviewCalls();
+    const forced = await run({ noCache: true });
+    expect(forced.reviewFromCache).toBe(false);
+    expect(reviewCalls()).toBe(before + 1);
+  });
+
+  it('re-reads the codebase once the project changes', async () => {
+    const { reviewCalls } = stubProvider();
+    await run();
+    await run();
+    const before = reviewCalls();
+    fs.writeFileSync(path.join(root, 'src', 'brand-new.ts'), 'export const added = 1;\n');
+    const afterEdit = await run();
+    expect(afterEdit.reviewFromCache).toBe(false);
+    expect(reviewCalls()).toBe(before + 1);
+  });
+
+  it('keeps the cache out of the target project', async () => {
+    stubProvider();
+    await run();
+    expect(fs.existsSync(path.join(home, 'cache', 'reviews'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.devpilot', 'cache'))).toBe(false);
+  });
+});
+
+describe('estimateGenerate', () => {
+  let root: string;
+  let home: string;
+
+  beforeEach(() => {
+    root = makeProject();
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-est-'));
+    process.env.DEVPILOT_HOME = home;
+    process.env.DEVPILOT_VAULT = 'file';
+  });
+  afterEach(() => {
+    setFetchForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    delete process.env.DEVPILOT_VAULT;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('makes no AI call and counts one call per kind plus the review', () => {
+    openVault().set('anthropic', 'test-key');
+    setFetchForTests(() => {
+      throw new Error('estimate must never reach the network');
+    });
+    const est = estimateGenerate({
+      root,
+      kinds: ['rules', 'prompts'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: true,
+      noAi: false,
+    });
+    expect(est.calls).toBe(3);
+    expect(est.kinds).toEqual(['rules', 'prompts']);
+    expect(est.inputTokens).toBeGreaterThan(0);
+    expect(est.usdLow).not.toBeNull();
+    expect(est.usdHigh! > est.usdLow!).toBe(true);
+    expect(est.priceSource).toBe('builtin');
+  });
+
+  it('reports no calls and no cost without a provider', () => {
+    const est = estimateGenerate({
+      root,
+      kinds: [],
+      force: false,
+      dryRun: true,
+      noAi: true,
+    });
+    expect(est.calls).toBe(0);
+    expect(est.provider).toBeNull();
+    expect(est.usdLow).toBeNull();
+  });
+
+  it('reports subscription providers as not billed per token', () => {
+    const est = estimateGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'ollama',
+      force: false,
+      dryRun: true,
+      noAi: false,
+    });
+    // Ollama is only "available" when its binary is on PATH; either way the
+    // estimate must not invent a dollar figure for a local model.
+    expect(est.usdLow).toBeNull();
   });
 });

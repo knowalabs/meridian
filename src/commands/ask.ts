@@ -1,19 +1,72 @@
+import fs from 'node:fs';
 import pc from 'picocolors';
-import { availableProviders, modelFor, PROVIDERS, route } from '../providers/router.js';
+import {
+  availableProviders,
+  modelFor,
+  PROVIDERS,
+  route,
+  setRuntimeModel,
+} from '../providers/router.js';
 import { openVault } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
 import { jsonMode, log } from '../core/logger.js';
 import { CliError } from '../core/errors.js';
 
+/** Give up on stdin if not a single byte arrives in this long. */
+const STDIN_FIRST_BYTE_MS = 250;
+
+/**
+ * Piped input becomes context for the question, so `cat error.log | devpilot
+ * ask "what failed?"` works. Returns '' when stdin is a terminal, empty, or
+ * an idle stream: a pipe that is open but silent (a CI runner, a background
+ * job) must never leave the command hanging forever waiting for EOF.
+ */
+async function readPipedInput(): Promise<string> {
+  if (process.stdin.isTTY) return '';
+  try {
+    const stat = fs.fstatSync(0);
+    if (!stat.isFIFO() && !stat.isFile()) return '';
+  } catch {
+    return '';
+  }
+
+  return new Promise<string>((resolve) => {
+    const chunks: Buffer[] = [];
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(idle);
+      process.stdin.pause();
+      resolve(Buffer.concat(chunks).toString('utf8').trim());
+    };
+    // Only the wait for the *first* byte is bounded; once input is flowing we
+    // read it to the end however long that takes.
+    const idle = setTimeout(finish, STDIN_FIRST_BYTE_MS);
+
+    process.stdin.on('data', (chunk: Buffer) => {
+      clearTimeout(idle);
+      chunks.push(Buffer.from(chunk));
+    });
+    process.stdin.once('end', finish);
+    process.stdin.once('error', finish);
+    process.stdin.resume();
+  });
+}
+
 export async function askCommand(
   promptParts: string[],
-  opts: { provider?: string },
+  opts: { provider?: string; model?: string },
 ): Promise<number> {
-  const prompt = promptParts.join(' ').trim();
-  if (!prompt) {
-    log.fail('Usage: devpilot ask "<your question>"');
+  const question = promptParts.join(' ').trim();
+  const piped = await readPipedInput();
+  if (!question && !piped) {
+    log.fail('Usage: devpilot ask "<your question>"   (or pipe input: cat file | devpilot ask …)');
     return 1;
   }
+  const prompt = piped
+    ? `${question || 'Explain this input.'}\n\n--- INPUT ---\n${piped}`
+    : question;
 
   const available = availableProviders();
   if (available.length === 0) {
@@ -38,6 +91,7 @@ export async function askCommand(
   }
 
   const { provider, reason } = decision;
+  if (opts.model) setRuntimeModel(provider.id, opts.model);
   // Routing info is a diagnostic — log.dim sends it to stderr so that
   // `devpilot ask "…" | tool` pipes only the answer.
   log.dim(`→ routed to ${provider.name} [${modelFor(provider)}] (${reason})`);
@@ -50,12 +104,29 @@ export async function askCommand(
     return 1;
   }
 
+  // Stream to a human at a terminal; buffer when the answer is being piped or
+  // rendered as JSON, where partial writes would corrupt the output.
+  const streamer = provider.askStream?.bind(provider) ?? null;
+  const stream = streamer !== null && !jsonMode() && process.stdout.isTTY === true;
+
   try {
-    const answer = await provider.ask(prompt, key ?? '');
-    if (jsonMode()) {
-      log.json({ provider: provider.id, model: modelFor(provider), reason, answer: answer.trim() });
+    let answer: string;
+    if (stream && streamer) {
+      process.stdout.write('\n');
+      answer = await streamer(prompt, key ?? '', (delta) => process.stdout.write(delta));
+      process.stdout.write('\n');
     } else {
-      log.info('\n' + answer.trim());
+      answer = await provider.ask(prompt, key ?? '');
+      if (jsonMode()) {
+        log.json({
+          provider: provider.id,
+          model: modelFor(provider),
+          reason,
+          answer: answer.trim(),
+        });
+      } else {
+        log.info('\n' + answer.trim());
+      }
     }
     return 0;
   } catch (err) {

@@ -49,17 +49,32 @@ describe('ai router', () => {
     expect(decision?.provider.id).toBe('google');
   });
 
-  it('registry lists all eight providers from the docs', () => {
+  it('registry lists every supported provider', () => {
     expect(PROVIDERS.map((p) => p.id).sort()).toEqual([
       'anthropic',
       'claude-code',
       'codex-cli',
+      'deepseek',
       'gemini-cli',
       'google',
+      'groq',
+      'mistral',
       'ollama',
       'openai',
       'openrouter',
+      'xai',
     ]);
+  });
+
+  it('gives every provider the fields the router and pipeline read', () => {
+    for (const p of PROVIDERS) {
+      expect(typeof p.name).toBe('string');
+      expect(p.model.length).toBeGreaterThan(0);
+      expect(p.contextTokens).toBeGreaterThan(0);
+      expect(typeof p.ask).toBe('function');
+      // A keyless provider must name the binary that proves it is usable.
+      if (!p.needsKey) expect(p.binary).toBeTruthy();
+    }
   });
 
   it('prefers the Claude Code CLI when optimizing for cost', () => {

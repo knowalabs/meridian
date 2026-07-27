@@ -105,7 +105,7 @@ Examples:
 
   program
     .command('auth [provider] [key]')
-    .description('Store an API key in the secure vault (openai, anthropic, google, openrouter)')
+    .description('Store an API key in the secure vault (run without arguments to pick a provider)')
     .option('--no-verify', 'store the key without checking it against the provider')
     .addHelpText(
       'after',
@@ -141,15 +141,28 @@ Examples:
     .option('-p, --provider <id>', 'force a specific AI provider')
     .option('-f, --force', 'overwrite existing files')
     .option('--dry-run', 'show what would be generated without writing')
+    .option('--estimate', 'report tokens, AI calls and rough cost — makes no AI call')
+    .option('-m, --model <model>', 'model to use, overriding the provider default')
+    .option('--concurrency <n>', 'artifact kinds to generate at once (default: per provider)')
+    .option('--no-cache', 'ignore the cached codebase review and read the project again')
     .option('--no-ai', 'use static templates even if an AI provider is configured')
     .addHelpText(
       'after',
-      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nOpt-in kinds (only when named): ci — a GitHub Action running "devpilot sync --check"\nExamples:\n  $ devpilot generate                   generate everything\n  $ devpilot generate agents commands   only subagents and slash commands\n  $ devpilot generate ci                add the CI kit-freshness check\n  $ devpilot generate --dry-run         preview without writing',
+      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nOpt-in kinds (only when named): ci — a GitHub Action running "devpilot sync --check"\nExamples:\n  $ devpilot generate                   generate everything\n  $ devpilot generate agents commands   only subagents and slash commands\n  $ devpilot generate ci                add the CI kit-freshness check\n  $ devpilot generate --estimate        what it would cost, before spending\n  $ devpilot generate --dry-run         preview without writing',
     )
     .action(
       async (
         kinds: string[],
-        opts: { provider?: string; force?: boolean; dryRun?: boolean; ai?: boolean },
+        opts: {
+          provider?: string;
+          force?: boolean;
+          dryRun?: boolean;
+          ai?: boolean;
+          estimate?: boolean;
+          concurrency?: string;
+          cache?: boolean;
+          model?: string;
+        },
       ) => done(await generateCommand(kinds ?? [], opts)),
     );
 
@@ -159,13 +172,24 @@ Examples:
     .option('--check', 'report only; exit 1 when the kit is stale (no AI needed — made for CI)')
     .option('-p, --provider <id>', 'force a specific AI provider for the refresh')
     .option('--dry-run', 'show what would be refreshed without writing')
+    .option('--concurrency <n>', 'artifact kinds to refresh at once (default: per provider)')
+    .option('-m, --model <model>', 'model to use, overriding the provider default')
+    .option('--no-cache', 'ignore the cached codebase review and read the project again')
     .option('--no-ai', 'refresh from static templates instead of AI')
     .addHelpText(
       'after',
       '\nHand-edited generated files are always preserved.\nExamples:\n  $ devpilot sync                       refresh whatever is stale\n  $ devpilot sync --check               CI gate: fail when the kit is stale',
     )
-    .action(async (opts: { check?: boolean; provider?: string; dryRun?: boolean; ai?: boolean }) =>
-      done(await syncCommand(opts)),
+    .action(
+      async (opts: {
+        check?: boolean;
+        provider?: string;
+        dryRun?: boolean;
+        ai?: boolean;
+        concurrency?: string;
+        cache?: boolean;
+        model?: string;
+      }) => done(await syncCommand(opts)),
     );
 
   const mcp = program.command('mcp').description('Search and install MCP servers');
@@ -193,7 +217,12 @@ Examples:
     .command('ask [prompt...]')
     .description('Ask AI — routed to the best provider (cost/speed/quality aware)')
     .option('-p, --provider <id>', 'force a specific provider')
-    .action(async (prompt: string[], opts: { provider?: string }) =>
+    .option('-m, --model <model>', 'model to use for this question')
+    .addHelpText(
+      'after',
+      '\nThe answer streams as it arrives on a terminal, and is buffered when piped.\nPiped input becomes context:\n  $ cat error.log | devpilot ask "what failed here?"',
+    )
+    .action(async (prompt: string[], opts: { provider?: string; model?: string }) =>
       done(await askCommand(prompt ?? [], opts)),
     );
 
@@ -213,7 +242,7 @@ Examples:
 
   program
     .command('login')
-    .description('Sign in for Cloud Sync (coming in v0.4)')
+    .description('Sign in for Cloud Sync (not available yet)')
     .action(() => done(loginCommand()));
 
   addGlobalFlags(program);

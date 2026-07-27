@@ -15,6 +15,8 @@ And the kit stays alive: **`devpilot sync`** detects when your codebase has drif
 
 Works on **macOS, Windows and Linux** (Node.js ≥ 18).
 
+**Monorepos are first-class.** npm/yarn/pnpm workspaces, Lerna, Cargo workspaces and `go.work` are detected, and each package's name, path, scripts and dependencies feed the generated kit — so rules and workflows say which package they apply to and use that package's own commands. **Your `.gitignore` is respected**, along with per-ecosystem build output (`target/`, `vendor/`, `bin/`, `obj/`, `Pods/`, …), so generated code never crowds real source out of the analysis.
+
 ## Interactive mode
 
 Run `devpilot` with no arguments to open the interactive launcher: navigate the menu with **↑/↓** and run with **Enter**, or just start typing — text filters the menu live, and anything that isn't a menu item runs as a raw command (e.g. `install claude`). **Tab** completes the highlighted item into the input line, **Esc** clears it, **q** quits. After each command you land back in the menu.
@@ -25,15 +27,15 @@ Run `devpilot` with no arguments to open the interactive launcher: navigate the 
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                                                                                                             |
 | `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                                                                                                         |
-| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter)                                                                                                                            |
+| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter, Groq, DeepSeek, Mistral, xAI)                                                                                              |
 | `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                                                                                                     |
 | `devpilot generate [kinds…]`              | Review the codebase, then generate everything: context, architecture, rules (mirrored to every tool), `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, `.claude/settings.json`, prompts, docs |
 | `devpilot sync [--check]`                 | Detect drift between the codebase and the generated kit; refresh stale files (hand edits preserved). `--check` is a CI gate: exit 1 when stale                                                          |
 | `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                                                                                                              |
-| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size                                                                                                                                   |
+| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size; streams the answer, and reads piped stdin as context                                                                             |
 | `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                                                                                                              |
 | `devpilot update`                         | Update the CLI and installed tools                                                                                                                                                                      |
-| `devpilot login`                          | Cloud Sync (coming in v0.5)                                                                                                                                                                             |
+| `devpilot login`                          | Cloud Sync (on the roadmap, not available yet)                                                                                                                                                          |
 
 ### Global flags
 
@@ -44,12 +46,28 @@ Every command accepts:
 - `--verbose` — debug output and stack traces
 - `--no-color` — plain output (also honors `NO_COLOR`)
 
-`devpilot ask` prints routing diagnostics to stderr, so `devpilot ask "…" | pbcopy` pipes only the answer:
+`devpilot ask` prints routing diagnostics to stderr, so `devpilot ask "…" | pbcopy` pipes only the answer. On a terminal the answer streams as it is generated; when piped or in `--json` it arrives whole. Piped input becomes context for the question:
 
 ```bash
 devpilot doctor --json | jq '.missing'
 devpilot ask "explain this repo" --json | jq -r .answer
+cat build-error.log | devpilot ask "what failed here?"
+devpilot ask "review this diff" --model claude-opus-4-8 < <(git diff)
 ```
+
+### Knowing the cost before you spend it
+
+```bash
+devpilot generate --estimate
+```
+
+reports the digest size, how many AI calls the run makes, a token estimate and a cost range — without making a single AI call. Costs are looked up per model; if DevPilot has no price on file for yours it says so instead of guessing. Set your own under `router.pricing.<model>` in `~/.devpilot/config.json`:
+
+```json
+{ "router": { "pricing": { "claude-opus-4-8": { "inputPerMTok": 15, "outputPerMTok": 75 } } } }
+```
+
+Runs are also faster and cheaper by default: artifact kinds are generated concurrently up to a limit each provider can take (tune with `--concurrency`), and the expensive codebase-review pass is cached per project, provider, model and digest — so `devpilot sync` on an unchanged codebase skips it entirely. `--no-cache` forces a fresh read.
 
 ### The AI kit
 

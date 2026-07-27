@@ -23,6 +23,19 @@ export function coerceConfig(parsed: unknown, base: DevPilotConfig): DevPilotCon
       for (const [k, v] of Object.entries(r.models)) if (typeof v === 'string') models[k] = v;
       if (Object.keys(models).length > 0) base.router.models = models;
     }
+    if (isRecord(r.pricing)) {
+      const pricing: Record<string, { inputPerMTok: number; outputPerMTok: number }> = {};
+      for (const [model, value] of Object.entries(r.pricing)) {
+        if (!isRecord(value)) continue;
+        const input = value.inputPerMTok;
+        const output = value.outputPerMTok;
+        // A negative or non-numeric price would render as a nonsense estimate.
+        if (typeof input === 'number' && typeof output === 'number' && input >= 0 && output >= 0) {
+          pricing[model] = { inputPerMTok: input, outputPerMTok: output };
+        }
+      }
+      if (Object.keys(pricing).length > 0) base.router.pricing = pricing;
+    }
   }
   if (Array.isArray(parsed.providers)) {
     base.providers = parsed.providers.filter((p): p is string => typeof p === 'string');

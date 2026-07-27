@@ -10,6 +10,11 @@ export interface RouterConfig {
   optimize?: 'cost' | 'speed' | 'quality';
   /** Per-provider model overrides, e.g. { anthropic: "claude-opus-4-8" }. */
   models?: Record<string, string>;
+  /**
+   * Per-model USD price per million tokens, used by `devpilot generate
+   * --estimate`. Keyed by model id; overrides DevPilot's built-in table.
+   */
+  pricing?: Record<string, { inputPerMTok: number; outputPerMTok: number }>;
 }
 
 export interface DevPilotConfig {

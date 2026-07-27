@@ -175,6 +175,10 @@ Quality bar:
   the project does not have yet, mark it explicitly as an adoption step —
   never present an unverified command or file as already existing.
 - Write rules and steps as imperatives; no filler sentences, no hedging.
+- When the digest has a "Workspace packages" section, this repository holds
+  several projects. Name the packages, state which one a rule or step applies
+  to, and use each package's own commands from its own directory — never a
+  single set of root commands that only work for one of them.
 - Any workflow step that is destructive or hard to reverse — committing,
   pushing, tagging, publishing, deleting, migrating — must be gated on
   explicit user approval: the workflow shows exactly what it is about to do

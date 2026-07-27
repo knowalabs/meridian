@@ -52,7 +52,7 @@ describe('provider network behavior', () => {
     expect((err as CliError).hint).toContain('devpilot auth anthropic');
   });
 
-  it('retries once on 429, then succeeds', async () => {
+  it('retries on 429, then succeeds', async () => {
     vi.useFakeTimers();
     let calls = 0;
     setFetchForTests(async () => {
@@ -62,19 +62,91 @@ describe('provider network behavior', () => {
         : jsonResponse(200, { content: [{ type: 'text', text: 'after retry' }] });
     });
     const promise = anthropic.ask('hi', 'key');
-    await vi.advanceTimersByTimeAsync(2_500);
+    await vi.advanceTimersByTimeAsync(1_500);
     await expect(promise).resolves.toBe('after retry');
     expect(calls).toBe(2);
   });
 
-  it('gives up after a second 429 with a rate-limit CliError', async () => {
+  it('gives up after the last 429 with a rate-limit CliError', async () => {
     vi.useFakeTimers();
-    setFetchForTests(async () => jsonResponse(429, { error: 'still slow' }));
+    let calls = 0;
+    setFetchForTests(async () => {
+      calls++;
+      return jsonResponse(429, { error: 'still slow' });
+    });
     const promise = anthropic.ask('hi', 'key').catch((e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(2_500);
+    await vi.advanceTimersByTimeAsync(10_000);
     const err = await promise;
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).message).toContain('rate limited');
+    expect(calls).toBe(3);
+  });
+
+  it('retries a transient 502 and succeeds', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    setFetchForTests(async () => {
+      calls++;
+      return calls < 3
+        ? jsonResponse(502, { error: 'bad gateway' })
+        : jsonResponse(200, { content: [{ type: 'text', text: 'recovered' }] });
+    });
+    const promise = anthropic.ask('hi', 'key');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(promise).resolves.toBe('recovered');
+    expect(calls).toBe(3);
+  });
+
+  it('surfaces a persistent 5xx with a "provider is having trouble" hint', async () => {
+    vi.useFakeTimers();
+    setFetchForTests(async () => new Response('upstream exploded', { status: 503 }));
+    const promise = anthropic.ask('hi', 'key').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const err = await promise;
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).message).toContain('HTTP 503');
+    expect((err as CliError).hint).toContain('3 times in a row');
+  });
+
+  it('waits the Retry-After interval when the provider sends one', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    setFetchForTests(async () => {
+      calls++;
+      return calls === 1
+        ? new Response('slow down', { status: 429, headers: { 'retry-after': '5' } })
+        : jsonResponse(200, { content: [{ type: 'text', text: 'ok' }] });
+    });
+    const promise = anthropic.ask('hi', 'key');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(calls).toBe(1); // still waiting out the 5s the provider asked for
+    await vi.advanceTimersByTimeAsync(4_000);
+    await expect(promise).resolves.toBe('ok');
+    expect(calls).toBe(2);
+  });
+
+  it('retries a dropped connection before giving up', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    setFetchForTests(async () => {
+      calls++;
+      if (calls === 1) throw new TypeError('fetch failed');
+      return jsonResponse(200, { content: [{ type: 'text', text: 'reconnected' }] });
+    });
+    const promise = anthropic.ask('hi', 'key');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(promise).resolves.toBe('reconnected');
+    expect(calls).toBe(2);
+  });
+
+  it('does not retry a request the provider rejected as invalid', async () => {
+    let calls = 0;
+    setFetchForTests(async () => {
+      calls++;
+      return jsonResponse(400, { error: 'bad request' });
+    });
+    await expect(anthropic.ask('hi', 'key')).rejects.toThrowError(/HTTP 400/);
+    expect(calls).toBe(1);
   });
 
   it('times out a hung request via AbortController', async () => {
@@ -94,11 +166,14 @@ describe('provider network behavior', () => {
     expect((err as CliError).message).toContain('timed out');
   });
 
-  it('maps connection failures to a connectivity hint (Ollama daemon)', async () => {
+  it('maps persistent connection failures to a connectivity hint (Ollama daemon)', async () => {
+    vi.useFakeTimers();
     setFetchForTests(async () => {
       throw new TypeError('fetch failed');
     });
-    const err = await ollama.ask('hi', '').catch((e: unknown) => e);
+    const promise = ollama.ask('hi', '').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const err = await promise;
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).hint).toContain('Ollama daemon');
   });

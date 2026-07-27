@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { analyzeProject, ProjectAnalysis, renderCodeMap } from '../scan/analyzer.js';
+import { renderWorkspaces } from '../scan/workspaces.js';
+import { createIgnore, IgnoreMatcher } from '../scan/ignore.js';
 
 /**
  * Project digest (Phase 5): a compact, deterministic text snapshot of the
@@ -107,7 +109,12 @@ const isTestFile = (rel: string): boolean =>
  * behavior and the project's test style, which the generated artifacts must
  * describe.
  */
-function sampleSources(analysis: ProjectAnalysis, root: string, max: number): string[] {
+function sampleSources(
+  analysis: ProjectAnalysis,
+  root: string,
+  max: number,
+  ignore: IgnoreMatcher,
+): string[] {
   const seen = new Set(KEY_FILES);
   const picks: { file: string; size: number }[] = [];
   const walk = (dir: string, depth: number): void => {
@@ -119,12 +126,11 @@ function sampleSources(analysis: ProjectAnalysis, root: string, max: number): st
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue;
       const full = path.join(dir, entry.name);
-      const rel = path.relative(root, full);
+      const rel = path.relative(root, full).split(path.sep).join('/');
+      if (ignore.ignores(rel, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
-        if (!['node_modules', 'dist', 'build', 'coverage', 'vendor'].includes(entry.name))
-          walk(full, depth + 1);
+        walk(full, depth + 1);
       } else if (
         /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|py|go|rs|java|kt|rb|cs|php|swift|vue|svelte|astro|dart|ex|exs|scala|c|cc|cpp|h|hpp|m|mm|erl|hs|lua|r|zig)$/i.test(
           entry.name,
@@ -141,12 +147,21 @@ function sampleSources(analysis: ProjectAnalysis, root: string, max: number): st
   };
   walk(root, 0);
 
+  // In a monorepo the interesting boundary is the package, not the top-level
+  // directory — grouping by `packages/` would put every package in one bucket
+  // and let the largest one crowd the others out of the digest entirely.
+  const packagePaths = (analysis.workspaces?.packages ?? [])
+    .map((p) => p.path)
+    .sort((a, b) => b.length - a.length);
+  const groupOf = (file: string): string =>
+    packagePaths.find((dir) => file === dir || file.startsWith(`${dir}/`)) ?? file.split('/')[0]!;
+
   const groups = new Map<string, { file: string; size: number }[]>();
   for (const p of picks) {
-    const top = p.file.split('/')[0]!;
-    const group = groups.get(top);
+    const key = groupOf(p.file);
+    const group = groups.get(key);
     if (group) group.push(p);
-    else groups.set(top, [p]);
+    else groups.set(key, [p]);
   }
   const lists = [...groups.values()];
   for (const list of lists) list.sort((a, b) => b.size - a.size);
@@ -180,7 +195,10 @@ export function buildDigest(
   const cap = Math.min(MAX_CAP, Math.max(MIN_CAP, budgetChars ?? TOTAL_CAP));
   const perFileCap = Math.min(12_000, Math.max(PER_FILE_CAP, Math.floor(cap / 15)));
   const sampleMax = Math.max(10, Math.min(40, Math.floor(cap / 12_000)));
-  const a = analysis ?? analyzeProject(root);
+  // One matcher for the whole digest: the analysis, the layout tree and the
+  // sampled excerpts must agree on what belongs to the project.
+  const ignore = createIgnore(root);
+  const a = analysis ?? analyzeProject(root, ignore);
   // The code map goes in ahead of file excerpts: every class/function in the
   // project stays visible to the AI even when file contents don't fit.
   const codeMapText = renderCodeMap(a.codeMap, Math.min(24_000, Math.floor(cap / 4)));
@@ -197,11 +215,16 @@ export function buildDigest(
     `Dependencies: ${a.dependencies.join(', ') || '(none)'}`,
     `Dev dependencies: ${a.devDependencies.join(', ') || '(none)'}`,
     `\n## Layout\n\n${a.tree}`,
+    ...(a.workspaces
+      ? [
+          `\n## Workspace packages — this repository holds several projects\n\n${renderWorkspaces(a.workspaces)}`,
+        ]
+      : []),
     `\n## Code map — every class, function and type per file\n\n${codeMapText || '(no symbols detected)'}`,
   ];
 
   let budget = cap - codeMapText.length;
-  const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax)];
+  const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax, ignore)];
   const includedFiles: string[] = [];
   for (const rel of files) {
     if (budget <= 0) break;

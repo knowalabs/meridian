@@ -23,6 +23,8 @@ export interface KitFingerprint {
   conventions: string[];
   topLevelDirs: string[];
   apiRoutes: string[];
+  /** `name (path)` per workspace package; absent for single-package repos. */
+  packages?: string[];
 }
 
 export interface KitManifest {
@@ -47,6 +49,7 @@ export function fingerprintOf(a: ProjectAnalysis): KitFingerprint {
     conventions: [...a.conventions].sort(),
     topLevelDirs: topLevelDirs(a).sort(),
     apiRoutes: [...a.apiRoutes].sort(),
+    packages: a.workspaces?.packages.map((p) => `${p.name} (${p.path})`).sort(),
   };
 }
 
@@ -64,6 +67,9 @@ export function diffFingerprints(before: KitFingerprint, after: KitFingerprint):
   list('top-level directory', before.topLevelDirs, after.topLevelDirs);
   list('convention/tooling', before.conventions, after.conventions);
   list('API route file', before.apiRoutes, after.apiRoutes);
+  // A package added to or dropped from the workspace is real drift: the kit
+  // describes packages by name, so it is out of date the moment the set moves.
+  list('workspace package', before.packages ?? [], after.packages ?? []);
   const scriptNames = new Set([...Object.keys(before.scripts), ...Object.keys(after.scripts)]);
   for (const name of [...scriptNames].sort()) {
     const b = before.scripts[name];

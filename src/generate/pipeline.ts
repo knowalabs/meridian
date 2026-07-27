@@ -5,6 +5,7 @@ import { analyzeProject, ProjectAnalysis, renderContextMarkdown } from '../scan/
 import {
   availableProviders,
   modelFor,
+  pricingFor,
   PROVIDERS,
   ProviderSpec,
   route,
@@ -23,6 +24,7 @@ import {
   parseFileBlocks,
 } from './artifacts.js';
 import { fingerprintOf, hashContent, readManifest, writeManifest } from './manifest.js';
+import { readCachedReview, writeCachedReview } from './cache.js';
 import { VERSION } from '../core/pkg.js';
 
 /**
@@ -52,6 +54,10 @@ export interface GenerateOptions {
    * matches), so a refresh never clobbers hand-tuned content.
    */
   refresh?: string[];
+  /** Artifact kinds generated at once; defaults to the provider's own limit. */
+  concurrency?: number;
+  /** Ignore (and refresh) the cached codebase review for this digest. */
+  noCache?: boolean;
 }
 
 export interface FileResult {
@@ -74,6 +80,30 @@ export interface GenerateResult {
   failed: string[];
   /** Set when the run stopped early (e.g. usage limit); the provider's message. */
   aborted?: string;
+  /** True when the codebase review was served from cache instead of the AI. */
+  reviewFromCache?: boolean;
+}
+
+/**
+ * Run `task` over `items` with at most `limit` in flight, preserving input
+ * order in the results. Artifact kinds are independent — one HTTP call each —
+ * so a run that took the sum of every kind's latency now takes roughly the
+ * slowest few.
+ */
+async function inPool<T, R>(
+  items: T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) {
+      results[i] = await task(items[i]!, i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 /** Errors that will keep failing for the rest of the run (limits, quota). */
@@ -84,6 +114,29 @@ function isQuotaError(message: string): boolean {
 function pcDimFiles(files: ArtifactFile[]): string {
   const names = files.map((f) => f.file.split('/').pop()).slice(0, 3);
   return pc.dim(`(${names.join(', ')}${files.length > 3 ? ', …' : ''})`);
+}
+
+/** Fallback when a provider states no limit of its own. */
+const DEFAULT_CONCURRENCY = 3;
+
+/**
+ * How many artifact kinds to generate at once. A provider knows best what it
+ * can take — a local Ollama serving one model is slower in parallel, a
+ * subscription CLI spawns a process per call — so its own limit wins unless
+ * the user passes `--concurrency`. Static generation is CPU-only: no pool.
+ */
+export function concurrencyFor(
+  provider: ProviderSpec | null,
+  override: number | undefined,
+  kindCount: number,
+): number {
+  if (!provider) return 1;
+  // A malformed override must never silently produce a pool of zero workers.
+  const limit =
+    override !== undefined && Number.isInteger(override) && override > 0
+      ? override
+      : (provider.parallel ?? DEFAULT_CONCURRENCY);
+  return Math.max(1, Math.min(limit, kindCount));
 }
 
 export function pickProvider(forced?: string): ProviderSpec | null {
@@ -212,6 +265,85 @@ changes to refresh what is stale (hand-edited files are preserved).
   };
 }
 
+export interface GenerateEstimate {
+  provider: string | null;
+  model: string | null;
+  /** One review pass plus one call per kind (retries excluded). */
+  calls: number;
+  kinds: string[];
+  digestChars: number;
+  inputTokens: number;
+  /** Assumed, not measured — see ASSUMED_OUTPUT_TOKENS. */
+  outputTokens: number;
+  usdLow: number | null;
+  usdHigh: number | null;
+  /** Where the price came from, so a wrong number is traceable. */
+  priceSource: 'config' | 'builtin' | null;
+  /** Set when the provider bills by subscription or runs locally. */
+  billedAs?: string;
+}
+
+/**
+ * Output size cannot be known before the call, so the estimate assumes a
+ * full-but-not-maximal response per artifact kind and a shorter review. These
+ * are the numbers the range in the printed estimate is built from.
+ */
+const ASSUMED_OUTPUT_TOKENS = { review: 3_000, kind: 5_000 };
+/** Rough chars-per-token, adequate for a pre-run order-of-magnitude figure. */
+const CHARS_PER_TOKEN = 4;
+
+/**
+ * What a `devpilot generate` run would cost, without making a single AI call.
+ * The digest is built for real — it is the actual input — so the token count
+ * reflects this project rather than an average one.
+ */
+export function estimateGenerate(opts: GenerateOptions): GenerateEstimate {
+  const kinds = kindsById(opts.kinds);
+  const provider = opts.noAi ? null : pickProvider(opts.provider);
+  const digest = buildDigest(
+    opts.root,
+    undefined,
+    provider ? digestBudgetFor(provider.contextTokens) : undefined,
+  );
+
+  const reviewInput = (REVIEW_PROMPT.length + digest.text.length) / CHARS_PER_TOKEN;
+  // Every kind prompt carries the digest *and* the review it grounds on.
+  const groundedDigest = digest.text.length + ASSUMED_OUTPUT_TOKENS.review * CHARS_PER_TOKEN;
+  const kindInput = kinds.reduce(
+    (sum, kind) => sum + (kind.prompt('').length + groundedDigest) / CHARS_PER_TOKEN,
+    0,
+  );
+  const inputTokens = Math.round(reviewInput + kindInput);
+  const outputTokens = ASSUMED_OUTPUT_TOKENS.review + ASSUMED_OUTPUT_TOKENS.kind * kinds.length;
+
+  const model = provider ? modelFor(provider) : null;
+  const priced = model ? pricingFor(model) : null;
+  const usd = priced
+    ? (inputTokens * priced.price.inputPerMTok + outputTokens * priced.price.outputPerMTok) / 1e6
+    : null;
+
+  return {
+    provider: provider?.id ?? null,
+    model,
+    calls: provider ? kinds.length + 1 : 0,
+    kinds: kinds.map((k) => k.id),
+    digestChars: digest.text.length,
+    inputTokens,
+    outputTokens,
+    // Output is the uncertain half: report a band, not false precision.
+    usdLow: usd === null ? null : Number((usd * 0.6).toFixed(2)),
+    usdHigh: usd === null ? null : Number((usd * 1.5).toFixed(2)),
+    priceSource: priced?.source ?? null,
+    billedAs: !provider
+      ? undefined
+      : provider.needsKey
+        ? undefined
+        : provider.id === 'ollama'
+          ? 'free — runs locally'
+          : 'included in your subscription (no per-token charge)',
+  };
+}
+
 export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult> {
   const kinds = kindsById(opts.kinds);
   // Pick the provider first: the digest budget scales with its context
@@ -250,60 +382,81 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   const writtenHashes = new Map<string, string>();
   const refreshable = new Set(opts.refresh ?? []);
 
+  // Writes happen as each kind finishes, but the returned records are
+  // collected per kind so a parallel run still reports in kind order.
   const write = (
     kindId: string,
     files: ArtifactFile[],
     source: 'ai' | 'static',
     allowed: string[] | null,
     derived: string[],
-  ): void => {
+  ): FileResult[] => {
+    const records: FileResult[] = [];
     for (const f of files) {
       if (allowed && !isAllowedPath(f.file, allowed)) {
-        result.files.push({ kind: kindId, file: f.file, action: 'rejected-path', source });
+        records.push({ kind: kindId, file: f.file, action: 'rejected-path', source });
         continue;
       }
       const target = path.join(opts.root, f.file);
       const refresh = derived.includes(f.file) || refreshable.has(f.file);
       if (fs.existsSync(target) && !opts.force && !refresh) {
-        result.files.push({ kind: kindId, file: f.file, action: 'skipped-exists', source });
+        records.push({ kind: kindId, file: f.file, action: 'skipped-exists', source });
         continue;
       }
       if (opts.dryRun) {
-        result.files.push({ kind: kindId, file: f.file, action: 'planned', source });
+        records.push({ kind: kindId, file: f.file, action: 'planned', source });
         continue;
       }
       writeFileAtomic(target, f.content);
       writtenHashes.set(f.file, hashContent(f.content));
-      result.files.push({ kind: kindId, file: f.file, action: 'written', source });
+      records.push({ kind: kindId, file: f.file, action: 'written', source });
     }
+    return records;
   };
 
   // The codebase review itself produces the scaffold + context files.
   const scaffold = scaffoldFiles(analysis);
-  write('scan', scaffold.files, 'static', null, scaffold.derived);
+  result.files.push(...write('scan', scaffold.files, 'static', null, scaffold.derived));
 
   // AI reading pass: the provider studies the codebase once and writes a
   // review that grounds every artifact it generates afterwards.
   let context = digest.text;
   if (provider && !opts.dryRun) {
+    const cacheKey = {
+      root: opts.root,
+      provider: provider.id,
+      model: modelFor(provider),
+      digest: digest.text,
+    };
+    const cached = opts.noCache ? null : readCachedReview(cacheKey);
     const spin = startSpinner(
-      `${provider.name} is reading the codebase (${Math.max(1, Math.round(digest.text.length / 1000))}k chars)…`,
+      cached
+        ? 'Reusing the cached codebase review…'
+        : `${provider.name} is reading the codebase (${Math.max(1, Math.round(digest.text.length / 1000))}k chars)…`,
     );
     try {
-      let review = (await provider.ask(REVIEW_PROMPT + digest.text, apiKey)).trim();
+      let review = cached ?? (await provider.ask(REVIEW_PROMPT + digest.text, apiKey)).trim();
       const fenced = /^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/.exec(review);
       if (fenced) review = fenced[1]!.trim();
       if (review) {
+        if (!cached) writeCachedReview(cacheKey, review);
+        result.reviewFromCache = Boolean(cached);
         context = `${digest.text}\n\n--- YOUR CODEBASE REVIEW (you wrote this after reading the project) ---\n${review}`;
-        write(
-          'scan',
-          [{ file: '.devpilot/docs/codebase-review.md', content: review + '\n' }],
-          'ai',
-          null,
-          ['.devpilot/docs/codebase-review.md'],
+        result.files.push(
+          ...write(
+            'scan',
+            [{ file: '.devpilot/docs/codebase-review.md', content: review + '\n' }],
+            'ai',
+            null,
+            ['.devpilot/docs/codebase-review.md'],
+          ),
         );
       }
-      spin.succeed(`AI read the codebase → .devpilot/docs/codebase-review.md`);
+      spin.succeed(
+        cached
+          ? 'Codebase unchanged since the last review — reused it (no AI call)'
+          : 'AI read the codebase → .devpilot/docs/codebase-review.md',
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (isQuotaError(message)) {
@@ -317,42 +470,79 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     }
   }
 
-  for (const [i, kind] of kinds.entries()) {
-    if (result.aborted) {
-      result.failed.push(kind.id);
-      continue;
-    }
-    const step = `[${i + 1}/${kinds.length}]`;
-    const spin = provider
-      ? startSpinner(`${step} Generating ${kind.name.toLowerCase()} — ${kind.description}…`)
+  // Kinds are independent calls, so they run concurrently up to the limit the
+  // provider can take. A usage limit hit by any one of them stops the rest:
+  // every remaining call would fail the same way and burn the same wait.
+  const concurrency = concurrencyFor(provider, opts.concurrency, kinds.length);
+  const progress =
+    provider && kinds.length > 1
+      ? startSpinner(
+          `Generating ${kinds.length} artifact kinds${concurrency > 1 ? ` (${concurrency} at a time)` : ''}…`,
+        )
       : null;
+  let completed = 0;
+
+  interface KindOutcome {
+    kind: ArtifactKind;
+    files: FileResult[];
+    error?: string;
+    generated: number;
+    names: string;
+  }
+
+  const outcomes = await inPool(kinds, concurrency, async (kind): Promise<KindOutcome> => {
+    if (result.aborted) return { kind, files: [], error: 'skipped', generated: 0, names: '' };
+    const single =
+      provider && !progress
+        ? startSpinner(`Generating ${kind.name.toLowerCase()} — ${kind.description}…`)
+        : null;
     const { files, source, error } = await generateKind(kind, context, provider, apiKey, analysis);
+    progress?.update(
+      `Generating ${kinds.length} artifact kinds — ${++completed}/${kinds.length} done…`,
+    );
     if (error) {
-      result.failed.push(kind.id);
-      spin?.fail(`${step} ${kind.name}: ${error}`);
+      single?.fail(`${kind.name}: ${error}`);
       if (isQuotaError(error)) result.aborted = error;
+      return { kind, files: [], error, generated: 0, names: '' };
+    }
+    single?.succeed(
+      `${kind.name}: ${files.length} file${files.length === 1 ? '' : 's'} ${pcDimFiles(files)}`,
+    );
+    return {
+      kind,
+      files: write(kind.id, files, source, kind.allowedPaths, kind.alwaysOverwrite ?? []),
+      generated: files.length,
+      names: pcDimFiles(files),
+    };
+  });
+  progress?.succeed(
+    `Generated ${outcomes.filter((o) => !o.error).length}/${kinds.length} artifact kinds`,
+  );
+
+  for (const [i, outcome] of outcomes.entries()) {
+    const step = `[${i + 1}/${kinds.length}]`;
+    if (outcome.error) {
+      result.failed.push(outcome.kind.id);
+      if (progress && outcome.error !== 'skipped')
+        log.warn(`${step} ${outcome.kind.name}: ${outcome.error}`);
       continue;
     }
-    spin?.succeed(
-      `${step} ${kind.name}: ${files.length} file${files.length === 1 ? '' : 's'} ${pcDimFiles(files)}`,
-    );
-    write(kind.id, files, source, kind.allowedPaths, kind.alwaysOverwrite ?? []);
+    if (progress) {
+      log.dim(
+        `${step} ${outcome.kind.name}: ${outcome.generated} file${outcome.generated === 1 ? '' : 's'} ${outcome.names}`,
+      );
+    }
+    result.files.push(...outcome.files);
+  }
 
-    // Fresh rules should reach every tool's instruction file.
-    if (kind.id === 'rules' && !opts.dryRun) {
-      const wroteRules = result.files.some((f) => f.kind === 'rules' && f.action === 'written');
-      if (wroteRules) {
-        result.propagated = generateRules(opts.root, analysis.name).map((g) => g.file);
-        for (const file of result.propagated) {
-          try {
-            writtenHashes.set(
-              file,
-              hashContent(fs.readFileSync(path.join(opts.root, file), 'utf8')),
-            );
-          } catch {
-            // A tool file that could not be read back is simply not tracked.
-          }
-        }
+  // Fresh rules should reach every tool's instruction file.
+  if (!opts.dryRun && result.files.some((f) => f.kind === 'rules' && f.action === 'written')) {
+    result.propagated = generateRules(opts.root, analysis.name).map((g) => g.file);
+    for (const file of result.propagated) {
+      try {
+        writtenHashes.set(file, hashContent(fs.readFileSync(path.join(opts.root, file), 'utf8')));
+      } catch {
+        // A tool file that could not be read back is simply not tracked.
       }
     }
   }

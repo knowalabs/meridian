@@ -30,9 +30,9 @@ export async function updateCommand(opts: { self?: boolean; tools?: boolean }): 
 
 /** `devpilot login` — Cloud Sync (roadmap v0.4). */
 export function loginCommand(): number {
-  log.warn('Cloud Sync ships in v0.4 (roadmap).');
+  log.warn('Cloud Sync is not available yet — it is on the roadmap, without a date.');
   log.info(
-    `It will sync encrypted API keys, rules, prompts, MCP config and preferences across machines.
+    `It would sync encrypted API keys, rules, prompts, MCP config and preferences across machines.
 Everything works locally today: ${pc.bold('devpilot auth')}, ${pc.bold('devpilot generate')}, ${pc.bold('devpilot mcp install')}.`,
   );
   return 0;

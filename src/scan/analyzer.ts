@@ -1,19 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-
-const IGNORED_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  '.next',
-  '.venv',
-  'venv',
-  '__pycache__',
-  '.devpilot',
-]);
+import { createIgnore, IgnoreMatcher } from './ignore.js';
+import { detectWorkspaces, renderWorkspaces, WorkspaceInfo } from './workspaces.js';
 
 const LANGUAGE_BY_EXT: Record<string, string> = {
   '.ts': 'TypeScript',
@@ -242,9 +230,17 @@ export interface ProjectAnalysis {
    */
   codeMap: CodeMapEntry[];
   totalFiles: number;
+  /**
+   * Package layout when this is a monorepo, else null. Generated artifacts use
+   * it to speak about each package instead of an average of all of them.
+   */
+  workspaces: WorkspaceInfo | null;
 }
 
-export function analyzeProject(root: string): ProjectAnalysis {
+export function analyzeProject(
+  root: string,
+  ignore: IgnoreMatcher = createIgnore(root),
+): ProjectAnalysis {
   const langCounts = new Map<string, number>();
   const apiRoutes: string[] = [];
   const codeMap: CodeMapEntry[] = [];
@@ -259,13 +255,13 @@ export function analyzeProject(root: string): ProjectAnalysis {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.github') continue;
+      const full = path.join(dir, entry.name);
+      const relPosix = path.relative(root, full).split(path.sep).join('/');
+      if (ignore.ignores(relPosix, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
-        if (IGNORED_DIRS.has(entry.name)) continue;
-        walk(path.join(dir, entry.name), depth + 1);
+        walk(full, depth + 1);
       } else {
         totalFiles++;
-        const full = path.join(dir, entry.name);
         const rel = path.relative(root, full);
         const ext = path.extname(entry.name).toLowerCase();
         const lang = LANGUAGE_BY_EXT[ext];
@@ -290,6 +286,7 @@ export function analyzeProject(root: string): ProjectAnalysis {
     scripts?: Record<string, string>;
   }>(path.join(root, 'package.json'));
 
+  const workspaces = detectWorkspaces(root, ignore);
   const dependencies = Object.keys(pkg?.dependencies ?? {});
   const devDependencies = Object.keys(pkg?.devDependencies ?? {});
   const npmScripts = pkg?.scripts ?? {};
@@ -303,14 +300,18 @@ export function analyzeProject(root: string): ProjectAnalysis {
       .sort((a, b) => b.files - a.files),
     dependencies,
     devDependencies,
-    frameworks: detectFrameworks(root, [...dependencies, ...devDependencies]),
+    frameworks: [
+      ...detectFrameworks(root, [...dependencies, ...devDependencies]),
+      ...(workspaces ? [`Monorepo (${workspaces.tool} workspaces)`, ...workspaces.runners] : []),
+    ],
     scripts: hasNpmScripts ? npmScripts : detectEcosystemScripts(root),
     scriptRunner: hasNpmScripts ? 'npm run ' : '',
-    tree: renderTree(root),
+    tree: renderTree(root, ignore),
     conventions: detectConventions(root, devDependencies),
     apiRoutes: apiRoutes.slice(0, 30),
     codeMap,
     totalFiles,
+    workspaces,
   };
 }
 
@@ -509,7 +510,7 @@ function detectConventions(root: string, devDeps: string[]): string[] {
 }
 
 /** Render a compact top-two-levels directory tree. */
-export function renderTree(root: string): string {
+export function renderTree(root: string, ignore: IgnoreMatcher = createIgnore(root)): string {
   const lines: string[] = [path.basename(root) + '/'];
   const level = (dir: string, prefix: string, depth: number): void => {
     if (depth > 2) return;
@@ -517,7 +518,13 @@ export function renderTree(root: string): string {
     try {
       entries = fs
         .readdirSync(dir, { withFileTypes: true })
-        .filter((e) => !e.name.startsWith('.') && !IGNORED_DIRS.has(e.name))
+        .filter(
+          (e) =>
+            !ignore.ignores(
+              path.relative(root, path.join(dir, e.name)).split(path.sep).join('/'),
+              e.isDirectory(),
+            ),
+        )
         .sort(
           (a, b) =>
             Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name),
@@ -560,7 +567,20 @@ export function renderContextMarkdown(a: ProjectAnalysis): string {
 \`\`\`
 ${a.tree}
 \`\`\`
+${
+  a.workspaces
+    ? `
+## Workspace packages
 
+This repository is a ${a.workspaces.tool} workspace. Treat each package as its
+own unit — its commands run from its own directory.
+
+\`\`\`
+${renderWorkspaces(a.workspaces)}
+\`\`\`
+`
+    : ''
+}
 ## Dependencies
 
 ${list(a.dependencies)}

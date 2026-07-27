@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { analyzeProject } from '../scan/analyzer.js';
 import { pickProvider, runGenerate } from '../generate/pipeline.js';
+import { setRuntimeModel } from '../providers/router.js';
 import {
   diffFingerprints,
   fileStates,
@@ -18,9 +19,32 @@ import { jsonMode, log } from '../core/logger.js';
  * exit code without writing, which is what CI runs.
  */
 export async function syncCommand(
-  opts: { check?: boolean; provider?: string; dryRun?: boolean; ai?: boolean },
+  opts: {
+    check?: boolean;
+    provider?: string;
+    dryRun?: boolean;
+    ai?: boolean;
+    concurrency?: string;
+    cache?: boolean;
+    model?: string;
+  },
   cwd: string = process.cwd(),
 ): Promise<number> {
+  let concurrency: number | undefined;
+  if (opts.concurrency !== undefined) {
+    concurrency = Number(opts.concurrency);
+    if (!Number.isInteger(concurrency) || concurrency < 1) {
+      log.fail(`--concurrency must be a positive whole number (got "${opts.concurrency}").`);
+      return 1;
+    }
+  }
+
+  // --model applies to whichever provider serves the refresh.
+  if (opts.model) {
+    const target = opts.provider ?? pickProvider()?.id;
+    if (target) setRuntimeModel(target, opts.model);
+  }
+
   const manifest = readManifest(cwd);
   if (!manifest) {
     log.fail(
@@ -88,6 +112,8 @@ export async function syncCommand(
     dryRun: opts.dryRun ?? false,
     noAi: opts.ai === false,
     refresh: states.clean,
+    concurrency,
+    noCache: opts.cache === false,
   });
 
   if (jsonMode()) {

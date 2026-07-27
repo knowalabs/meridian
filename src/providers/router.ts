@@ -24,12 +24,63 @@ export interface ProviderSpec {
   needsKey: boolean;
   /** For keyless providers: the CLI binary that must be on PATH. */
   binary?: string;
+  /**
+   * Requests this provider can serve at once without degrading. Hosted APIs
+   * are happy with a handful; a CLI spawns a process per call; a local model
+   * server is slower in parallel than in sequence.
+   */
+  parallel?: number;
   ask(prompt: string, apiKey: string): Promise<string>;
+  /**
+   * Same answer as `ask`, delivered incrementally. Present only for providers
+   * that stream over HTTP; `devpilot ask` falls back to `ask` without it.
+   */
+  askStream?(prompt: string, apiKey: string, onDelta: (text: string) => void): Promise<string>;
 }
 
-/** Model to use for a provider, honoring config overrides. */
+export interface ModelPricing {
+  inputPerMTok: number;
+  outputPerMTok: number;
+}
+
+/**
+ * Indicative list prices in USD per million tokens, keyed by *model* — the
+ * unit that is actually billed. Providers whose model is overridden, or whose
+ * model is not listed here, simply report no cost rather than a wrong one.
+ * Users can add or correct entries under `router.pricing.<model>` in
+ * ~/.devpilot/config.json, which always wins over this table.
+ */
+const MODEL_PRICING: Record<string, ModelPricing> = {
+  'claude-sonnet-5': { inputPerMTok: 3, outputPerMTok: 15 },
+  'gemini-2.5-flash': { inputPerMTok: 0.3, outputPerMTok: 2.5 },
+};
+
+/** Price for a model, preferring the user's config over the built-in table. */
+export function pricingFor(
+  model: string,
+): { price: ModelPricing; source: 'config' | 'builtin' } | null {
+  const configured = loadConfig().router.pricing?.[model];
+  if (configured) return { price: configured, source: 'config' };
+  const builtin = MODEL_PRICING[model];
+  return builtin ? { price: builtin, source: 'builtin' } : null;
+}
+
+/** Per-run `--model` overrides; they outrank the saved config. */
+const runtimeModels = new Map<string, string>();
+
+/**
+ * Override the model for this process only (the `--model` flag). Passing null
+ * clears every override — commands are run in-process by the interactive
+ * launcher, so a flag from one command must not leak into the next.
+ */
+export function setRuntimeModel(providerId: string | null, model?: string): void {
+  if (providerId === null) runtimeModels.clear();
+  else if (model) runtimeModels.set(providerId, model);
+}
+
+/** Model to use for a provider: --model, then config, then the default. */
 export function modelFor(spec: Pick<ProviderSpec, 'id' | 'model'>): string {
-  return loadConfig().router.models?.[spec.id] ?? spec.model;
+  return runtimeModels.get(spec.id) ?? loadConfig().router.models?.[spec.id] ?? spec.model;
 }
 
 /**
@@ -64,7 +115,75 @@ export function setRunForTests(r: CliRunner | null): void {
 interface PostContext {
   provider: string;
   timeoutMs?: number;
-  retried?: boolean;
+}
+
+/**
+ * Statuses worth trying again: rate limits and the transient server/proxy
+ * failures every provider emits occasionally. A `generate` run makes one call
+ * per artifact kind, so a single 502 used to cost the user a whole kind.
+ * 4xx codes that mean "your request is wrong" are never retried.
+ */
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const DEFAULT_RETRY_BASE_MS = 1_000;
+
+let retryBaseMs = DEFAULT_RETRY_BASE_MS;
+
+/**
+ * Test seam: shrink the retry backoff (null restores it). Tests that exercise
+ * the pipeline end to end would otherwise sit through real seconds of sleep.
+ */
+export function setRetryDelayForTests(ms: number | null): void {
+  retryBaseMs = ms ?? DEFAULT_RETRY_BASE_MS;
+}
+
+const backoffFor = (attempt: number): number => retryBaseMs * 2 ** (attempt - 1);
+
+/** Honor Retry-After (seconds, or an HTTP date), capped so we never hang. */
+function retryAfterMs(res: Response): number | null {
+  const header = res.headers.get('retry-after');
+  if (!header) return null;
+  const seconds = Number(header);
+  const ms = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(header) - Date.now();
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, 30_000) : null;
+}
+
+/** Internal marker: a connection-level failure that is worth one more try. */
+class TransientNetworkError extends Error {
+  constructor(readonly reason: unknown) {
+    super(reason instanceof Error ? reason.message : String(reason));
+    this.name = 'TransientNetworkError';
+  }
+}
+
+async function rawPost(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  ctx: PostContext,
+): Promise<Response> {
+  const timeoutMs = ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    // A timeout is deliberate, not transient: retrying a hung provider just
+    // multiplies the wait, so it is reported instead of retried.
+    if (controller.signal.aborted) {
+      throw new CliError(`${ctx.provider}: request timed out after ${timeoutMs / 1000}s`, {
+        hint: 'The provider did not respond. Check your connection or try another provider with --provider.',
+      });
+    }
+    throw new TransientNetworkError(err);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function post(
@@ -73,49 +192,50 @@ async function post(
   body: unknown,
   ctx: PostContext,
 ): Promise<unknown> {
-  const timeoutMs = ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res: Response;
-  try {
-    res = await fetchImpl(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (controller.signal.aborted) {
-      throw new CliError(`${ctx.provider}: request timed out after ${timeoutMs / 1000}s`, {
-        hint: 'The provider did not respond. Check your connection or try another provider with --provider.',
-      });
+  for (let attempt = 1; ; attempt++) {
+    const last = attempt >= MAX_ATTEMPTS;
+    let res: Response;
+    try {
+      res = await rawPost(url, headers, body, ctx);
+    } catch (err) {
+      if (err instanceof TransientNetworkError && !last) {
+        await sleep(backoffFor(attempt));
+        continue;
+      }
+      if (err instanceof TransientNetworkError) {
+        throw new CliError(`${ctx.provider}: network error — ${err.message}`, {
+          hint:
+            ctx.provider === 'ollama'
+              ? 'Is the Ollama daemon running? Start it with "ollama serve".'
+              : 'Check your internet connection and try again.',
+          cause: err.reason,
+        });
+      }
+      throw err;
     }
-    throw new CliError(
-      `${ctx.provider}: network error — ${err instanceof Error ? err.message : String(err)}`,
-      {
-        hint:
-          ctx.provider === 'ollama'
-            ? 'Is the Ollama daemon running? Start it with "ollama serve".'
-            : 'Check your internet connection and try again.',
-        cause: err,
-      },
-    );
-  } finally {
-    clearTimeout(timer);
-  }
 
+    const failure = await classifyStatus(res, ctx, last);
+    if (failure === 'retry') {
+      await sleep(retryAfterMs(res) ?? backoffFor(attempt));
+      continue;
+    }
+    return res.json();
+  }
+}
+
+/**
+ * Turn a non-OK response into the right CliError, or say it is worth another
+ * attempt. Shared by the buffered and streaming paths so both classify
+ * auth, missing models and rate limits identically.
+ */
+async function classifyStatus(
+  res: Response,
+  ctx: PostContext,
+  last: boolean,
+): Promise<'ok' | 'retry'> {
   if (res.status === 401 || res.status === 403) {
     throw new CliError(`${ctx.provider}: authentication failed (HTTP ${res.status})`, {
       hint: `Your API key is missing, invalid or expired. Run "devpilot auth ${ctx.provider}" to update it.`,
-    });
-  }
-  if (res.status === 429 && !ctx.retried) {
-    await sleep(2_000);
-    return post(url, headers, body, { ...ctx, retried: true });
-  }
-  if (res.status === 429) {
-    throw new CliError(`${ctx.provider}: rate limited (HTTP 429)`, {
-      hint: 'You hit the provider rate limit. Wait a moment, or route elsewhere with --provider.',
     });
   }
   if (res.status === 404) {
@@ -123,10 +243,135 @@ async function post(
       hint: `The default model may have been retired. Override it in ${'~/.devpilot/config.json'} under router.models.${ctx.provider}.`,
     });
   }
-  if (!res.ok) {
-    throw new CliError(`${ctx.provider}: HTTP ${res.status} — ${(await res.text()).slice(0, 300)}`);
+  if (RETRYABLE_STATUS.has(res.status) && !last) return 'retry';
+  if (res.status === 429) {
+    throw new CliError(`${ctx.provider}: rate limited (HTTP 429)`, {
+      hint: 'You hit the provider rate limit. Wait a moment, or route elsewhere with --provider.',
+    });
   }
-  return res.json();
+  if (!res.ok) {
+    throw new CliError(
+      `${ctx.provider}: HTTP ${res.status} — ${(await res.text()).slice(0, 300)}`,
+      RETRYABLE_STATUS.has(res.status)
+        ? {
+            hint: `The provider failed ${MAX_ATTEMPTS} times in a row — it is probably having trouble. Try again shortly, or route elsewhere with --provider.`,
+          }
+        : undefined,
+    );
+  }
+  return 'ok';
+}
+
+/**
+ * POST and hand back each chunk of the answer as it arrives. Every streaming
+ * provider ships the same shape — newline-delimited frames carrying a text
+ * delta — so the transport is shared and only `deltaOf` differs.
+ *
+ * No retry here: once the first byte reaches the user's terminal, replaying
+ * the call would print the answer twice. A failure before that surfaces as
+ * the same CliError the buffered path produces.
+ */
+async function postStream(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  ctx: PostContext,
+  deltaOf: (frame: unknown) => string,
+  onDelta: (text: string) => void,
+): Promise<string> {
+  let res: Response;
+  try {
+    res = await rawPost(url, headers, body, ctx);
+  } catch (err) {
+    if (err instanceof TransientNetworkError) {
+      throw new CliError(`${ctx.provider}: network error — ${err.message}`, {
+        hint:
+          ctx.provider === 'ollama'
+            ? 'Is the Ollama daemon running? Start it with "ollama serve".'
+            : 'Check your internet connection and try again.',
+        cause: err.reason,
+      });
+    }
+    throw err;
+  }
+  await classifyStatus(res, ctx, true);
+  if (!res.body) throw new CliError(`${ctx.provider}: the provider sent an empty response`);
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let answer = '';
+  const handleLine = (raw: string): void => {
+    const line = raw.trim();
+    // SSE frames prefix the payload with "data:"; NDJSON providers do not.
+    const payload = line.startsWith('data:') ? line.slice(5).trim() : line;
+    if (!payload || payload === '[DONE]' || line.startsWith('event:')) return;
+    let frame: unknown;
+    try {
+      frame = JSON.parse(payload);
+    } catch {
+      return; // keep-alive or comment frame
+    }
+    const delta = deltaOf(frame);
+    if (delta) {
+      answer += delta;
+      onDelta(delta);
+    }
+  };
+
+  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) handleLine(line);
+  }
+  if (buffer.trim()) handleLine(buffer);
+  return answer;
+}
+
+/** Read `choices[0].delta.content` from an OpenAI-compatible stream frame. */
+function openAiDelta(frame: unknown): string {
+  const choice = (frame as { choices?: { delta?: { content?: string } }[] }).choices?.[0];
+  return choice?.delta?.content ?? '';
+}
+
+/**
+ * The OpenAI chat-completions API is the de-facto standard: Groq, DeepSeek,
+ * Mistral, xAI and OpenRouter all speak it at a different base URL. One
+ * factory keeps them a data change rather than a code change.
+ */
+function openAiCompatible(
+  spec: Omit<ProviderSpec, 'ask' | 'askStream'> & { baseUrl: string },
+): ProviderSpec {
+  const { baseUrl, ...rest } = spec;
+  const url = `${baseUrl}/chat/completions`;
+  const bodyFor = (self: ProviderSpec, prompt: string, stream: boolean): unknown => ({
+    model: modelFor(self),
+    temperature: 0.2,
+    stream,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return {
+    ...rest,
+    async ask(prompt, apiKey) {
+      const data = (await post(
+        url,
+        { authorization: `Bearer ${apiKey}` },
+        bodyFor(this, prompt, false),
+        { provider: this.id },
+      )) as { choices?: { message?: { content?: string } }[] };
+      return data.choices?.[0]?.message?.content ?? '';
+    },
+    askStream(prompt, apiKey, onDelta) {
+      return postStream(
+        url,
+        { authorization: `Bearer ${apiKey}` },
+        bodyFor(this, prompt, true),
+        { provider: this.id },
+        openAiDelta,
+        onDelta,
+      );
+    },
+  };
 }
 
 export const PROVIDERS: ProviderSpec[] = [
@@ -139,6 +384,7 @@ export const PROVIDERS: ProviderSpec[] = [
     quality: 1,
     contextTokens: 200_000,
     needsKey: true,
+    parallel: 4,
     async ask(prompt, apiKey) {
       const data = (await post(
         'https://api.anthropic.com/v1/messages',
@@ -155,6 +401,22 @@ export const PROVIDERS: ProviderSpec[] = [
       )) as { content: { type: string; text?: string }[] };
       return data.content.map((b) => b.text ?? '').join('');
     },
+    askStream(prompt, apiKey, onDelta) {
+      return postStream(
+        'https://api.anthropic.com/v1/messages',
+        { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        {
+          model: modelFor(this),
+          max_tokens: 16_384,
+          temperature: 0.2,
+          stream: true,
+          messages: [{ role: 'user', content: prompt }],
+        },
+        { provider: this.id },
+        (frame) => (frame as { delta?: { text?: string } }).delta?.text ?? '',
+        onDelta,
+      );
+    },
   },
   {
     // Uses the locally installed Claude Code CLI — a Claude subscription
@@ -168,6 +430,8 @@ export const PROVIDERS: ProviderSpec[] = [
     contextTokens: 200_000,
     needsKey: false,
     binary: 'claude',
+    // Each call spawns a claude process against one subscription.
+    parallel: 2,
     async ask(prompt) {
       const res = await runImpl(
         'claude',
@@ -207,6 +471,7 @@ export const PROVIDERS: ProviderSpec[] = [
     quality: 2,
     contextTokens: 128_000,
     needsKey: true,
+    parallel: 4,
     async ask(prompt, apiKey) {
       const data = (await post(
         'https://api.openai.com/v1/chat/completions',
@@ -215,6 +480,16 @@ export const PROVIDERS: ProviderSpec[] = [
         { provider: this.id },
       )) as { choices: { message: { content: string } }[] };
       return data.choices[0]?.message.content ?? '';
+    },
+    askStream(prompt, apiKey, onDelta) {
+      return postStream(
+        'https://api.openai.com/v1/chat/completions',
+        { authorization: `Bearer ${apiKey}` },
+        { model: modelFor(this), stream: true, messages: [{ role: 'user', content: prompt }] },
+        { provider: this.id },
+        openAiDelta,
+        onDelta,
+      );
     },
   },
   {
@@ -229,6 +504,7 @@ export const PROVIDERS: ProviderSpec[] = [
     contextTokens: 200_000,
     needsKey: false,
     binary: 'codex',
+    parallel: 2,
     async ask(prompt) {
       const outFile = path.join(os.tmpdir(), `devpilot-codex-${process.pid}-${Date.now()}.txt`);
       const args = [
@@ -280,6 +556,7 @@ export const PROVIDERS: ProviderSpec[] = [
     quality: 3,
     contextTokens: 1_000_000,
     needsKey: true,
+    parallel: 4,
     async ask(prompt, apiKey) {
       const data = (await post(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelFor(this)}:generateContent?key=${apiKey}`,
@@ -288,6 +565,21 @@ export const PROVIDERS: ProviderSpec[] = [
         { provider: this.id },
       )) as { candidates: { content: { parts: { text: string }[] } }[] };
       return data.candidates[0]?.content.parts.map((p) => p.text).join('') ?? '';
+    },
+    askStream(prompt, apiKey, onDelta) {
+      return postStream(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelFor(this)}:streamGenerateContent?alt=sse&key=${apiKey}`,
+        {},
+        { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } },
+        { provider: this.id },
+        (frame) =>
+          (
+            frame as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+          ).candidates?.[0]?.content?.parts
+            ?.map((p) => p.text ?? '')
+            .join('') ?? '',
+        onDelta,
+      );
     },
   },
   {
@@ -302,6 +594,7 @@ export const PROVIDERS: ProviderSpec[] = [
     contextTokens: 1_000_000,
     needsKey: false,
     binary: 'gemini',
+    parallel: 2,
     async ask(prompt) {
       const args: string[] = [];
       const model = modelFor(this);
@@ -326,25 +619,66 @@ export const PROVIDERS: ProviderSpec[] = [
       return res.stdout;
     },
   },
-  {
+  openAiCompatible({
     id: 'openrouter',
     name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
     model: 'openrouter/auto',
     cost: 2,
     speed: 3,
     quality: 2,
     contextTokens: 200_000,
     needsKey: true,
-    async ask(prompt, apiKey) {
-      const data = (await post(
-        'https://openrouter.ai/api/v1/chat/completions',
-        { authorization: `Bearer ${apiKey}` },
-        { model: modelFor(this), temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
-        { provider: this.id },
-      )) as { choices: { message: { content: string } }[] };
-      return data.choices[0]?.message.content ?? '';
-    },
-  },
+    parallel: 4,
+  }),
+  openAiCompatible({
+    id: 'groq',
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    model: 'llama-3.3-70b-versatile',
+    cost: 1,
+    speed: 1,
+    quality: 3,
+    contextTokens: 128_000,
+    needsKey: true,
+    parallel: 4,
+  }),
+  openAiCompatible({
+    id: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    cost: 1,
+    speed: 3,
+    quality: 2,
+    contextTokens: 64_000,
+    needsKey: true,
+    parallel: 4,
+  }),
+  openAiCompatible({
+    id: 'mistral',
+    name: 'Mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'mistral-large-latest',
+    cost: 2,
+    speed: 2,
+    quality: 3,
+    contextTokens: 128_000,
+    needsKey: true,
+    parallel: 4,
+  }),
+  openAiCompatible({
+    id: 'xai',
+    name: 'xAI (Grok)',
+    baseUrl: 'https://api.x.ai/v1',
+    model: 'grok-4',
+    cost: 3,
+    speed: 2,
+    quality: 2,
+    contextTokens: 256_000,
+    needsKey: true,
+    parallel: 4,
+  }),
   {
     id: 'ollama',
     name: 'Ollama (local)',
@@ -355,6 +689,8 @@ export const PROVIDERS: ProviderSpec[] = [
     contextTokens: 32_000,
     needsKey: false,
     binary: 'ollama',
+    // One local model server: concurrent requests queue behind each other.
+    parallel: 1,
     async ask(prompt) {
       const data = (await post(
         'http://localhost:11434/api/generate',
@@ -363,6 +699,18 @@ export const PROVIDERS: ProviderSpec[] = [
         { provider: this.id },
       )) as { response: string };
       return data.response;
+    },
+    askStream(prompt, _apiKey, onDelta) {
+      // Ollama streams newline-delimited JSON rather than SSE; postStream
+      // handles both because it splits on newlines either way.
+      return postStream(
+        'http://localhost:11434/api/generate',
+        {},
+        { model: modelFor(this), prompt, stream: true, options: { temperature: 0.2 } },
+        { provider: this.id },
+        (frame) => (frame as { response?: string }).response ?? '',
+        onDelta,
+      );
     },
   },
 ];
@@ -416,6 +764,22 @@ const KEY_CHECKS: Record<
   }),
   openrouter: (k) => ({
     url: 'https://openrouter.ai/api/v1/key',
+    headers: { authorization: `Bearer ${k}` },
+  }),
+  groq: (k) => ({
+    url: 'https://api.groq.com/openai/v1/models',
+    headers: { authorization: `Bearer ${k}` },
+  }),
+  deepseek: (k) => ({
+    url: 'https://api.deepseek.com/v1/models',
+    headers: { authorization: `Bearer ${k}` },
+  }),
+  mistral: (k) => ({
+    url: 'https://api.mistral.ai/v1/models',
+    headers: { authorization: `Bearer ${k}` },
+  }),
+  xai: (k) => ({
+    url: 'https://api.x.ai/v1/models',
     headers: { authorization: `Bearer ${k}` },
   }),
 };

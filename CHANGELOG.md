@@ -1,5 +1,25 @@
 # @sonalsithara/devpilot
 
+## 0.13.0
+
+### Minor Changes
+
+- Scan accuracy, run speed, monorepo support and provider reach.
+
+  **The scanner now reads your `.gitignore`.** Project walking moved behind one matcher (`src/scan/ignore.ts`) shared by the analyzer's file walk, the layout tree and the digest's source sampling — previously three separate ignore lists that disagreed. It applies root and nested `.gitignore` files plus `.git/info/exclude`, and adds ecosystem build output gated on the marker that proves the ecosystem is present: `target/` in a Cargo/Maven/Gradle project, `vendor/` in Go/PHP/Ruby, `bin/` and `obj/` in .NET, `Pods/` and `DerivedData/` for iOS, `_build/` and `deps/` for Elixir. Build artifacts no longer inflate the file count, fill the code map, or take up digest budget that belongs to real source — which mostly affected exactly the non-Node ecosystems added in 0.10.
+
+  **Monorepos are analyzed as monorepos.** npm/yarn/pnpm workspaces, Lerna, Cargo workspaces and `go.work` are detected, with Turborepo and Nx recorded as runners. Each package's name, path, own scripts and own dependencies appear in `.devpilot/context.md` and in the digest; digest sampling now spreads across packages instead of letting the largest one crowd out the rest; adding or removing a package registers as kit drift for `devpilot sync`; and every artifact prompt is required to say which package a rule or step applies to and to use that package's own commands.
+
+  **Generation is faster and cheaper.** Artifact kinds are generated concurrently — up to a per-provider limit (4 for hosted APIs, 2 for subscription CLIs, 1 for local Ollama), overridable with `--concurrency` — while writes and reporting stay in kind order. The codebase-review pass is cached in the DevPilot home, keyed by project, provider, model, DevPilot version and digest content, so a `devpilot sync` on an unchanged codebase skips it entirely; `--no-cache` forces a fresh read.
+
+  **`devpilot generate --estimate`** reports the digest size, AI call count, token estimate and a cost range before anything is spent, without making a single AI call. Prices are keyed by model (never by provider) and come from a small built-in table or your own `router.pricing.<model>` config — an unknown model reports no cost rather than a wrong one.
+
+  **Provider calls survive a bad minute.** `post()` now retries 408/425/429 and 5xx responses plus dropped connections, up to three attempts with exponential backoff, honoring `Retry-After`; timeouts and 4xx request errors are still reported immediately. A single 502 no longer costs a whole artifact kind.
+
+  **New providers and `ask` improvements.** Groq, DeepSeek, Mistral and xAI (Grok) join the router via a shared OpenAI-compatible client, each with key verification. `devpilot ask` streams the answer as it arrives on a terminal (Anthropic, OpenAI, Google, Ollama and every OpenAI-compatible provider) and buffers when piped or in `--json`; piped stdin becomes context, so `cat error.log | devpilot ask "what failed?"` works; and `-m/--model` overrides the model for a single run of `ask`, `generate` or `sync`.
+
+  Also: the `devpilot login` stub no longer claims Cloud Sync ships in a version that has already passed.
+
 ## 0.12.0
 
 ### Minor Changes

@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { ARTIFACT_KINDS } from '../generate/artifacts.js';
-import { pickProvider, runGenerate } from '../generate/pipeline.js';
-import { availableProviders, modelFor, PROVIDERS } from '../providers/router.js';
+import { estimateGenerate, pickProvider, runGenerate } from '../generate/pipeline.js';
+import { availableProviders, modelFor, PROVIDERS, setRuntimeModel } from '../providers/router.js';
 import { loadConfig } from '../core/config.js';
 import { promptChoice } from '../core/prompt.js';
 import { jsonMode, log } from '../core/logger.js';
@@ -36,6 +36,73 @@ async function chooseProvider(): Promise<string | undefined> {
 }
 
 /**
+ * `devpilot generate --estimate` — what the run would cost, before spending
+ * anything. Builds the real digest (no AI call) and reports the size of the
+ * work: an honest range, since response length is unknowable up front.
+ */
+function estimateCommand(
+  kinds: string[],
+  opts: { provider?: string; ai?: boolean },
+  cwd: string,
+): number {
+  const est = estimateGenerate({
+    root: cwd,
+    kinds,
+    provider: opts.provider,
+    force: false,
+    dryRun: true,
+    noAi: opts.ai === false,
+  });
+
+  if (jsonMode()) {
+    log.json(est);
+    return 0;
+  }
+
+  const k = (n: number): string => `${Math.round(n / 1000)}k`;
+  log.title('Estimate for devpilot generate');
+  log.info(
+    `  Provider     ${est.provider ? `${est.provider} [${est.model}]` : 'none — static templates, no AI calls'}`,
+  );
+  log.info(`  Kinds        ${est.kinds.join(', ')}`);
+  log.info(`  AI calls     ${est.calls}${est.calls ? ' (1 codebase review + 1 per kind)' : ''}`);
+  log.info(`  Digest       ${k(est.digestChars)} chars of your codebase`);
+
+  if (!est.provider) {
+    // A forced-but-unavailable provider must not read as a deliberate choice.
+    if (opts.provider) {
+      log.warn(
+        `Provider "${opts.provider}" is not available — add its key with ${pc.bold(`devpilot auth ${opts.provider}`)}. ` +
+          `Estimated for a static run instead.`,
+      );
+    }
+    log.dim('\n  Static templates cost nothing and make no network call.');
+    return 0;
+  }
+
+  log.info(`  Tokens       ~${k(est.inputTokens)} in, ~${k(est.outputTokens)} out (assumed)`);
+  if (est.billedAs) {
+    log.info(`  Cost         ${est.billedAs}`);
+  } else if (est.usdLow !== null && est.usdHigh !== null) {
+    log.info(`  Cost         ~$${est.usdLow.toFixed(2)}–$${est.usdHigh.toFixed(2)}`);
+    if (est.priceSource === 'builtin') {
+      log.dim(
+        `  Using DevPilot's indicative list price for ${est.model}. Providers change prices — ` +
+          `set your own under router.pricing.${est.model} in ~/.devpilot/config.json.`,
+      );
+    }
+  } else if (est.calls) {
+    log.info(`  Cost         unknown — no price on file for ${est.model}`);
+    log.dim(
+      `  Add one under router.pricing.${est.model} in ~/.devpilot/config.json ` +
+        `({ "inputPerMTok": 3, "outputPerMTok": 15 }) to see a figure here.`,
+    );
+  }
+  log.dim('\n  Estimates only. A cached codebase review removes one call; retries add calls.');
+  return 0;
+}
+
+/**
  * `devpilot generate` — generate the complete AI kit for this project:
  * rules, subagents, skills, slash commands, prompts and a professional
  * docs suite,
@@ -43,7 +110,16 @@ async function chooseProvider(): Promise<string | undefined> {
  */
 export async function generateCommand(
   kinds: string[],
-  opts: { provider?: string; force?: boolean; dryRun?: boolean; ai?: boolean },
+  opts: {
+    provider?: string;
+    force?: boolean;
+    dryRun?: boolean;
+    ai?: boolean;
+    concurrency?: string;
+    cache?: boolean;
+    estimate?: boolean;
+    model?: string;
+  },
   cwd: string = process.cwd(),
 ): Promise<number> {
   const known = ARTIFACT_KINDS.map((k) => k.id);
@@ -53,9 +129,31 @@ export async function generateCommand(
     return 1;
   }
 
+  let concurrency: number | undefined;
+  if (opts.concurrency !== undefined) {
+    concurrency = Number(opts.concurrency);
+    if (!Number.isInteger(concurrency) || concurrency < 1) {
+      log.fail(`--concurrency must be a positive whole number (got "${opts.concurrency}").`);
+      return 1;
+    }
+  }
+
+  // --model applies to whichever provider serves the run, named or routed to.
+  const applyModel = (): void => {
+    if (!opts.model) return;
+    const target = opts.provider ?? pickProvider()?.id;
+    if (target) setRuntimeModel(target, opts.model);
+  };
+
+  if (opts.estimate) {
+    applyModel();
+    return estimateCommand(kinds, { provider: opts.provider, ai: opts.ai }, cwd);
+  }
+
   if (opts.ai !== false && !opts.provider) {
     opts.provider = await chooseProvider();
   }
+  applyModel();
 
   // Generation is AI-first: the whole point is content written after actually
   // reading the codebase. Offline templates are an explicit opt-in.
@@ -84,6 +182,8 @@ export async function generateCommand(
     force: opts.force ?? false,
     dryRun: opts.dryRun ?? false,
     noAi: opts.ai === false,
+    concurrency,
+    noCache: opts.cache === false,
   });
 
   if (jsonMode()) {
