@@ -5,6 +5,7 @@ import {
   modelFor,
   PROVIDERS,
   route,
+  saveModelChoice,
   setRuntimeModel,
 } from '../providers/router.js';
 import { openVault } from '../core/vault.js';
@@ -138,8 +139,31 @@ export async function askCommand(
   }
 }
 
-export function routerConfigCommand(opts: { prefer?: string; optimize?: string }): number {
+export function routerConfigCommand(opts: {
+  prefer?: string;
+  optimize?: string;
+  model?: string[];
+}): number {
   const config = loadConfig();
+  if (opts.model !== undefined) {
+    const [provider, model] = opts.model;
+    if (!provider || !PROVIDERS.some((p) => p.id === provider)) {
+      log.fail(
+        `--model needs a provider first: devpilot router --model <provider> <model>. ` +
+          `Supported: ${PROVIDERS.map((p) => p.id).join(', ')}`,
+      );
+      return 1;
+    }
+    // Omitting the model clears the override, restoring the provider default.
+    saveModelChoice(provider, model ?? '');
+    const spec = PROVIDERS.find((p) => p.id === provider)!;
+    log.ok(
+      model
+        ? `${provider} will use ${model}.`
+        : `${provider} is back to its default model (${spec.model}).`,
+    );
+    return 0;
+  }
   if (opts.prefer !== undefined) {
     if (opts.prefer && !PROVIDERS.some((p) => p.id === opts.prefer)) {
       log.fail(

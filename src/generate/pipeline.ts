@@ -17,6 +17,7 @@ import { log } from '../core/logger.js';
 import { startSpinner } from '../core/spinner.js';
 import { buildDigest, digestBudgetFor } from './digest.js';
 import {
+  ARTIFACT_KINDS,
   ArtifactFile,
   ArtifactKind,
   isAllowedPath,
@@ -113,6 +114,89 @@ async function inPool<T, R>(
   return results;
 }
 
+/**
+ * Artifact kinds grouped into dependency waves: every kind in a wave can run
+ * concurrently, and a wave only starts once the kinds it depends on have
+ * produced their files. Only kinds selected for this run count as
+ * dependencies — `devpilot generate commands` must not stall waiting for a
+ * skills pass that is not happening; it reads what is on disk instead.
+ */
+export function dependencyWaves(kinds: ArtifactKind[]): ArtifactKind[][] {
+  const selected = new Set(kinds.map((k) => k.id));
+  const waves: ArtifactKind[][] = [];
+  const satisfied = new Set<string>();
+  let remaining = kinds;
+  while (remaining.length > 0) {
+    const ready = remaining.filter((k) =>
+      (k.dependsOn ?? []).every((dep) => !selected.has(dep) || satisfied.has(dep)),
+    );
+    // A dependency cycle would otherwise loop forever: run what is left as one
+    // wave rather than hanging the command.
+    const wave = ready.length > 0 ? ready : remaining;
+    waves.push(wave);
+    for (const kind of wave) satisfied.add(kind.id);
+    const inWave = new Set(wave);
+    remaining = remaining.filter((k) => !inWave.has(k));
+  }
+  return waves;
+}
+
+/**
+ * Markdown a dependency kind has already written under `prefixes`. Bounded:
+ * this reads the kit's own directories, which are small and shallow by
+ * construction.
+ */
+function readKitFiles(root: string, prefixes: string[]): ArtifactFile[] {
+  const files: ArtifactFile[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 3 || files.length >= 100) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      if (!entry.name.endsWith('.md')) continue;
+      try {
+        files.push({
+          file: path.relative(root, full).split(path.sep).join('/'),
+          content: fs.readFileSync(full, 'utf8'),
+        });
+      } catch {
+        // An unreadable kit file simply contributes no context.
+      }
+    }
+  };
+  for (const prefix of prefixes) {
+    if (prefix.endsWith('/')) walk(path.join(root, prefix), 0);
+  }
+  return files;
+}
+
+/**
+ * What a dependent kind's prompt gets to see. Files this run generated win;
+ * for a dependency outside this run, the kit already on disk stands in, so a
+ * partial run still builds on the real thing instead of guessing.
+ */
+function upstreamFor(
+  kind: ArtifactKind,
+  root: string,
+  produced: Map<string, ArtifactFile[]>,
+): ArtifactFile[] {
+  return (kind.dependsOn ?? []).flatMap((id) => {
+    const generated = produced.get(id);
+    if (generated) return generated;
+    const dep = ARTIFACT_KINDS.find((k) => k.id === id);
+    return dep ? readKitFiles(root, dep.allowedPaths) : [];
+  });
+}
+
 /** Errors that will keep failing for the rest of the run (limits, quota). */
 function isQuotaError(message: string): boolean {
   return /usage limit|limit reached|rate.?limit|quota|429|exhaust/i.test(message);
@@ -197,6 +281,7 @@ async function generateKind(
   analysis: ProjectAnalysis,
   root: string,
   planned: string[],
+  upstream: ArtifactFile[],
 ): Promise<{
   files: ArtifactFile[];
   source: 'ai' | 'static';
@@ -222,7 +307,7 @@ async function generateKind(
   let lastIssues: ArtifactIssue[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await provider.ask(kind.prompt(digest), apiKey);
+      const response = await provider.ask(kind.prompt(digest, upstream), apiKey);
       const files = parseFileBlocks(response);
       const issues = files.length
         ? validateArtifacts(kind, files, analysis, root, planned)
@@ -279,8 +364,8 @@ changes to refresh what is stale (hand-edited files are preserved).
 | \`CLAUDE.md\` / \`AGENTS.md\` / \`GEMINI.md\` | Tool-specific instructions |
 | \`docs/\` | Professional docs suite (architecture, conventions, workflow, …) |
 | \`.claude/agents/\` | Project-tailored subagents |
-| \`.claude/skills/\` | Project workflows as skills |
-| \`.claude/commands/\` | Slash commands for everyday tasks |
+| \`.claude/skills/\` | Project workflows — the one home for multi-step procedures |
+| \`.claude/commands/\` | Slash commands: one per skill, plus one-shot session actions |
 | \`.claude/settings.json\` | Claude Code harness config (permissions, hooks) |
 | \`.devpilot/prompts/\` | Reusable prompts |
 | \`.devpilot/docs/\` | AI working notes (codebase review) |
@@ -526,7 +611,12 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   // valid even though it is not on disk while the kind that cites it runs.
   const plannedPaths = kinds.flatMap((k) => k.requiredFiles ?? []);
 
-  const outcomes = await inPool(kinds, concurrency, async (kind): Promise<KindOutcome> => {
+  // What each kind produced, so a kind that declares `dependsOn` can build on
+  // it — `commands` delegates to the skills `skills` just wrote instead of
+  // independently reinventing the same workflows.
+  const produced = new Map<string, ArtifactFile[]>();
+
+  const runKind = async (kind: ArtifactKind): Promise<KindOutcome> => {
     if (result.aborted)
       return { kind, files: [], issues: [], error: 'skipped', generated: 0, names: '' };
     const single =
@@ -541,6 +631,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       analysis,
       opts.root,
       plannedPaths,
+      upstreamFor(kind, opts.root, produced),
     );
     progress?.update(
       `Generating ${kinds.length} artifact kinds — ${++completed}/${kinds.length} done…`,
@@ -550,6 +641,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       if (isQuotaError(error)) result.aborted = error;
       return { kind, files: [], issues: [], error, generated: 0, names: '' };
     }
+    produced.set(kind.id, files);
     single?.succeed(
       `${kind.name}: ${files.length} file${files.length === 1 ? '' : 's'} ${pcDimFiles(files)}`,
     );
@@ -560,7 +652,17 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       generated: files.length,
       names: pcDimFiles(files),
     };
-  });
+  };
+
+  // Independent kinds run concurrently; a kind that depends on another waits
+  // for the wave that produces it. Results are reassembled in the requested
+  // order so the run still reports kind by kind.
+  const byKind = new Map<string, KindOutcome>();
+  for (const wave of dependencyWaves(kinds)) {
+    for (const outcome of await inPool(wave, concurrency, runKind))
+      byKind.set(outcome.kind.id, outcome);
+  }
+  const outcomes = kinds.map((kind) => byKind.get(kind.id)!);
   progress?.succeed(
     `Generated ${outcomes.filter((o) => !o.error).length}/${kinds.length} artifact kinds`,
   );

@@ -1,5 +1,27 @@
 # @sonalsithara/devpilot
 
+## 0.17.0
+
+### Minor Changes
+
+- `devpilot generate` now asks which model version to use, once per provider, and remembers the answer.
+
+  Every provider had exactly one model — the default compiled into its `ProviderSpec`. `router.models.<id>` in `~/.devpilot/config.json` could override it, but nothing surfaced that, no command wrote it, and there was no way to discover what a provider would even accept. Choosing a model meant knowing the exact id string and hand-editing JSON.
+
+  The first `generate` against a provider now shows a picker of that provider's model versions, each with a line on what it is for, and saves the choice under `router.models.<id>` — so later runs skip the prompt, exactly as a saved `router.prefer` already skips the provider prompt. Scripts, pipes, `--json`, and an explicit `--model` never see it.
+
+  This is not Claude-specific: catalogues ship for Anthropic, Claude Code, OpenAI, Google Gemini, DeepSeek, and Mistral, and the picker works for any of the twelve providers. Two deliberate escapes keep a shipped list from becoming a cage — the last entry always accepts a model id typed in full, so a model released after DevPilot is never out of reach, and the model already in play is always listed first, so a choice made before the catalogue existed stays selectable. Ollama is the one provider with no shipped list at all: local models are whatever you pulled, so its options come from `ollama list` at the prompt, falling back to the configured model if the daemon is not answering.
+
+  `devpilot router --model <provider> <model>` sets the choice later; omitting the model restores the provider's default.
+
+- Skills and slash commands stop generating the same workflow twice, and the kit now sets an error-handling and documentation standard.
+
+  **One workflow, one file.** `generate` produced every artifact kind as an independent AI call seeing only the digest, so the `skills` and `commands` prompts — both asked for "this project's real workflows" — kept arriving at the same answers. A generated kit routinely shipped `.claude/skills/verify/SKILL.md` beside a `.claude/commands/verify.md` that restated it, and the two drifted the moment either was edited. An artifact kind can now declare `dependsOn`, and the pipeline runs kinds in dependency waves instead of one flat pool: `commands` waits for `skills` and receives what it wrote. Each skill now gets a same-named slash command that is a four-line handoff to its `SKILL.md`, and the remaining commands cover only one-shot session actions no skill owns — running a script, the verification chain, a read-only diff review, and cleaning up the current session's changes. Generating `commands` alone still works: with no skills pass in the run, the kit already on disk supplies the delegation targets.
+
+  The session-scoped cleanup command is now `/cleanup`, freeing `/refactor` to delegate to the `refactor` skill. Both surfaces stay — skills are model-invoked, commands are user-invoked — but a workflow lives in exactly one of them.
+
+  **Two more standards every generated kit sets.** `handle-errors` encodes how a project fails and what it exposes: its real error type and where it is constructed versus caught, boundary validation, what an actionable message must carry, what must never escape (secrets, tokens, raw stack traces, upstream bodies), and the additive-versus-breaking rule for its public surface. `document` encodes the discipline that keeps user-visible behavior from shipping undocumented — README versus `docs/`, when a changelog entry is required in the repository's real format, and the check for documentation left describing the behavior a change replaced. Both are required of AI responses alongside `commit`, and both are produced by the static fallback, so a kit generated offline holds the same bar.
+
 ## 0.16.0
 
 ### Minor Changes

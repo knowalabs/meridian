@@ -23,19 +23,19 @@ Run `devpilot` with no arguments to open the interactive launcher: navigate the 
 
 ## Commands
 
-| Command                                   | What it does                                                                                                                                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `devpilot doctor`                         | Health check: environment, installed tools, which AI providers are usable right now, key vault, and whether this project's kit is stale                                                                 |
-| `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                                                                                                         |
-| `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter, Groq, DeepSeek, Mistral, xAI)                                                                                              |
-| `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                                                                                                     |
-| `devpilot generate [kinds…]`              | Review the codebase, then generate everything: context, architecture, rules (mirrored to every tool), `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, `.claude/settings.json`, prompts, docs |
-| `devpilot sync [--check]`                 | Detect drift between the codebase and the generated kit; refresh stale files (hand edits preserved). `--check` is a CI gate: exit 1 when stale                                                          |
-| `devpilot mcp search/install/remove/list` | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                                                                                                              |
-| `devpilot ask "<prompt>"`                 | AI router: picks the best provider by cost/speed/quality/context size; streams the answer, and reads piped stdin as context                                                                             |
-| `devpilot router --prefer/--optimize`     | Configure routing behavior                                                                                                                                                                              |
-| `devpilot update`                         | Update the CLI and installed tools                                                                                                                                                                      |
-| `devpilot login`                          | Cloud Sync (on the roadmap, not available yet)                                                                                                                                                          |
+| Command                                       | What it does                                                                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devpilot doctor`                             | Health check: environment, installed tools, which AI providers are usable right now, key vault, and whether this project's kit is stale                                                                 |
+| `devpilot install <tool>` \| `all`            | Install and configure supported tools (npm / Homebrew / winget)                                                                                                                                         |
+| `devpilot auth [provider]`                    | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter, Groq, DeepSeek, Mistral, xAI)                                                                                              |
+| `devpilot keys list/remove/repair`            | Manage stored keys (always masked, never plaintext)                                                                                                                                                     |
+| `devpilot generate [kinds…]`                  | Review the codebase, then generate everything: context, architecture, rules (mirrored to every tool), `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, `.claude/settings.json`, prompts, docs |
+| `devpilot sync [--check]`                     | Detect drift between the codebase and the generated kit; refresh stale files (hand edits preserved). `--check` is a CI gate: exit 1 when stale                                                          |
+| `devpilot mcp search/install/remove/list`     | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                                                                                                              |
+| `devpilot ask "<prompt>"`                     | AI router: picks the best provider by cost/speed/quality/context size; streams the answer, and reads piped stdin as context                                                                             |
+| `devpilot router --prefer/--optimize/--model` | Configure routing behavior and the model each provider uses                                                                                                                                             |
+| `devpilot update`                             | Update the CLI and installed tools                                                                                                                                                                      |
+| `devpilot login`                              | Cloud Sync (on the roadmap, not available yet)                                                                                                                                                          |
 
 ### Global flags
 
@@ -114,10 +114,29 @@ Sync never clobbers your work: any generated file you've hand-edited (its hash n
 
 ### Model selection
 
-The router ships with sensible model defaults per provider and lets you override them without waiting for a release, in `~/.devpilot/config.json`:
+The first time `devpilot generate` runs against a provider it asks which model version you want, and remembers the answer — so it never asks again:
+
+```
+Which Anthropic (Claude) model should write your kit?
+   1. claude-sonnet-5    (default — balances quality and cost)
+   2. claude-opus-5      (most capable — best for large codebases)
+   3. claude-haiku-4-5   (fastest and cheapest)
+   4. type a model id…   (anything this provider accepts)
+```
+
+The list is a starting point, not a whitelist — the last entry accepts any model id, so a model released after DevPilot was is never out of reach. Ollama is listed from what you have actually pulled (`ollama list`) rather than from a shipped list.
+
+Change it later, or restore the provider default by omitting the model:
+
+```bash
+devpilot router --model anthropic claude-opus-5
+devpilot router --model anthropic              # back to the default
+```
+
+Scripts, pipes and `--json` never see the prompt. `--model` overrides it for one run, and `~/.devpilot/config.json` holds the saved choice:
 
 ```json
-{ "router": { "models": { "anthropic": "claude-opus-4-8", "openai": "gpt-5.1" } } }
+{ "router": { "models": { "anthropic": "claude-opus-5", "openai": "gpt-5" } } }
 ```
 
 ## Security

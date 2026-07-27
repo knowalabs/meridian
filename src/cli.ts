@@ -236,7 +236,17 @@ Examples:
     .description('Configure the AI router')
     .option('--prefer <provider>', 'always prefer this provider (empty to clear)')
     .option('--optimize <metric>', 'optimize for cost, speed or quality')
-    .action((opts: { prefer?: string; optimize?: string }) => done(routerConfigCommand(opts)));
+    .option(
+      '--model <provider> [model...]',
+      'set the model for a provider (omit the model to restore its default)',
+    )
+    .addHelpText(
+      'after',
+      '\n"devpilot generate" asks which model to use the first time it runs against a\nprovider and remembers the answer — this is how you change it afterwards.\nExamples:\n  $ devpilot router --model anthropic claude-opus-5\n  $ devpilot router --model anthropic          restore the default model\n  $ devpilot router --prefer ollama            always route to a local model',
+    )
+    .action((opts: { prefer?: string; optimize?: string; model?: string[] }) =>
+      done(routerConfigCommand(opts)),
+    );
 
   program
     .command('update')

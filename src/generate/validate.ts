@@ -1,8 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ProjectAnalysis } from '../scan/analyzer.js';
-import { ArtifactFile, ArtifactKind } from './artifacts.js';
+import { ArtifactFile, ArtifactKind, frontmatter } from './artifacts.js';
 import { createIgnore } from '../scan/ignore.js';
+
+// Re-exported here because frontmatter parsing is part of this module's
+// contract; it lives in artifacts.ts so the artifact kinds can read each
+// other's output without importing their own validator.
+export { frontmatter };
 
 /**
  * Content validation for generated artifacts. `isAllowedPath` guards where a
@@ -62,25 +67,6 @@ const KIT_PREFIXES = [
 
 const isKitPath = (file: string): boolean =>
   KIT_PREFIXES.some((p) => (p.endsWith('/') ? file.startsWith(p) : file === p));
-
-/** The frontmatter block of a markdown artifact, or null when it has none. */
-export function frontmatter(content: string): Record<string, string> | null {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(content);
-  if (!match) return null;
-  const fields: Record<string, string> = {};
-  let key: string | null = null;
-  for (const line of match[1]!.split(/\r?\n/)) {
-    const field = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line);
-    if (field) {
-      key = field[1]!;
-      fields[key] = field[2]!.trim();
-      continue;
-    }
-    // Continuation of the previous field: a YAML list item or a wrapped value.
-    if (key && line.trim()) fields[key] = `${fields[key]} ${line.trim()}`.trim();
-  }
-  return fields;
-}
 
 /**
  * Script names the generated content claims the project runs. Only commands

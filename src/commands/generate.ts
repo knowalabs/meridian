@@ -1,9 +1,17 @@
 import pc from 'picocolors';
 import { ARTIFACT_KINDS } from '../generate/artifacts.js';
 import { estimateGenerate, pickProvider, runGenerate } from '../generate/pipeline.js';
-import { availableProviders, modelFor, PROVIDERS, setRuntimeModel } from '../providers/router.js';
+import {
+  availableProviders,
+  hasModelChoice,
+  modelFor,
+  modelsFor,
+  PROVIDERS,
+  saveModelChoice,
+  setRuntimeModel,
+} from '../providers/router.js';
 import { loadConfig } from '../core/config.js';
-import { promptChoice } from '../core/prompt.js';
+import { promptChoice, promptLine } from '../core/prompt.js';
 import { jsonMode, log } from '../core/logger.js';
 import { formatIssue } from '../generate/validate.js';
 
@@ -34,6 +42,42 @@ async function chooseProvider(): Promise<string | undefined> {
   const picked = await promptChoice(`Provider ${pc.dim(`[Enter = ${recommended}]`)}:`, choices);
   log.dim(`(skip this next time with --provider <id> or "devpilot router --prefer <id>")`);
   return picked ?? recommended;
+}
+
+/** Sentinel choice for "none of the listed models". */
+const CUSTOM_MODEL = '\0custom';
+
+/**
+ * Interactive model choice for the provider serving this run, asked once and
+ * then remembered under `router.models.<id>` — the same shape as a saved
+ * `router.prefer` skipping the provider prompt above. An explicit --model, a
+ * pipe, JSON mode, or a provider with nothing to choose between all skip it;
+ * `devpilot router --model <provider> <model>` changes it later.
+ *
+ * The shipped catalogue is a starting point, never a whitelist: providers
+ * ship models faster than DevPilot releases, so the last entry always accepts
+ * a model id typed in full.
+ */
+async function chooseModel(providerId: string | undefined): Promise<void> {
+  const interactive = process.stdin.isTTY && process.stdout.isTTY && !jsonMode();
+  if (!interactive) return;
+  const spec = providerId ? PROVIDERS.find((p) => p.id === providerId) : pickProvider();
+  if (!spec || hasModelChoice(spec.id)) return;
+
+  // modelsFor puts the model currently in play first, so Enter keeps it.
+  const models = await modelsFor(spec);
+  const fallback = models[0]?.id;
+  if (!fallback || models.length < 2) return;
+
+  log.title(`Which ${spec.name} model should write your kit?`);
+  const picked = await promptChoice(`Model ${pc.dim(`[Enter = ${fallback}]`)}:`, [
+    ...models.map((m) => ({ value: m.id, label: m.id, note: m.note })),
+    { value: CUSTOM_MODEL, label: 'type a model id…', note: 'anything this provider accepts' },
+  ]);
+  const model = (picked === CUSTOM_MODEL ? await promptLine('Model id: ') : picked) || fallback;
+
+  saveModelChoice(spec.id, model);
+  log.dim(`(saved — change it with "devpilot router --model ${spec.id} <model>")`);
 }
 
 /**
@@ -174,6 +218,10 @@ export async function generateCommand(
     }
     return 1;
   }
+
+  // Only once the provider is known to work — no point choosing a model for a
+  // provider the run is about to fail on.
+  if (opts.ai !== false && !opts.model) await chooseModel(opts.provider);
 
   log.info(opts.dryRun ? 'Planning AI kit (dry run)…' : 'Generating AI kit…');
   const result = await runGenerate({

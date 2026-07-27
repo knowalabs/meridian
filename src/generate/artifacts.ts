@@ -30,8 +30,34 @@ export interface ArtifactKind {
   requiredFiles?: string[];
   /** Only generated when explicitly requested by id, never as part of "all". */
   optIn?: boolean;
-  prompt(digest: string): string;
+  /**
+   * Kind ids this kind must see the output of. The pipeline generates them
+   * first and passes their files to `prompt` as `upstream`, so a kind can
+   * build on what another produced instead of independently reinventing it —
+   * `commands` delegates to the skills `skills` just wrote.
+   */
+  dependsOn?: string[];
+  prompt(digest: string, upstream?: ArtifactFile[]): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
+}
+
+/** The frontmatter block of a markdown artifact, or null when it has none. */
+export function frontmatter(content: string): Record<string, string> | null {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(content);
+  if (!match) return null;
+  const fields: Record<string, string> = {};
+  let key: string | null = null;
+  for (const line of match[1]!.split(/\r?\n/)) {
+    const field = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line);
+    if (field) {
+      key = field[1]!;
+      fields[key] = field[2]!.trim();
+      continue;
+    }
+    // Continuation of the previous field: a YAML list item or a wrapped value.
+    if (key && line.trim()) fields[key] = `${fields[key]} ${line.trim()}`.trim();
+  }
+  return fields;
 }
 
 /* --------------------------- multi-file protocol --------------------------- */
@@ -84,12 +110,77 @@ function stack(a: ProjectAnalysis): string {
   return a.frameworks.length ? `${langs} with ${a.frameworks.join(', ')}` : langs;
 }
 
+/** Top-level entries (files and directories) parsed out of the rendered tree. */
+const topLevelEntries = (a: ProjectAnalysis): string[] =>
+  a.tree
+    .split('\n')
+    .filter((line) => /^(├── |└── )/.test(line))
+    .map((line) => line.replace(/^(├── |└── )/, ''));
+
 /** Top-level directories parsed out of the rendered tree. */
 export function topLevelDirs(a: ProjectAnalysis): string[] {
-  return a.tree
-    .split('\n')
-    .filter((line) => /^(├── |└── ).*\/$/.test(line))
-    .map((line) => line.replace(/^(├── |└── )/, '').replace(/\/$/, ''));
+  return topLevelEntries(a)
+    .filter((entry) => entry.endsWith('/'))
+    .map((entry) => entry.replace(/\/$/, ''));
+}
+
+/** A root-level file matching `pattern`, or null — so a workflow step can cite
+ *  the real file when it exists and be written as an adoption step when it
+ *  does not. */
+const rootFile = (a: ProjectAnalysis, pattern: RegExp): string | null =>
+  topLevelEntries(a).find((entry) => !entry.endsWith('/') && pattern.test(entry)) ?? null;
+
+/* ------------------------- skills → slash commands ------------------------- */
+
+/**
+ * Workflows live in exactly one place — `.claude/skills/` — and the slash
+ * commands are the user-invoked way in. Everything below exists so the
+ * `commands` kind can point at the skills the `skills` kind produced instead
+ * of writing a second copy of them, which drifts the moment either side
+ * changes.
+ */
+interface SkillRef {
+  name: string;
+  description: string;
+}
+
+/** Name and description of every SKILL.md among `files`. */
+function skillIndex(files: ArtifactFile[]): SkillRef[] {
+  return files.flatMap((f) => {
+    const name = /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(f.file)?.[1];
+    const description = frontmatter(f.content)?.['description'];
+    return name && description ? [{ name, description }] : [];
+  });
+}
+
+/**
+ * The skills a static run generates for this project, read back from the
+ * skills kind's own fallback: a delegating command can then never name a
+ * skill the run did not write.
+ */
+const staticSkills = (a: ProjectAnalysis): SkillRef[] =>
+  skillIndex(ARTIFACT_KINDS.find((k) => k.id === 'skills')?.fallback(a) ?? []);
+
+/** A slash command that hands off to a skill rather than restating it. */
+function delegatingCommand(skill: SkillRef): ArtifactFile {
+  const tail = skill.description
+    .replace(/^use\s+(this\s+)?(when|for)\s+/i, '')
+    .replace(/^./, (c) => c.toLowerCase());
+  return {
+    file: `.claude/commands/${skill.name}.md`,
+    content: `---
+description: Run the ${skill.name} workflow — ${tail}
+argument-hint: [what to apply it to]
+---
+
+Use the \`${skill.name}\` skill — @.claude/skills/${skill.name}/SKILL.md — and
+follow it end to end. Its steps, verification and constraints are authoritative;
+this command only starts it.
+
+Apply it to \`$ARGUMENTS\` when given. With no argument, use the skill's own
+default scope, asking first if the skill says to.
+`,
+  };
 }
 
 /** Scripts worth turning into workflows, in a stable, useful order. */
@@ -779,21 +870,31 @@ The smallest change, plus the regression test that locks it in.
     name: 'Skills',
     description: 'Claude Code skills (.claude/skills/)',
     allowedPaths: ['.claude/skills/'],
-    minFiles: 4,
-    requiredFiles: ['.claude/skills/commit/SKILL.md'],
+    minFiles: 6,
+    requiredFiles: [
+      '.claude/skills/commit/SKILL.md',
+      '.claude/skills/handle-errors/SKILL.md',
+      '.claude/skills/document/SKILL.md',
+    ],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 4–8 Claude Code skills, each at
+        `Generate 6–10 Claude Code skills, each at
 ".claude/skills/<skill-name>/SKILL.md", capturing THIS project's actual
 repeatable workflows. Derive the set from the codebase itself — its
 architecture, layers and everyday engineering tasks — and name each skill
 in the project's own vocabulary.
 
-One skill is required in every project: ".claude/skills/commit/SKILL.md" —
-committing is a universal workflow, but its content must be as
-project-specific as the rest: the exact ordered verification chain to run
-before committing, the repository's real commit-message conventions, and
-what must never be staged here. A generic five-liner is a failure.
+Skills are the kit's single home for workflows: the slash commands generated
+alongside them delegate to these files rather than restating them, so any
+multi-step procedure this project has belongs here and nowhere else.
+
+Three skills are required in every project, under these exact paths. They
+cover universal workflows, but their content must be as project-specific as
+the rest — a generic five-liner is a failure in each case.
+
+REQUIRED 1 — ".claude/skills/commit/SKILL.md": the exact ordered
+verification chain to run before committing, the repository's real
+commit-message conventions, and what must never be staged here.
 The commit skill is INTERACTIVE — it must be structured as ordered steps
 that each stop for the user:
 1. Inspect what is staged (git status/diff --cached) and summarize it;
@@ -807,6 +908,29 @@ that each stop for the user:
 4. Only commit after approval; never amend, never stage extra files the
    user did not approve.
 5. Ask before any push; never force-push.
+
+REQUIRED 2 — ".claude/skills/handle-errors/SKILL.md": how this project fails
+and what it exposes. Ground every rule in the digest's Code map and source
+excerpts: the real error type, result wrapper or exception hierarchy this
+code uses (name it) and where it is constructed versus caught; the layer that
+turns an internal failure into a user-facing one and what that message must
+carry to be actionable; the validation this project performs at its own
+boundaries; and what must never escape — secrets, tokens, credentials, raw
+stack traces or upstream response bodies. Cover the public-surface half too:
+what counts as this project's exported/public API, the rule for an additive
+change versus a breaking one, and the requirement to update every caller in
+the same change. If the project has no shared error type, say so plainly and
+write the adoption step rather than inventing one that does not exist.
+
+REQUIRED 3 — ".claude/skills/document/SKILL.md": the discipline that keeps
+user-visible behavior from shipping undocumented. State which documentation
+lives where in THIS repository — the README for users, "docs/" for engineers,
+inline reference docs where the digest shows them — and the rule for deciding
+between them. If the digest shows a changelog, use its real format and state
+exactly when an entry is required; if it does not, write adding one as an
+explicit adoption step. Include the check that catches the common failure:
+a behavior change merged with its documentation still describing the old
+behavior.
 
 Illustrative examples of the other kinds of skills a project might warrant
 (pick, rename, replace or invent as the digest dictates — none are
@@ -853,6 +977,8 @@ followed by a "# Title" line and these headings, in this order:
       const dirs = topLevelDirs(a);
       const srcDir = dirs.find((d) => ['src', 'lib', 'app'].includes(d));
       const testDir = dirs.find((d) => ['tests', 'test', '__tests__', 'spec'].includes(d));
+      const readme = rootFile(a, /^readme(\.|$)/i);
+      const changelog = rootFile(a, /^changelog(\.|$)/i);
       const checklist = verificationChecklist(a);
       const verify = checklist.length
         ? `Verify, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}.`
@@ -1144,6 +1270,122 @@ commit and must not be staged on the user's behalf.`,
             ],
           },
         ),
+        skill(
+          'handle-errors',
+          `Use when writing or reviewing failure paths in ${a.name} — raising, catching, reporting an error, or changing what the project exposes to its callers.`,
+          {
+            title: `Handling errors and public surface in ${a.name}`,
+            when: `Use this whenever a change can fail, validates input, or alters an
+exported name or signature. It is the standard \`new-feature\`, \`fix-bug\`
+and \`new-utility\` all defer to for their failure paths.`,
+            before: [
+              kitContext(),
+              '',
+              `Read the error handling this project already has before adding any:
+grep ${sourceHome} for its throw/raise/reject sites and for whatever type or
+wrapper they use. New code fails the way the surrounding code fails — a
+second error convention is a defect, not a preference.`,
+            ],
+            steps: [
+              `Name the failure modes before writing the happy path: invalid input,
+   missing resource, upstream failure, and the boundary values this code can
+   actually reach.`,
+              `Validate at the boundary — the entry point where untrusted data arrives —
+   using the validation this project already performs there, and reject early
+   rather than defending the same value at every layer below.`,
+              `Raise the project's own error type with a message that says what failed,
+   what the caller can do about it, and which input caused it. A message a
+   user cannot act on is an unhandled error with extra steps.`,
+              `Catch only where you can do something about it. Never swallow an error
+   into a silent default, and never catch broadly to keep a run alive.`,
+              `Check what escapes: no secret, token, credential, raw stack trace or
+   upstream response body may reach a log line, a user-facing message or a
+   returned value.`,
+              `For any change to an exported name, signature or return shape, decide
+   additive or breaking. Additive is preferred; breaking means updating every
+   caller in ${sourceHome} in the same change and saying so in the docs.`,
+              `Test the failure paths, not only the success one — in ${testHome},
+   asserting the error the caller actually receives.`,
+            ],
+            verification: verify,
+            done: [
+              'Every failure mode named in step 1 is handled and tested.',
+              'New errors use the same type and message style as the existing ones.',
+              'No secret, token, credential or raw stack trace can reach a log or a caller.',
+              'Any changed public signature has all its callers updated in this change.',
+              'The full verification chain passes.',
+            ],
+            never: [
+              'Introduce a second error type or reporting convention alongside the existing one.',
+              'Swallow an error into a silent default or an empty catch.',
+              'Return or log a raw upstream body, stack trace or credential.',
+              'Change an exported signature and leave a caller behind.',
+            ],
+          },
+        ),
+        skill(
+          'document',
+          `Use when a change to ${a.name} alters user-visible behavior, public API or setup — before it is committed, not after.`,
+          {
+            title: `Documenting a change to ${a.name}`,
+            when: `Use this as the final step of any change a user or another engineer
+would notice. Purely internal restructuring covered by \`refactor\` needs no
+documentation change.`,
+            before: [
+              kitContext(),
+              '',
+              `Decide the audience first, because it decides the file: something a user
+of ${a.name} does belongs in ${readme ? `\`${readme}\`` : 'the README'};
+something an engineer working on it needs belongs in \`docs/\`. Read the
+neighbouring section before adding one so the new text matches its shape.`,
+            ],
+            steps: [
+              `State the change in one sentence from the reader's side — what they can
+   now do, or what now behaves differently. If you cannot, the change is not
+   ready to document.`,
+              `Update the user-facing entry point when the change is user-visible:
+   ${readme ? `\`${readme}\`` : 'the README'} — installation, usage, options,
+   examples. An example that no longer runs is worse than no example.`,
+              `Update the engineer-facing docs when the change moves a boundary or adds
+   a concept: \`docs/architecture.md\` for structure, \`docs/conventions.md\`
+   for a rule others must follow, \`docs/engineer-workflow.md\` for a step in
+   the daily loop.`,
+              changelog
+                ? `Add a \`${changelog}\` entry in this repository's existing format —
+   match the neighbouring entries exactly, and write it for someone deciding
+   whether to upgrade, not for a reviewer reading the diff.`
+                : `This project has no changelog yet. Adopting one is the step that makes
+   released behavior traceable — propose adding it rather than assuming it
+   exists, and until then record user-visible changes in the ${readme ? `\`${readme}\`` : 'README'}.`,
+              `Re-read every doc that mentions the behavior you changed — grep for the
+   old name, flag or default. A change merged beside documentation still
+   describing the old behavior is the failure this workflow exists to catch.`,
+              `Refresh the generated kit when the change altered the project's shape,
+   so \`.devpilot/\` and the tool instruction files stop describing the old
+   structure: \`devpilot sync\`.`,
+            ],
+            verification: `Grep the docs for the old name, flag or default you replaced — no stale hit
+may remain. Run any command or example you wrote down, exactly as written.${
+              checklist.length
+                ? ` Then re-run the verification chain: ${checklist.map((c) => `\`${c}\``).join(' → ')}.`
+                : ''
+            }`,
+            done: [
+              'The change is described from the reader’s side, in the file its audience reads.',
+              'Every command and example added was run as written.',
+              'No documentation still describes the replaced behavior.',
+              changelog
+                ? `\`${changelog}\` has an entry in the existing format.`
+                : 'User-visible changes are recorded, and adopting a changelog is proposed.',
+            ],
+            never: [
+              'Document behavior you have not run.',
+              'Describe a planned change as if it already shipped.',
+              'Hand-edit generated kit files instead of re-running the generator.',
+              'Leave a stale reference to the old name, flag or default anywhere in the docs.',
+            ],
+          },
+        ),
       ];
       if (hasApiLayer(a)) {
         files.push(
@@ -1249,15 +1491,43 @@ naming, state handling and navigation registration all follow it.`,
     description: 'Claude Code slash commands (.claude/commands/)',
     allowedPaths: ['.claude/commands/'],
     minFiles: 4,
-    prompt: (digest) =>
-      commonPrompt(
-        `Generate 5–7 Claude Code slash-command files under ".claude/commands/".
-Each file is a markdown prompt the developer invokes as /<filename>. Cover
-this project's real workflows: the verify/fix loop with its actual scripts,
-reviewing a diff against the project's conventions, cleaning up the code the
-current session just changed without altering its behavior, scaffolding a new
-module/feature the way this architecture does it, releasing if the digest
-shows a release process, debugging the running app.
+    dependsOn: ['skills'],
+    prompt: (digest, upstream) => {
+      const skills = skillIndex(upstream ?? []);
+      const delegation = skills.length
+        ? `This project's kit already contains these skills, each at
+".claude/skills/<name>/SKILL.md":
+
+${skills.map((s) => `- ${s.name} — ${s.description}`).join('\n')}
+
+Produce, in this order:
+
+1. One DELEGATING command per skill listed above, at
+   ".claude/commands/<the-skill's-own-name>.md" — same name, so a developer
+   who knows one surface knows the other. Each is a handoff of 4–8 lines
+   total: frontmatter, one line naming the skill to use and its SKILL.md
+   path, and one line saying what "$ARGUMENTS" scopes and what the command
+   does when it is empty. Restating the skill's steps, verification or
+   constraints is a failure — a workflow that lives in two files drifts in
+   two directions.
+
+2. Three to five COMMAND-ONLY files for one-shot session actions that no
+   skill above covers: running one of this project's real scripts and fixing
+   what it reports, running the full verification chain in order, reviewing
+   the current diff read-only, and cleaning up only what the current session
+   changed. None of these may reuse a skill's name.`
+        : `Generate 5–7 command files covering this project's real one-shot actions:
+running its actual scripts and fixing what they report, running the full
+verification chain, reviewing the current diff read-only, and cleaning up
+what the current session changed.`;
+      return commonPrompt(
+        `Generate the slash-command layer of this project's kit under
+".claude/commands/". Each file is a markdown prompt the developer invokes as
+/<filename>. Slash commands are the user-invoked surface; the skills under
+".claude/skills/" are where multi-step workflows live. A command therefore
+either delegates to a skill or covers a one-shot action no skill owns.
+
+${delegation}
 
 The cleanup command is scoped, not repo-wide: it establishes which files the
 current task changed from the conversation plus the diff, audits only those
@@ -1267,7 +1537,7 @@ output, dead code, logic duplicated from a helper this project already has,
 hardcoded values that belong in its config or token layer, stale generated
 output, missing tests) rather than generic advice.
 
-Frontmatter for every command:
+Frontmatter for every command, delegating or not:
 
 ---
 description: One line, imperative, saying what running it does.
@@ -1280,7 +1550,8 @@ Use "$ARGUMENTS" where the user's input belongs, and say explicitly what the
 command does when it is empty — defaulting to the whole diff, asking, or
 failing are all fine, but it must be stated.
 
-The body uses these headings:
+A delegating command has no headings; it is a handoff, not a procedure.
+The body of a command-only file uses these headings:
 
 ## Context — the files and command output to read before acting, with the
    real paths from the digest.
@@ -1289,10 +1560,11 @@ The body uses these headings:
 
 Add a "## Constraints" section for anything the command must not do. A
 command that can change files states whether it stops for approval first.
-Each body is 10–30 lines and executable without the developer explaining
-anything further.`,
+Each command-only body is 10–30 lines and executable without the developer
+explaining anything further.`,
         digest,
-      ),
+      );
+    },
     fallback: (a) => {
       const files: ArtifactFile[] = [];
       const add = (
@@ -1404,33 +1676,6 @@ fix. Then a one-line verdict. Say so plainly when there are no findings.
 - No claim without a \`file:line\` behind it.`,
         { argumentHint: '[files to review]', allowedTools: 'Read, Grep, Glob, Bash' },
       );
-      add(
-        'explain',
-        'Explain how a part of this codebase works',
-        `## Context
-
-Explain how \`$ARGUMENTS\` works in ${a.name}. If it is empty, ask which part
-before reading anything. Start from \`.devpilot/context.md\` and
-\`docs/architecture.md\`, then read the real source.
-
-## Task
-
-1. Find the entry point by searching for the name, command, route or text.
-2. Trace the control and data flow outward, noting each \`file:line\`.
-3. Read the tests covering it — they document the intended edge cases.
-
-## Report
-
-What it does, the flow as a file-by-file list, the key data structures, the
-edge cases handled, and where to change what. List anything you could not
-confirm as an open question.
-
-## Constraints
-
-- Read-only: explain, do not change anything.
-- Never describe code you have not opened.`,
-        { argumentHint: '<feature, file or symbol>', allowedTools: 'Read, Grep, Glob, Bash' },
-      );
       const dirs = topLevelDirs(a);
       const helperHomes = dirs.length
         ? `the existing helpers in ${dirs.map((d) => `\`${d}/\``).join(', ')}`
@@ -1439,12 +1684,13 @@ confirm as an open question.
         ? a.conventions.join('; ')
         : 'no formatter or linter config detected — match the surrounding file';
       add(
-        'refactor',
+        'cleanup',
         'Clean up the code this session changed, without changing behavior',
         `## Context
 
-Refactor only what the current task changed in ${a.name} — nothing else.
-Establish that scope from this conversation plus:
+Clean up only what the current task changed in ${a.name} — nothing else. For
+restructuring the codebase beyond this session's diff, use the \`refactor\`
+skill instead. Establish this command's scope from the conversation plus:
 
 \`\`\`bash
 git status --short
@@ -1483,6 +1729,15 @@ result of ${chain}, and anything left as a proposal.
 - Never commit, stage or push.`,
         { argumentHint: '[files or base ref]' },
       );
+      // One delegator per skill, same name on both surfaces. A command that
+      // repeated the skill's steps would be a second copy to keep in sync.
+      const taken = new Set(files.map((f) => f.file));
+      for (const skill of staticSkills(a)) {
+        const command = delegatingCommand(skill);
+        if (taken.has(command.file)) continue;
+        taken.add(command.file);
+        files.push(command);
+      }
       return files;
     },
   },

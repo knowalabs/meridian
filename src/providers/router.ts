@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig } from '../core/config.js';
+import { loadConfig, saveConfig } from '../core/config.js';
 import { openVault } from '../core/vault.js';
 import { runAsync, which } from '../core/exec.js';
 import { CliError } from '../core/errors.js';
@@ -11,11 +11,28 @@ import { CliError } from '../core/errors.js';
  * cost, speed, context size and user preference.
  */
 
+/** One selectable model version, as offered by the interactive picker. */
+export interface ModelOption {
+  /** The id sent to the provider — exactly what goes in `router.models.<id>`. */
+  id: string;
+  /** One short line on what this model is for, shown beside it in the picker. */
+  note: string;
+}
+
 export interface ProviderSpec {
   id: string;
   name: string;
   /** Default model; users can override via config `router.models.<id>`. */
   model: string;
+  /**
+   * Model versions the picker offers, best first. DevPilot ships a starting
+   * set per provider — it is deliberately not exhaustive, and providers
+   * release faster than DevPilot does, so the picker always offers free-text
+   * entry and `router.models.<id>` accepts any string. Omit for a provider
+   * whose catalogue cannot be usefully enumerated (OpenRouter's thousands of
+   * models) or is per-machine (Ollama, discovered live instead).
+   */
+  models?: ModelOption[];
   /** Relative ranking used by the router (1 = best in class). */
   cost: number; // lower = cheaper
   speed: number; // lower = faster
@@ -81,6 +98,67 @@ export function setRuntimeModel(providerId: string | null, model?: string): void
 /** Model to use for a provider: --model, then config, then the default. */
 export function modelFor(spec: Pick<ProviderSpec, 'id' | 'model'>): string {
   return runtimeModels.get(spec.id) ?? loadConfig().router.models?.[spec.id] ?? spec.model;
+}
+
+/**
+ * True when the user has already chosen a model for this provider. The
+ * interactive picker asks once and records the answer, so a saved choice
+ * skips the prompt the same way a saved `router.prefer` skips the provider
+ * prompt.
+ */
+export function hasModelChoice(providerId: string): boolean {
+  return Boolean(loadConfig().router.models?.[providerId]);
+}
+
+/** Record the model for a provider (empty clears it, restoring the default). */
+export function saveModelChoice(providerId: string, model: string): void {
+  const config = loadConfig();
+  const models = { ...config.router.models };
+  if (model) models[providerId] = model;
+  else delete models[providerId];
+  config.router.models = Object.keys(models).length > 0 ? models : undefined;
+  saveConfig(config);
+}
+
+/**
+ * Models installed on this machine, read from the local Ollama daemon. A
+ * shipped list would be wrong for every user — they run whatever they pulled
+ * — so this is the one provider whose catalogue is discovered rather than
+ * declared. Best-effort: any failure just leaves the configured model.
+ */
+async function installedOllamaModels(): Promise<ModelOption[]> {
+  try {
+    const result = await runImpl('ollama', ['list']);
+    if (!result.ok) return [];
+    return result.stdout
+      .split(/\r?\n/)
+      .slice(1) // `ollama list` prints a NAME/ID/SIZE header row
+      .map((line) => line.trim().split(/\s+/)[0] ?? '')
+      .filter(Boolean)
+      .map((id) => ({ id, note: 'installed locally' }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The model versions to offer for a provider: its shipped catalogue plus
+ * anything discovered on this machine. The model actually in play always
+ * comes first and is always present — a model set through config or a
+ * previous `--model` must stay selectable even when it predates the
+ * catalogue or postdates this release.
+ */
+export async function modelsFor(spec: ProviderSpec): Promise<ModelOption[]> {
+  const discovered = spec.id === 'ollama' ? await installedOllamaModels() : [];
+  const current = modelFor(spec);
+  const options: ModelOption[] = [];
+  for (const option of [...(spec.models ?? []), ...discovered]) {
+    if (!options.some((o) => o.id === option.id)) options.push(option);
+  }
+  const currentIndex = options.findIndex((o) => o.id === current);
+  const [existing] = currentIndex >= 0 ? options.splice(currentIndex, 1) : [];
+  options.unshift(existing ?? { id: current, note: 'in use' });
+  return options;
 }
 
 /**
@@ -379,6 +457,11 @@ export const PROVIDERS: ProviderSpec[] = [
     id: 'anthropic',
     name: 'Anthropic (Claude)',
     model: 'claude-sonnet-5',
+    models: [
+      { id: 'claude-opus-5', note: 'most capable — best for large codebases' },
+      { id: 'claude-sonnet-5', note: 'default — balances quality and cost' },
+      { id: 'claude-haiku-4-5', note: 'fastest and cheapest' },
+    ],
     cost: 3,
     speed: 2,
     quality: 1,
@@ -424,6 +507,13 @@ export const PROVIDERS: ProviderSpec[] = [
     id: 'claude-code',
     name: 'Claude Code (subscription)',
     model: 'sonnet',
+    // Claude Code takes tier aliases, not full model ids — it resolves each
+    // to whatever the current model in that tier is.
+    models: [
+      { id: 'opus', note: 'most capable — best for large codebases' },
+      { id: 'sonnet', note: 'default — balances quality and cost' },
+      { id: 'haiku', note: 'fastest and cheapest' },
+    ],
     cost: 0,
     speed: 3,
     quality: 1,
@@ -466,6 +556,10 @@ export const PROVIDERS: ProviderSpec[] = [
     id: 'openai',
     name: 'OpenAI',
     model: 'gpt-5',
+    models: [
+      { id: 'gpt-5', note: 'default — balances quality and cost' },
+      { id: 'gpt-5-mini', note: 'faster and cheaper' },
+    ],
     cost: 3,
     speed: 2,
     quality: 2,
@@ -551,6 +645,10 @@ export const PROVIDERS: ProviderSpec[] = [
     id: 'google',
     name: 'Google Gemini',
     model: 'gemini-2.5-flash',
+    models: [
+      { id: 'gemini-2.5-pro', note: 'most capable — best for large codebases' },
+      { id: 'gemini-2.5-flash', note: 'default — fast and inexpensive' },
+    ],
     cost: 1,
     speed: 1,
     quality: 3,
@@ -648,6 +746,10 @@ export const PROVIDERS: ProviderSpec[] = [
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
     model: 'deepseek-chat',
+    models: [
+      { id: 'deepseek-chat', note: 'default — general purpose' },
+      { id: 'deepseek-reasoner', note: 'slower, reasons before answering' },
+    ],
     cost: 1,
     speed: 3,
     quality: 2,
@@ -660,6 +762,10 @@ export const PROVIDERS: ProviderSpec[] = [
     name: 'Mistral',
     baseUrl: 'https://api.mistral.ai/v1',
     model: 'mistral-large-latest',
+    models: [
+      { id: 'mistral-large-latest', note: 'default — most capable' },
+      { id: 'mistral-small-latest', note: 'faster and cheaper' },
+    ],
     cost: 2,
     speed: 2,
     quality: 3,

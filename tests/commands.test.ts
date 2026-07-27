@@ -171,6 +171,19 @@ describe('router config command', () => {
     expect(routerConfigCommand({ prefer: 'not-a-provider' })).toBe(1);
     expect(routerConfigCommand({ optimize: 'vibes' })).toBe(1);
   });
+
+  it('sets and clears a provider model', () => {
+    expect(routerConfigCommand({ model: ['anthropic', 'claude-opus-5'] })).toBe(0);
+    expect(loadConfig().router.models?.['anthropic']).toBe('claude-opus-5');
+    // Omitting the model restores the provider default rather than storing ''.
+    expect(routerConfigCommand({ model: ['anthropic'] })).toBe(0);
+    expect(loadConfig().router.models?.['anthropic']).toBeUndefined();
+  });
+
+  it('rejects a model set against an unknown provider', () => {
+    expect(routerConfigCommand({ model: ['not-a-provider', 'some-model'] })).toBe(1);
+    expect(routerConfigCommand({ model: [] })).toBe(1);
+  });
 });
 
 describe('cli wiring', () => {

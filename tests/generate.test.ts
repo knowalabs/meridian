@@ -7,10 +7,12 @@ import {
   isAllowedPath,
   kindsById,
   parseFileBlocks,
+  type ArtifactKind,
 } from '../src/generate/artifacts.js';
 import { buildDigest } from '../src/generate/digest.js';
 import {
   concurrencyFor,
+  dependencyWaves,
   estimateGenerate,
   runGenerate,
   type GenerateOptions,
@@ -25,7 +27,7 @@ import { analyzeProject } from '../src/scan/analyzer.js';
 import { generateCommand } from '../src/commands/generate.js';
 import { configureLogger } from '../src/core/logger.js';
 
-function makeProject(): string {
+function makeProject(extra: Record<string, string> = {}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-gen-'));
   fs.writeFileSync(
     path.join(root, 'package.json'),
@@ -39,6 +41,8 @@ function makeProject(): string {
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src/index.ts'), 'export const app = 1;\n');
   fs.writeFileSync(path.join(root, 'README.md'), '# demo-app\nAn express demo.\n');
+  for (const [file, content] of Object.entries(extra))
+    fs.writeFileSync(path.join(root, file), content);
   return root;
 }
 
@@ -228,16 +232,59 @@ describe('static fallbacks', () => {
     }
   });
 
-  it('requires a commit skill from AI responses and always includes one statically', () => {
+  it('requires the universal skills from AI responses and always includes them statically', () => {
     const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!;
-    expect(skills.requiredFiles).toContain('.claude/skills/commit/SKILL.md');
-    expect(skills.prompt('digest')).toContain('.claude/skills/commit/SKILL.md');
+    const required = ['commit', 'handle-errors', 'document'].map(
+      (name) => `.claude/skills/${name}/SKILL.md`,
+    );
     const root = makeProject();
     try {
       const files = skills.fallback(analyzeProject(root)).map((f) => f.file);
-      expect(files).toContain('.claude/skills/commit/SKILL.md');
+      for (const path of required) {
+        expect(skills.requiredFiles).toContain(path);
+        expect(skills.prompt('digest')).toContain(path);
+        expect(files).toContain(path);
+      }
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('encodes the error-handling and public-surface standard, not generic advice', () => {
+    const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!;
+    const prompt = skills.prompt('digest');
+    // The prompt must demand the project's own convention, not invent one.
+    expect(prompt).toContain('the real error type');
+    expect(prompt).toContain('write the adoption step rather than inventing one');
+    const root = makeProject();
+    try {
+      const errors = skills
+        .fallback(analyzeProject(root))
+        .find((f) => f.file === '.claude/skills/handle-errors/SKILL.md')!.content;
+      expect(errors).toContain('Validate at the boundary');
+      expect(errors).toContain('additive or breaking');
+      expect(errors).toMatch(/stack trace/);
+      expect(errors).toContain('error convention is a defect');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the documentation skill against the changelog the project actually has', () => {
+    const withLog = makeProject({ 'CHANGELOG.md': '# Changelog\n' });
+    const withoutLog = makeProject();
+    const documentSkill = (root: string): string =>
+      ARTIFACT_KINDS.find((k) => k.id === 'skills')!
+        .fallback(analyzeProject(root))
+        .find((f) => f.file === '.claude/skills/document/SKILL.md')!.content;
+    try {
+      expect(documentSkill(withLog)).toContain('Add a `CHANGELOG.md` entry');
+      // No changelog: an adoption step, never a reference to a file that is absent.
+      const absent = documentSkill(withoutLog);
+      expect(absent).toContain('has no changelog yet');
+      expect(absent).not.toContain('CHANGELOG.md');
+    } finally {
+      for (const root of [withLog, withoutLog]) fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -415,25 +462,78 @@ describe('static fallbacks', () => {
     }
   });
 
-  it('scopes the refactor command to the current change and forbids behavior changes', () => {
+  it('scopes the cleanup command to the current change and forbids behavior changes', () => {
     const root = makeProject();
     try {
       const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!.fallback(
         analyzeProject(root),
       );
-      const refactor = commands.find((f) => f.file === '.claude/commands/refactor.md')!.content;
+      const cleanup = commands.find((f) => f.file === '.claude/commands/cleanup.md')!.content;
       // Scope comes from the session's own diff, not the whole repo.
-      expect(refactor).toContain('git diff');
-      expect(refactor).toContain('out of scope');
-      expect(refactor).toContain('argument-hint:');
+      expect(cleanup).toContain('git diff');
+      expect(cleanup).toContain('out of scope');
+      expect(cleanup).toContain('argument-hint:');
       // Behavior-preserving, and the verification chain still runs afterwards.
-      expect(refactor).toContain('behavior-preserving');
-      expect(refactor).toMatch(/npm run (lint|test|build)/);
+      expect(cleanup).toContain('behavior-preserving');
+      expect(cleanup).toMatch(/npm run (lint|test|build)/);
       for (const heading of ['## Context', '## Task', '## Report', '## Constraints'])
-        expect(refactor).toContain(heading);
+        expect(cleanup).toContain(heading);
+      // The repo-wide restructuring workflow stays in the skill it belongs to.
+      expect(cleanup).toContain('use the `refactor`\nskill instead');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('delegates every skill to a same-named slash command instead of restating it', () => {
+    const root = makeProject();
+    try {
+      const analysis = analyzeProject(root);
+      const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!.fallback(analysis);
+      const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!.fallback(analysis);
+      const byPath = new Map(commands.map((f) => [f.file, f.content]));
+
+      for (const skill of skills) {
+        const name = /^\.claude\/skills\/(.+)\/SKILL\.md$/.exec(skill.file)![1]!;
+        const command = byPath.get(`.claude/commands/${name}.md`);
+        expect(command, `no slash command delegates to the ${name} skill`).toBeDefined();
+        // A handoff, not a second copy: it points at the skill and stays short.
+        expect(command).toContain(`@.claude/skills/${name}/SKILL.md`);
+        expect(command!.split('\n').length).toBeLessThan(15);
+        for (const heading of ['## Steps', '## Verification', '## Done when'])
+          expect(command, `${name} command restates the skill`).not.toContain(heading);
+      }
+      // Commands that are not delegators own no workflow a skill already owns.
+      const skillNames = new Set(
+        skills.map((f) => /^\.claude\/skills\/(.+)\/SKILL\.md$/.exec(f.file)![1]!),
+      );
+      const standalone = commands.filter(
+        (f) => !skillNames.has(path.basename(f.file, '.md')) && f.content.includes('## Task'),
+      );
+      expect(standalone.length).toBeGreaterThan(0);
+      for (const command of standalone)
+        expect(skillNames.has(path.basename(command.file, '.md'))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('shows the AI the skills it must delegate to, and forbids restating them', () => {
+    const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!;
+    expect(commands.dependsOn).toEqual(['skills']);
+    const upstream = [
+      {
+        file: '.claude/skills/ship-widget/SKILL.md',
+        content:
+          '---\nname: ship-widget\ndescription: Use when shipping a widget.\n---\n\n# Ship\n',
+      },
+    ];
+    const prompt = commands.prompt('digest', upstream);
+    expect(prompt).toContain('ship-widget — Use when shipping a widget.');
+    expect(prompt).toContain('Restating the skill');
+    expect(prompt).toContain('is a failure');
+    // With no skills to point at, the commands must stand on their own.
+    expect(commands.prompt('digest', [])).not.toContain('DELEGATING command per skill');
   });
 
   it('makes every reusable prompt self-contained and ready to paste', () => {
@@ -879,6 +979,39 @@ describe('generateCommand', () => {
     expect(await generateCommand(['commands'], { ai: false }, root)).toBe(0);
     expect(await generateCommand(['commands'], { ai: false }, root)).toBe(0); // all skipped
     expect(await generateCommand(['commands'], { ai: false, force: true }, root)).toBe(0);
+  });
+});
+
+describe('dependencyWaves', () => {
+  const kind = (id: string, dependsOn?: string[]): ArtifactKind =>
+    ({ id, dependsOn }) as unknown as ArtifactKind;
+  const ids = (kinds: ArtifactKind[][]): string[][] => kinds.map((w) => w.map((k) => k.id));
+
+  it('runs a dependent kind after the kind it builds on', () => {
+    const waves = dependencyWaves([kind('commands', ['skills']), kind('rules'), kind('skills')]);
+    expect(ids(waves)).toEqual([['rules', 'skills'], ['commands']]);
+  });
+
+  it('does not wait for a dependency that is not part of the run', () => {
+    expect(ids(dependencyWaves([kind('commands', ['skills'])]))).toEqual([['commands']]);
+  });
+
+  it('keeps every selected kind exactly once, independents in one wave', () => {
+    const waves = dependencyWaves([kind('a'), kind('b'), kind('c')]);
+    expect(ids(waves)).toEqual([['a', 'b', 'c']]);
+  });
+
+  it('does not hang on a dependency cycle', () => {
+    const waves = dependencyWaves([kind('a', ['b']), kind('b', ['a'])]);
+    expect(ids(waves).flat().sort()).toEqual(['a', 'b']);
+  });
+
+  it('orders the real kit so commands see the skills', () => {
+    const waves = ids(dependencyWaves(ARTIFACT_KINDS));
+    const skills = waves.findIndex((w) => w.includes('skills'));
+    const commands = waves.findIndex((w) => w.includes('commands'));
+    expect(skills).toBeGreaterThanOrEqual(0);
+    expect(commands).toBeGreaterThan(skills);
   });
 });
 

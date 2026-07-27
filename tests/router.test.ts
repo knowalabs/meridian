@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { route, PROVIDERS } from '../src/providers/router.js';
+import {
+  hasModelChoice,
+  modelFor,
+  modelsFor,
+  PROVIDERS,
+  route,
+  saveModelChoice,
+  setRunForTests,
+  type ProviderSpec,
+} from '../src/providers/router.js';
 import { saveConfig, loadConfig } from '../src/core/config.js';
 
 describe('ai router', () => {
@@ -88,5 +97,82 @@ describe('ai router', () => {
   it('prefers the anthropic API over the CLI on quality ties', () => {
     const decision = route('hello', ['anthropic', 'claude-code']);
     expect(decision?.provider.id).toBe('anthropic');
+  });
+});
+
+describe('model catalogue', () => {
+  let tmp: string;
+  const spec = (id: string): ProviderSpec => PROVIDERS.find((p) => p.id === id)!;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-models-'));
+    process.env.DEVPILOT_HOME = tmp;
+  });
+  afterEach(() => {
+    setRunForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('only offers model ids the provider would accept', () => {
+    for (const provider of PROVIDERS) {
+      for (const model of provider.models ?? []) {
+        expect(model.id.trim(), provider.id).toBe(model.id);
+        expect(model.id).not.toMatch(/\s/);
+        expect(model.note, `${provider.id}/${model.id}`).toBeTruthy();
+      }
+      // A shipped catalogue that omits the provider's own default would offer
+      // no way back to it.
+      if (provider.models)
+        expect(
+          provider.models.map((m) => m.id),
+          provider.id,
+        ).toContain(provider.model);
+    }
+  });
+
+  it('puts the model in play first, so Enter keeps it', async () => {
+    const models = await modelsFor(spec('anthropic'));
+    expect(models[0]?.id).toBe('claude-sonnet-5'); // the provider default
+    expect(models.map((m) => m.id)).toContain('claude-opus-5');
+  });
+
+  it('keeps a configured model selectable even when it predates the catalogue', async () => {
+    saveModelChoice('anthropic', 'claude-from-the-future');
+    const models = await modelsFor(spec('anthropic'));
+    expect(models[0]).toEqual({ id: 'claude-from-the-future', note: 'in use' });
+    // …and it appears exactly once, not twice.
+    expect(models.filter((m) => m.id === 'claude-from-the-future')).toHaveLength(1);
+  });
+
+  it('discovers Ollama models from the machine instead of shipping a list', async () => {
+    expect(spec('ollama').models).toBeUndefined();
+    setRunForTests(() => ({
+      ok: true,
+      code: 0,
+      stderr: '',
+      stdout: 'NAME    ID    SIZE\nqwen3:8b   abc   5 GB\ndevstral:latest   def   14 GB\n',
+    }));
+    const ids = (await modelsFor(spec('ollama'))).map((m) => m.id);
+    expect(ids).toContain('qwen3:8b');
+    expect(ids).toContain('devstral:latest');
+    expect(ids).not.toContain('NAME');
+  });
+
+  it('falls back to the configured model when Ollama is not answering', async () => {
+    setRunForTests(() => {
+      throw new Error('spawn ollama ENOENT');
+    });
+    expect((await modelsFor(spec('ollama'))).map((m) => m.id)).toEqual(['llama3.2']);
+  });
+
+  it('records a choice, reports it, and clears back to the default', () => {
+    expect(hasModelChoice('anthropic')).toBe(false);
+    saveModelChoice('anthropic', 'claude-opus-5');
+    expect(hasModelChoice('anthropic')).toBe(true);
+    expect(modelFor(spec('anthropic'))).toBe('claude-opus-5');
+    saveModelChoice('anthropic', '');
+    expect(hasModelChoice('anthropic')).toBe(false);
+    expect(modelFor(spec('anthropic'))).toBe('claude-sonnet-5');
   });
 });
