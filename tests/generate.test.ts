@@ -329,6 +329,157 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('gives every subagent a model, a least-privilege tool list and the full contract', () => {
+    const root = makeProject();
+    try {
+      const agents = ARTIFACT_KINDS.find((k) => k.id === 'agents')!.fallback(analyzeProject(root));
+      expect(agents.length).toBeGreaterThanOrEqual(4);
+      for (const file of agents) {
+        expect(file.content).toMatch(
+          /^---\nname: [a-z-]+\ndescription: .+\nmodel: (haiku|sonnet|opus)\ntools:\n/,
+        );
+        // The contract every generated agent follows.
+        for (const heading of ['## Scope', '## Context', '## Method', '## Output', '## Forbidden'])
+          expect(file.content).toContain(heading);
+        // Findings are evidence-backed, never speculative.
+        expect(file.content).toContain('file:line');
+        // Read-only agents are read-only by omission: no Edit/Write granted.
+        const readOnly = file.content.includes('## Commands')
+          ? !/\n\s+- (Edit|Write)\n/.test(file.content)
+          : false;
+        if (readOnly) expect(file.content).toMatch(/never|Read-only|do not fix|Editing/i);
+      }
+      const reviewer = agents.find((f) => f.file.endsWith('code-reviewer.md'))!.content;
+      expect(reviewer).toContain('## Severity');
+      expect(reviewer).not.toMatch(/\n {2}- (Edit|Write)\n/);
+      // The reviewer's read-only command block never runs a formatter.
+      const commands = /## Commands\n\n```bash\n([\s\S]*?)```/.exec(reviewer)![1]!;
+      expect(commands).not.toMatch(/format|prettier/);
+      const fixer = agents.find((f) => f.file.endsWith('test-fixer.md'))!.content;
+      expect(fixer).toMatch(/\n {2}- Edit\n/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the agent contract — frontmatter, least privilege and a report template — in the prompt', () => {
+    const prompt = ARTIFACT_KINDS.find((k) => k.id === 'agents')!.prompt('digest');
+    expect(prompt).toContain('model: haiku | sonnet | opus');
+    expect(prompt).toContain('least privilege');
+    expect(prompt).toContain('NOT Edit or\nWrite');
+    for (const heading of ['## Scope', '## Context', '## Method', '## Output', '## Forbidden'])
+      expect(prompt).toContain(heading);
+  });
+
+  it('structures every skill as when/preconditions/steps/verification/done/never', () => {
+    const root = makeProject();
+    try {
+      const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!.fallback(analyzeProject(root));
+      for (const file of skills) {
+        for (const heading of [
+          '## When to use',
+          '## Before you start',
+          '## Steps',
+          '## Verification',
+          '## Done when',
+          '## Never',
+        ])
+          expect(file.content, file.file).toContain(heading);
+        // "Done when" is a checkable list, not prose.
+        expect(file.content).toContain('- [ ] ');
+        // Preconditions point at the kit rather than restating it.
+        expect(file.content).toContain('@.devpilot/rules.md');
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('declares argument hints and tool limits on the slash commands that need them', () => {
+    const root = makeProject();
+    try {
+      const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!.fallback(
+        analyzeProject(root),
+      );
+      const review = commands.find((f) => f.file.endsWith('review.md'))!.content;
+      expect(review).toContain('argument-hint:');
+      expect(review).toContain('allowed-tools:');
+      for (const heading of ['## Context', '## Task', '## Report', '## Constraints'])
+        expect(review).toContain(heading);
+      // Every command says what it does with the user's input.
+      for (const file of commands) {
+        if (file.content.includes('$ARGUMENTS')) expect(file.content).toContain('argument-hint:');
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('makes every reusable prompt self-contained and ready to paste', () => {
+    const root = makeProject();
+    try {
+      const prompts = ARTIFACT_KINDS.find((k) => k.id === 'prompts')!.fallback(
+        analyzeProject(root),
+      );
+      for (const file of prompts) {
+        for (const heading of ['## When to use', '## Context', '## Task', '## Output'])
+          expect(file.content, file.file).toContain(heading);
+        // A placeholder block the developer fills in before pasting.
+        expect(file.content, file.file).toMatch(/```(diff|text)\n<[^>]+>\n```/);
+        // Context is stated as facts, so the prompt works without the kit.
+        expect(file.content).toContain('demo-app');
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('cross-links the docs suite and grounds conventions in real files', () => {
+    const root = makeProject();
+    try {
+      const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!.fallback(analyzeProject(root));
+      const byPath = new Map(docs.map((f) => [f.file, f.content]));
+      const index = byPath.get('docs/README.md')!;
+      // Every generated doc is discoverable from the index.
+      for (const file of docs) {
+        if (file.file === 'docs/README.md') continue;
+        expect(index, file.file).toContain(`(${file.file.replace('docs/', '')})`);
+      }
+      for (const doc of [
+        'docs/architecture.md',
+        'docs/conventions.md',
+        'docs/engineer-workflow.md',
+      ])
+        expect(byPath.get(doc), doc).toContain('## Related');
+      // Conventions cite a real file from the code map, not a generic claim.
+      expect(byPath.get('docs/conventions.md')).toContain('`src/index.ts`');
+      expect(byPath.get('docs/engineer-workflow.md')).toContain('## Definition of done');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('states the standards bar and marks unmet ones as adoption steps', () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-bare-docs-'));
+    try {
+      const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!.fallback(analyzeProject(bare));
+      const standards = docs.find((f) => f.file === 'docs/engineering-standards.md')!.content;
+      expect(standards).toContain('## Adoption steps');
+      expect(standards).toContain('a gap, not a description of today');
+      expect(standards).toContain('automated test suite');
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it('demands evidence and kit cross-references from every artifact prompt', () => {
+    for (const kind of ARTIFACT_KINDS) {
+      const prompt = kind.prompt('digest');
+      expect(prompt, kind.id).toContain('Ground every non-obvious claim in evidence');
+      expect(prompt, kind.id).toContain('.devpilot/rules.md');
+    }
+  });
+
   it('uses the ecosystem commands for a non-npm project', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-go-'));
     try {

@@ -109,6 +109,19 @@ const hasUiLayer = (a: ProjectAnalysis): boolean =>
 const hasApiLayer = (a: ProjectAnalysis): boolean =>
   a.apiRoutes.length > 0 || a.frameworks.some((f) => /express|fastify|nestjs/i.test(f));
 
+/**
+ * Verification commands a read-only agent may run: everything in the
+ * verification chain except the formatters, which rewrite files.
+ */
+const inspectionCommands = (a: ProjectAnalysis): string[] =>
+  verificationChecklist(a).filter((c) => !/\bformat|\bfmt\b|prettier/i.test(c));
+
+/** The kit files every generated project has, as `@`-references for an agent. */
+const kitContext = (extra: string[] = []): string =>
+  ['.devpilot/rules.md', 'docs/architecture.md', 'docs/conventions.md', ...extra]
+    .map((f) => `@${f}`)
+    .join('\n');
+
 function verificationChecklist(a: ProjectAnalysis): string[] {
   const order = ['format', 'lint', 'typecheck', 'build', 'test'];
   return Object.keys(a.scripts)
@@ -175,6 +188,18 @@ Quality bar:
   the project does not have yet, mark it explicitly as an adoption step —
   never present an unverified command or file as already existing.
 - Write rules and steps as imperatives; no filler sentences, no hedging.
+- Ground every non-obvious claim in evidence: name the file (and symbol) that
+  proves it. A convention nobody can point at in the code is an assumption,
+  not a convention — either cite it or drop it.
+- Structure is part of the quality bar. Use the exact section headings the
+  instructions below specify, in that order, so every file in the kit reads
+  the same way and an assistant can find what it needs by heading.
+- Cross-reference the rest of the kit instead of restating it. These paths
+  are always generated alongside your files, so you can rely on them:
+  ".devpilot/rules.md" (canonical rules, mirrored into CLAUDE.md/AGENTS.md/
+  GEMINI.md), ".devpilot/context.md" (generated project context),
+  "docs/architecture.md", "docs/conventions.md", "docs/engineer-workflow.md",
+  and ".devpilot/docs/codebase-review.md" (your own review of this codebase).
 - When the digest has a "Workspace packages" section, this repository holds
   several projects. Name the packages, state which one a rule or step applies
   to, and use each package's own commands from its own directory — never a
@@ -297,89 +322,455 @@ ${
     name: 'Subagents',
     description: 'Claude Code subagents (.claude/agents/)',
     allowedPaths: ['.claude/agents/'],
-    minFiles: 3,
+    minFiles: 4,
     prompt: (digest) =>
       commonPrompt(
-        `Generate 3–4 Claude Code subagent files under ".claude/agents/", each a
-specialist for THIS project — for example: a code reviewer with a checklist
-built from the project's real conventions and past-bug-prone areas visible in
-the code; a test runner/fixer that knows the exact test commands and layout;
-a domain specialist for the project's core subsystem (name it); a refactoring
-guide that knows the module boundaries. Each file needs YAML frontmatter:
+        `Generate 4–6 Claude Code subagent files under ".claude/agents/", each a
+specialist for THIS project — for example: a code reviewer whose checklist is
+built from the project's real conventions and bug-prone areas visible in the
+code; a test runner/fixer that knows the exact test commands and layout; a
+specialist for the project's core subsystem (name it in the project's own
+vocabulary); a refactoring guide that knows the module boundaries; a debugger
+that knows this runtime's failure modes. Derive the set from the digest —
+never generate an agent for a concern this project does not have.
+
+Each file is YAML frontmatter followed by the agent's system prompt:
 
 ---
 name: kebab-case-name
-description: When this agent should be used (one sentence, third person).
+description: When this agent should be used — one sentence, third person,
+  naming the concrete trigger (the kind of file, change or question that
+  should route here), not a vague role summary.
+model: haiku | sonnet | opus
+tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
 ---
 
-followed by a detailed system prompt in markdown: the agent's role, what it
-knows about this project (real paths, commands, patterns), its step-by-step
-working procedure, and its output format. Make each agent 30–60 lines.`,
+Pick "model" by task weight: mechanical/lookup work → haiku, ordinary
+engineering work → sonnet, deep multi-file reasoning or architecture → opus.
+
+Grant the least privilege the job needs, and list the tools explicitly. An
+agent that only inspects code gets Read, Glob, Grep and Bash and NOT Edit or
+Write — that omission is what makes it read-only, so state in the body that
+it reports rather than fixes. List Edit/Write only for an agent whose job is
+to change files.
+
+The body uses these headings, in this order, in the project's own vocabulary:
+
+## Scope — the paths/concerns this agent owns, and what it must not touch or
+   widen into. One paragraph, concrete.
+## Context — the files it reads before starting, as "@path" references on
+   their own lines (the kit files listed above, plus the project's own
+   load-bearing files from the digest). Say how to treat a conflict between
+   docs and code: the code is the evidence.
+## Method — a numbered procedure specific to this project: where to look
+   first, which boundaries to trace across, which searches to run.
+## Checklist — the real checks, grouped under "###" subheadings by the areas
+   THIS project actually has (derive them from the digest — e.g. its layers,
+   its error-handling contract, its test discipline, its security surface).
+   Every item is a concrete, checkable statement about this codebase, not a
+   platitude: prefer items an assistant can verify by reading a file or
+   running a search.
+## Severity — for review/audit agents only: four levels (Critical, High,
+   Medium, Low) defined in terms of what actually goes wrong in THIS project's
+   domain, not generic definitions.
+## Commands — a fenced bash block of the exact commands this agent may run,
+   using the project's real scripts from the digest. For a read-only agent,
+   every command must be non-mutating: no formatters, no code generation, no
+   installs, no writes.
+## Output — the literal report template the agent must follow, in a fenced
+   block, so its output is consistent run to run.
+## Forbidden — the hard boundaries, one per line.
+
+Rules that apply to every agent you generate:
+- Every finding or recommendation it reports must carry: severity, "file:line",
+  the concrete failure or risk, why that matters in this project, and the
+  smallest correct fix.
+- Forbid speculation: no claim without a file/line reference or command output
+  behind it. Incomplete evidence is reported as an open question, not a defect.
+- Findings come first in the output, ordered by severity; no padding with a
+  long list of things that passed.
+- An agent that can edit must still stop for explicit user approval before any
+  destructive or hard-to-reverse step.
+
+Make each agent 60–140 lines. A short, generic agent is a failure.`,
         digest,
       ),
     fallback: (a) => {
       const dirs = topLevelDirs(a);
       const checklist = verificationChecklist(a);
+      const inspect = inspectionCommands(a);
+      const testCmd = a.scripts['test'] ? commandFor(a, 'test') : null;
+      const boundaries = dirs.length ? dirs.map((d) => `\`${d}/\``).join(', ') : 'the project root';
+      const chain = checklist.length
+        ? checklist.map((c) => `\`${c}\``).join(' → ')
+        : "the project's build and tests";
+      const READ_ONLY = ['Read', 'Glob', 'Grep', 'Bash'];
+      const agent = (
+        name: string,
+        description: string,
+        model: string,
+        tools: string[],
+        body: string,
+      ): ArtifactFile => ({
+        file: `.claude/agents/${name}.md`,
+        content: `---\nname: ${name}\ndescription: ${description}\nmodel: ${model}\ntools:\n${tools
+          .map((t) => `  - ${t}`)
+          .join('\n')}\n---\n\n${body}\n`,
+      });
+      /** Read-only inspection block shared by the reviewing agents. */
+      const commandBlock = (extra: string[]): string =>
+        ['```bash', ...extra, ...inspect, '```'].join('\n');
+
       return [
-        {
-          file: '.claude/agents/code-reviewer.md',
-          content: `---
-name: code-reviewer
-description: Reviews changes for bugs, style and convention violations before commit.
----
+        agent(
+          'code-reviewer',
+          `Use this agent to review a diff or a named set of files in ${a.name} for correctness, convention violations and unsafe changes before they are committed.`,
+          'sonnet',
+          READ_ONLY,
+          `You review code in \`${a.name}\` (${stack(a)}). You report findings; you never
+edit code.
 
-You review code changes in ${a.name} (${stack(a)}).
+## Scope
 
-Checklist, in order:
-1. Correctness — logic errors, unhandled edge cases, broken error handling.
-2. Tests — every behavior change has a matching test; tests assert behavior,
-   not implementation details.
-3. Conventions — changes follow .devpilot/rules.md${a.conventions.length ? ` and the configured tooling (${a.conventions.join(', ')})` : ''}.
-4. Scope — the diff stays inside the module boundaries${dirs.length ? ` (${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}; no drive-by refactors.
-5. Safety — no secrets, credentials or generated files in the diff.
+Review only the diff or the paths the user names. Read a neighbouring file
+when it is needed to prove a finding, but do not widen the review into
+unrelated modules, and do not fix, format or regenerate anything.
 
-Report findings by file and line, most severe first. For each: what is wrong,
-why it matters, and the smallest fix. End with a verdict: approve / request changes.
-`,
-        },
-        {
-          file: '.claude/agents/test-fixer.md',
-          content: `---
-name: test-fixer
-description: Runs the test suite and fixes failures without changing intended behavior.
----
+## Context
 
-You fix failing tests in ${a.name}.
+Read before reviewing:
 
-Procedure:
-1. ${a.scripts['test'] ? `Run \`${commandFor(a, 'test')}\` and read the failure output carefully.` : 'Locate and run the test suite.'}
-2. Reproduce the smallest failing case; identify whether the bug is in the
-   code under test or the test itself.
-3. Apply the smallest fix that restores intended behavior.
-4. Re-run until green${checklist.length ? `, then run the full verification chain: ${checklist.map((c) => `\`${c}\``).join(' → ')}` : ''}.
+${kitContext(['.devpilot/context.md'])}
 
-Never delete, skip or weaken a test to make it pass. If a test asserts
-outdated behavior, say so explicitly and update the assertion with the reason.
-`,
-        },
-        {
-          file: '.claude/agents/architect.md',
-          content: `---
-name: architect
-description: Plans multi-file changes so they respect the project's module boundaries.
----
+Docs state intent; the code is the evidence. When they disagree, report the
+disagreement instead of assuming the docs are current.
 
-You plan implementation strategies for ${a.name} (${stack(a)}).
+## Method
 
-Given a feature or fix request:
-1. Read docs/architecture.md and the modules involved${dirs.length ? ` (top-level: ${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}.
-2. Produce a step-by-step plan: files to create/modify in order, what each
-   change contains, and which existing patterns to reuse.
-3. Flag anything that would cross a module boundary or need a new dependency —
-   those need explicit sign-off.
-4. End with the verification commands to run when the plan is implemented.
-`,
-        },
+1. List the files under review${dirs.length ? ` and note which module each belongs to (${boundaries})` : ''}.
+2. Read each changed file in full, plus the tests that cover it.
+3. Trace the change across module boundaries — a change is only correct if
+   every caller it affects is still correct.
+4. Grep for the prohibited patterns in the checklist below rather than
+   trusting a read-through.
+5. Run the read-only commands to confirm what the code actually does${inspect.length ? '' : ' (no verification scripts are configured — say so)'}.
+6. Report findings first, ordered by severity. Do not pad the report with a
+   list of everything that passed.
+
+Every finding carries: severity, \`file:line\`, the concrete failure, why it
+matters in this project, and the smallest correct fix. Where the evidence is
+incomplete, report it as an open question rather than a defect.
+
+## Severity
+
+- **Critical** — data loss or corruption, secret/credential exposure, or a
+  change that makes the program take a wrong irreversible action.
+- **High** — crash, broken behavior, a silently swallowed error, or a
+  boundary violation that bypasses the project's error handling.
+- **Medium** — unhandled edge case, missing test around risky behavior, or a
+  convention violation with a concrete cost.
+- **Low** — naming or maintainability issue whose future cost you can state.
+
+## Checklist
+
+### Correctness
+
+- Error and edge paths are handled the way the surrounding code handles them,
+  not with a new ad-hoc pattern.
+- Failures surface to the caller; nothing is swallowed silently.
+- Inputs crossing a boundary (user input, files, network, subprocess) are
+  validated before use.
+
+### Tests
+
+- Every behavior change has a matching test${testCmd ? ` runnable with \`${testCmd}\`` : ''}.
+- Tests assert observable behavior, not implementation details.
+- Failure and edge paths are covered, not only the happy path.
+- No test was deleted, skipped or weakened to make the suite pass.
+
+### Conventions
+
+- The change matches \`docs/conventions.md\` and \`.devpilot/rules.md\`.
+${a.conventions.length ? a.conventions.map((c) => `- The configured tooling is respected: ${c}.`).join('\n') : '- The change matches the formatting and naming of the file it lives in.'}
+
+### Boundaries
+
+- The diff stays inside ${boundaries}; no drive-by refactors ride along.
+- No new dependency is introduced without a stated reason.
+
+### Safety
+
+- No secrets, credentials, tokens or private keys in the diff.
+- No generated or build output staged as if hand-written.
+- Destructive operations are gated on explicit user approval.
+
+## Commands
+
+${commandBlock([
+  'git status --short',
+  'git diff -- <target>',
+  'git log --oneline -20 -- <target>',
+  "grep -RIn '<pattern>' <target>",
+])}
+
+Read-only only: never run a formatter, a code generator, an install or
+anything that writes to the working tree.
+
+## Output
+
+\`\`\`text
+## Findings
+
+### Critical
+- [file:line] Finding. Impact. Smallest fix.
+
+### High
+- ...
+
+### Medium
+- ...
+
+### Low
+- ...
+
+## Open Questions
+- Only questions that affect correctness.
+
+## Verification
+- Commands run and what they showed.
+
+## Summary
+X critical, Y high, Z medium, W low.
+\`\`\`
+
+Omit empty severity sections. If there are no findings, say so plainly and
+state what you could not verify.
+
+## Forbidden
+
+- Editing, formatting or generating any file
+- Committing, staging or pushing
+- Any claim without a \`file:line\` reference or command output behind it`,
+        ),
+        agent(
+          'test-fixer',
+          `Use this agent when ${a.name}'s test suite is failing and the failures need to be diagnosed and fixed without changing intended behavior.`,
+          'sonnet',
+          [...READ_ONLY, 'Edit', 'Write'],
+          `You fix failing tests in \`${a.name}\` (${stack(a)}). You fix the cause, never
+the symptom.
+
+## Scope
+
+Work only on the failing tests and the code they exercise. Do not refactor
+adjacent code, reformat files or expand the change beyond what the failure
+requires.
+
+## Context
+
+Read before starting:
+
+${kitContext()}
+
+## Method
+
+1. ${testCmd ? `Run \`${testCmd}\` and read the failure output in full — the first failure usually explains the rest.` : 'Locate the test suite and run it; read the failure output in full.'}
+2. Reduce to the smallest failing case and reproduce it in isolation.
+3. Decide which is wrong: the code under test, or the test's expectation.
+   State the answer before changing anything.
+4. Apply the smallest fix at the cause.
+5. Re-run the failing test, then the full chain: ${chain}.
+6. Report what was wrong and why the fix is correct.
+
+## Checklist
+
+### Diagnosis
+
+- The root cause is stated in one sentence, with the \`file:line\` it lives at.
+- The failure is reproduced before any fix is written.
+- A test that asserts outdated behavior is called out explicitly, with the
+  reason, before its assertion is changed.
+
+### Fix quality
+
+- No test is deleted, skipped, marked pending or loosened to force a pass.
+- No timeout is raised or assertion widened to hide a real race.
+- Test isolation holds: no shared state, no reliance on execution order, no
+  writes outside a temporary directory.
+- The fix does not change behavior the tests were protecting.
+
+## Commands
+
+${commandBlock([testCmd ? `${testCmd} <focused-test-path>` : 'git diff', 'git diff'])}
+
+## Output
+
+\`\`\`text
+## Failures
+- [file:line] What failed and the one-sentence root cause.
+
+## Fixes applied
+- [file:line] What changed and why it is the smallest correct fix.
+
+## Verification
+- Commands run and their final status.
+
+## Remaining risk
+- Anything still unverified.
+\`\`\`
+
+## Forbidden
+
+- Deleting, skipping or weakening a test to make the suite green
+- Committing, staging or pushing
+- Refactoring beyond what the failure requires`,
+        ),
+        agent(
+          'architect',
+          `Use this agent to plan a multi-file change in ${a.name} before writing code, so the implementation respects the existing module boundaries.`,
+          'opus',
+          READ_ONLY,
+          `You plan implementation strategies for \`${a.name}\` (${stack(a)}). You produce
+plans; you do not write code.
+
+## Scope
+
+Plan only what the user asked for. Surface anything that would cross a module
+boundary, add a dependency or change a public interface — those need explicit
+sign-off before implementation starts.
+
+## Context
+
+Read before planning:
+
+${kitContext(['.devpilot/context.md'])}
+
+Then read the modules the change touches${dirs.length ? ` (top-level: ${boundaries})` : ''}, and the closest
+existing feature that already does something similar.
+
+## Method
+
+1. Restate the requirement in one sentence, including what is explicitly out
+   of scope.
+2. Find the closest existing precedent in the codebase and read it — the plan
+   should extend an existing pattern rather than invent a new one.
+3. Map the change onto the real modules: which file gains what, in what order,
+   and which existing helper is reused instead of a new one.
+4. Identify the risks: boundary crossings, new dependencies, data/format
+   migrations, anything hard to reverse.
+5. Define how the change will be verified before it is considered done.
+
+## Checklist
+
+- Every file in the plan already exists or has a stated reason to be created.
+- The plan names the pattern it mirrors, with the \`file:line\` of the precedent.
+- No new top-level directory or dependency without an explicit justification.
+- Public interfaces stay stable, or every caller is listed in the plan.
+- Tests are part of the plan, not an afterthought.
+- The plan ends with the verification chain: ${chain}.
+
+## Output
+
+\`\`\`text
+## Goal
+One sentence, plus what is out of scope.
+
+## Plan
+1. [path] What changes, and the pattern it mirrors ([file:line]).
+2. ...
+
+## Risks and decisions needed
+- Anything crossing a boundary or needing sign-off.
+
+## Verification
+- The ordered commands that prove the change is done.
+\`\`\`
+
+## Forbidden
+
+- Writing or editing implementation code
+- Planning changes the user did not ask for
+- Naming a file, script or dependency that does not exist in this repository`,
+        ),
+        agent(
+          'debugger',
+          `Use this agent to trace a bug or unexpected behavior in ${a.name} to its root cause before any fix is attempted.`,
+          'sonnet',
+          READ_ONLY,
+          `You diagnose defects in \`${a.name}\` (${stack(a)}). You find and prove the root
+cause; you do not fix it.
+
+## Scope
+
+Investigate the reported symptom only. Read whatever is needed to prove the
+cause, but change nothing — the fix is a separate, deliberate step the user
+approves.
+
+## Context
+
+Read before investigating:
+
+${kitContext(['.devpilot/context.md'])}
+
+## Method
+
+1. Restate the symptom precisely: the input, the expected behavior and the
+   observed behavior. If any of the three is missing, ask for it first.
+2. Reproduce it${testCmd ? ` — ideally as a failing case runnable with \`${testCmd}\`` : ''}. No diagnosis before a reproduction.
+3. Locate the entry point${dirs.length ? ` in ${boundaries}` : ''} and trace the real control and data
+   flow from there to the symptom, naming each \`file:line\` it passes through.
+4. Form one hypothesis at a time and disprove it with evidence from the code
+   or a command's output — never from plausibility.
+5. State the root cause in one sentence and point at the exact line.
+6. Propose the smallest fix at the cause, and the regression test that would
+   have caught it.
+
+## Checklist
+
+- The symptom is reproduced before any conclusion is drawn.
+- The trace names real files and lines, not a guessed architecture.
+- The stated cause explains every observed detail of the symptom, including
+  why it does not happen in the passing cases.
+- The proposed fix sits at the cause, not where the symptom appears.
+- The regression test asserts the intended behavior, not the implementation.
+
+## Commands
+
+${commandBlock(['git log --oneline -20 -- <target>', 'git diff <ref> -- <target>', "grep -RIn '<symbol>' <target>"])}
+
+## Output
+
+\`\`\`text
+## Symptom
+Input, expected, observed.
+
+## Reproduction
+The exact command or steps that trigger it.
+
+## Trace
+1. [file:line] What happens here.
+2. ...
+
+## Root cause
+One sentence, at [file:line].
+
+## Proposed fix
+The smallest change, plus the regression test that locks it in.
+
+## Open questions
+- Anything the evidence does not settle.
+\`\`\`
+
+## Forbidden
+
+- Editing any file
+- Proposing a fix before the cause is proven
+- Guessing at code you have not read`,
+        ),
       ];
     },
   },
@@ -433,11 +824,29 @@ Each SKILL.md needs YAML frontmatter:
 
 ---
 name: kebab-case-name
-description: One sentence saying when to use this skill.
+description: When to use this skill — one sentence naming the concrete
+  trigger, so an assistant can tell from the description alone whether this
+  is the right workflow.
 ---
 
-followed by concrete numbered steps referencing real paths, modules and
-commands from the digest. 25–60 lines each; every step actionable.`,
+followed by a "# Title" line and these headings, in this order:
+
+## When to use — the situations this skill covers, and the neighbouring
+   situations it does NOT (name the other skill that does).
+## Before you start — the preconditions and the files to read first, as
+   "@path" references: the kit files listed above plus this project's own
+   load-bearing files.
+## Steps — numbered, each one action with the real command or path from the
+   digest. A step that says "make the change" is a failure: say where the
+   file goes, what it mirrors, and what must be true when it is done.
+## Verification — the exact ordered commands that prove the work is correct,
+   and what to do when one fails.
+## Done when — a short checklist of observable conditions ("- [ ] …"), each
+   verifiable by reading a file or running a command.
+## Never — the specific mistakes that would break this project, taken from
+   its real constraints, not generic advice.
+
+25–70 lines each; every step actionable and grounded in the digest.`,
         digest,
       ),
     fallback: (a) => {
@@ -448,130 +857,342 @@ commands from the digest. 25–60 lines each; every step actionable.`,
       const verify = checklist.length
         ? `Verify, in order: ${checklist.map((c) => `\`${c}\``).join(' → ')}.`
         : `Run the project's build/tests to verify.`;
-      const skill = (name: string, description: string, body: string): ArtifactFile => ({
+      const testCmd = a.scripts['test'] ? commandFor(a, 'test') : null;
+      const sourceHome = srcDir ? `\`${srcDir}/\`` : 'the source tree';
+      const testHome = testDir ? `\`${testDir}/\`` : 'the existing test files';
+      interface SkillBody {
+        title: string;
+        when: string;
+        before: string[];
+        steps: string[];
+        verification: string;
+        done: string[];
+        never: string[];
+      }
+      const skill = (name: string, description: string, s: SkillBody): ArtifactFile => ({
         file: `.claude/skills/${name}/SKILL.md`,
-        content: `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`,
+        content: `---
+name: ${name}
+description: ${description}
+---
+
+# ${s.title}
+
+## When to use
+
+${s.when}
+
+## Before you start
+
+${s.before.join('\n')}
+
+## Steps
+
+${s.steps.map((step, i) => `${i + 1}. ${step}`).join('\n')}
+
+## Verification
+
+${s.verification}
+
+## Done when
+
+${s.done.map((d) => `- [ ] ${d}`).join('\n')}
+
+## Never
+
+${s.never.map((n) => `- ${n}`).join('\n')}
+`,
       });
       const files: ArtifactFile[] = [
         skill(
           'new-feature',
-          `Add a feature to ${a.name} end-to-end, from code to passing verification.`,
-          `# Adding a feature to ${a.name}
-
-1. Read \`docs/architecture.md\` and the module you are changing${srcDir ? ` (source lives in \`${srcDir}/\`)` : ''}.
-2. Find the closest existing feature and mirror its structure — file
-   placement, naming, error handling, exports.
-3. Implement the smallest complete version of the feature.
-${testDir ? `4. Add tests in \`${testDir}/\`, mirroring the existing test style.` : `4. Add tests next to the existing ones, mirroring their style.`}
-5. Update docs (README or docs/) if behavior is user-visible.
-6. ${verify}`,
+          `Use when adding new behavior to ${a.name} — a new module, command, endpoint or capability that does not exist yet.`,
+          {
+            title: `Adding a feature to ${a.name}`,
+            when: `Use this when the project must do something it cannot do today. For
+changing behavior that already exists use \`fix-bug\`; for restructuring
+without a behavior change use \`refactor\`.`,
+            before: [
+              kitContext(),
+              '',
+              `Then find the closest existing feature in ${sourceHome} and read it end to
+end — the new one mirrors it rather than inventing a second pattern.`,
+            ],
+            steps: [
+              `Restate the feature in one sentence, including what is out of scope.`,
+              `Name the precedent you are mirroring (\`file:line\`) — file placement,
+   naming, error handling and exports all follow it.`,
+              `Implement the smallest complete version in ${sourceHome}. No half-wired
+   code paths and no configuration flags nobody asked for.`,
+              `Handle the failure paths the surrounding code handles: invalid input,
+   missing resources, and whatever this feature can realistically hit.`,
+              `Add tests in ${testHome}, in the existing style, covering the happy path
+   and at least one failure path.`,
+              `Update the docs when the behavior is user-visible — \`README\` for users,
+   \`docs/\` for engineers.`,
+            ],
+            verification: verify,
+            done: [
+              'The feature works end to end from its real entry point, not only in a test.',
+              'Every new failure path is handled and tested.',
+              'The change stays inside the module it belongs to.',
+              'The full verification chain passes.',
+            ],
+            never: [
+              'Invent a new pattern when an existing one in this repository already fits.',
+              'Add a dependency without stating why the existing ones do not suffice.',
+              'Leave the feature reachable but unfinished behind a silent flag.',
+            ],
+          },
         ),
         skill(
           'fix-bug',
-          `Fix a bug in ${a.name} at the root cause, proven by a regression test.`,
-          `# Fixing a bug in ${a.name}
-
-1. Reproduce the bug first${a.scripts['test'] ? ` — ideally as a failing test (\`${commandFor(a, 'test')}\`)` : ''}.
-   No fix before a reproduction.
-2. Trace the actual code path from the symptom to the cause; cite the
-   files and lines involved.
-3. State the root cause in one sentence, then apply the smallest fix at
-   that cause — not a workaround where the symptom appears.
-4. Keep the reproduction as a regression test, asserting the intended
-   behavior rather than implementation details.
-5. ${verify}`,
+          `Use when something in ${a.name} behaves incorrectly and the cause must be found, fixed and locked in by a regression test.`,
+          {
+            title: `Fixing a bug in ${a.name}`,
+            when: `Use this when existing behavior is wrong. If the behavior was never
+implemented, use \`new-feature\` instead.`,
+            before: [
+              kitContext(),
+              '',
+              `Get the three facts a bug report needs before touching code: the input,
+the expected behavior and the observed behavior. Ask if any is missing.`,
+            ],
+            steps: [
+              `Reproduce the bug first${testCmd ? ` — ideally as a failing test (\`${testCmd}\`)` : ''}. No fix before a reproduction.`,
+              `Trace the real code path from the symptom back to the cause, citing every
+   \`file:line\` it passes through.`,
+              `State the root cause in one sentence. If you cannot, keep tracing — a fix
+   without a stated cause is a guess.`,
+              `Apply the smallest fix at the cause, not a workaround where the symptom
+   surfaces.`,
+              `Keep the reproduction as a regression test asserting the intended
+   behavior, not the implementation.`,
+              `Check whether the same cause exists elsewhere in ${sourceHome}; fix or
+   report the siblings.`,
+            ],
+            verification: verify,
+            done: [
+              'The reproduction fails before the fix and passes after it.',
+              'The root cause is written down with its file and line.',
+              'No unrelated change rides along with the fix.',
+              'The full verification chain passes.',
+            ],
+            never: [
+              'Fix a symptom you cannot trace to a cause.',
+              'Loosen an assertion or add a retry to make a flaky failure disappear.',
+              'Delete or skip the test that exposed the bug.',
+            ],
+          },
         ),
         skill(
           'refactor',
-          `Refactor ${a.name} without changing behavior, in small verified steps.`,
-          `# Refactoring ${a.name}
-
-1. Confirm the tests are green before touching anything${a.scripts['test'] ? ` (\`${commandFor(a, 'test')}\`)` : ''}.
-2. Read \`docs/architecture.md\`; the module boundaries${dirs.length ? ` (${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''} must
-   still hold after the refactor.
-3. Move in small steps — rename, extract, inline — running the tests
-   between steps; never mix a refactor with a behavior change.
-4. Keep the public API stable unless the change is the point; update every
-   caller in the same change.
-5. ${verify}`,
+          `Use when restructuring ${a.name} without changing behavior — extracting, renaming, moving or deduplicating code.`,
+          {
+            title: `Refactoring ${a.name}`,
+            when: `Use this only when observable behavior stays identical. The moment the
+change alters behavior it is a feature or a fix, and belongs in those
+workflows instead.`,
+            before: [
+              kitContext(),
+              '',
+              `Confirm the suite is green before touching anything${testCmd ? ` (\`${testCmd}\`)` : ''} — a refactor
+that starts from red cannot prove it changed nothing.`,
+            ],
+            steps: [
+              `Write down the invariant: what must be observably identical afterwards.`,
+              `Confirm the code you are moving is covered by tests. If it is not, add the
+   characterization tests first — that is part of the refactor.`,
+              `Move in small steps — rename, extract, inline — running the tests between
+   steps.`,
+              `Keep the module boundaries intact${dirs.length ? ` (${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}; a refactor that relocates a
+   responsibility across a boundary needs sign-off first.`,
+              `Keep the public interface stable unless changing it is the point; when it
+   changes, update every caller in the same change.`,
+              `Delete the code the refactor replaced — a refactor that leaves both paths
+   alive has doubled the maintenance instead of reducing it.`,
+            ],
+            verification: verify,
+            done: [
+              'Behavior is unchanged: the same tests pass, unmodified.',
+              'No dead or duplicated path is left behind.',
+              'The public interface is stable, or every caller was updated.',
+              'The full verification chain passes.',
+            ],
+            never: [
+              'Mix a behavior change into a refactor commit.',
+              'Rewrite tests to match new internals instead of keeping them as the proof.',
+              'Refactor code with no test coverage without adding coverage first.',
+            ],
+          },
         ),
         skill(
           'feature-info',
-          `Investigate and explain how an existing feature of ${a.name} works.`,
-          `# Explaining a feature of ${a.name}
-
-1. Locate the entry point: search${srcDir ? ` \`${srcDir}/\`` : ' the source'} for the feature's
-   name, command, route or UI text.
-2. Trace the flow outward from the entry point, noting each file (and
-   line) the control or data passes through.
-3. Read the feature's tests${testDir ? ` in \`${testDir}/\`` : ''} — they document the intended behavior
-   and edge cases.
-4. Report: what the feature does, the flow as a file-by-file list, key
-   data structures, edge cases covered, and where to change what.`,
+          `Use when you need to understand and explain how an existing part of ${a.name} works before changing it.`,
+          {
+            title: `Explaining a feature of ${a.name}`,
+            when: `Use this to build an accurate picture before a change, or to answer "how
+does this work?". It is read-only — it produces an explanation, not a diff.`,
+            before: [kitContext(['.devpilot/context.md'])],
+            steps: [
+              `Locate the entry point: search ${sourceHome} for the feature's name,
+   command, route or user-visible text.`,
+              `Trace outward from the entry point, noting each \`file:line\` the control
+   and data pass through.`,
+              `Read the feature's tests${testDir ? ` in \`${testDir}/\`` : ''} — they document the intended behavior and
+   the edge cases someone already thought about.`,
+              `Identify the data structures the feature owns and who else touches them.`,
+              `Report: what it does, the flow as a file-by-file list, the key types, the
+   edge cases covered, and where to change what.`,
+            ],
+            verification: `Every claim in the explanation points at a \`file:line\`. Anything you could
+not confirm is listed as an open question rather than asserted.`,
+            done: [
+              'The flow is traced from a real entry point, not inferred from names.',
+              'Every step of the explanation cites a file and line.',
+              'Unverified areas are explicitly listed as open questions.',
+            ],
+            never: [
+              'Describe code you have not opened.',
+              'Change any file — this workflow is read-only.',
+            ],
+          },
         ),
         skill(
           'new-utility',
-          `Add a shared utility/helper to ${a.name} without duplicating an existing one.`,
-          `# Adding a utility to ${a.name}
-
-1. Search the codebase for an existing helper first — a duplicated utility
-   is a bug. Grep for likely names and read the neighbors.
-2. Place it next to similar helpers${srcDir ? ` under \`${srcDir}/\`` : ''}, following the local naming
-   and export style.
-3. Keep it small and single-purpose; no side effects unless that is the
-   point.
-4. Add focused tests for the edge cases (empty input, errors, limits).
-5. ${verify}`,
+          `Use when adding a shared helper to ${a.name}, to avoid duplicating one that already exists.`,
+          {
+            title: `Adding a utility to ${a.name}`,
+            when: `Use this when the same logic is needed in more than one place. A helper
+with a single caller belongs next to that caller instead.`,
+            before: [
+              kitContext(),
+              '',
+              `Search first: grep ${sourceHome} for the likely names and read the
+neighbouring helpers. A duplicated utility is a defect, not a convenience.`,
+            ],
+            steps: [
+              `Prove no existing helper does the job; name what you searched for.`,
+              `Place it next to similar helpers${srcDir ? ` under \`${srcDir}/\`` : ''}, following the local naming and
+   export style.`,
+              `Keep it small, single-purpose and free of side effects unless the side
+   effect is the point.`,
+              `Make the failure behavior explicit: what it does on empty input, invalid
+   input and boundary values.`,
+              `Add focused tests for those edge cases in ${testHome}.`,
+              `Migrate the existing duplicates to it in the same change, so the helper
+   actually removes duplication instead of adding a third variant.`,
+            ],
+            verification: verify,
+            done: [
+              'No existing helper already covered this — and you can say what you searched.',
+              'Edge cases (empty, invalid, boundary) are tested.',
+              'Existing duplicates now call the new helper.',
+              'The full verification chain passes.',
+            ],
+            never: [
+              'Add a utility without first searching for an existing one.',
+              'Give a helper hidden side effects such as I/O or global state.',
+              'Leave the duplicated code it was meant to replace in place.',
+            ],
+          },
         ),
         skill(
           'commit',
-          `Prepare and commit staged changes to ${a.name}, gated on user approval at every step.`,
-          `# Committing to ${a.name}
-
-This workflow is interactive: never stage extra files, amend, commit or
-push until the user approves the relevant step.
-
-1. Inspect the staged changes (\`git status --short\`, \`git diff --cached\`)
-   and summarize what they actually change. If nothing is staged, stop and
-   ask the user to stage the intended files. Unstaged changes are not part
-   of this commit.
-2. Scan the staged diff for secrets, credentials, API keys or private
-   keys — any suspected secret is a hard stop with no "continue anyway".
-   For debug output, stray files, generated/build artifacts or leftover
-   TODOs, show the exact file and line and ask whether to continue.
-3. ${verify}
-4. Read \`git log --oneline -10\`, match this repository's message style
+          `Use when staged changes to ${a.name} are ready to commit — an interactive workflow that stops for approval at every step.`,
+          {
+            title: `Committing to ${a.name}`,
+            when: `Use this for every commit. It is INTERACTIVE: never stage extra files,
+amend, commit or push until the user approves that specific step.`,
+            before: [
+              kitContext(),
+              '',
+              `Only staged changes are in scope. Unstaged work is not part of this
+commit and must not be staged on the user's behalf.`,
+            ],
+            steps: [
+              `Inspect the staged changes (\`git status --short\`, \`git diff --cached\`) and
+   summarize what they actually change. If nothing is staged, stop and ask
+   the user to stage the intended files.`,
+              `Scan the staged diff for secrets, credentials, API keys or private keys —
+   any suspected secret is a hard stop with no "continue anyway" option. For
+   debug output, stray files, generated/build artifacts or leftover TODOs,
+   show the exact file and line and ask whether to continue.`,
+              `Run the verification chain below and report the result before proposing a
+   message. A failing chain is a stop, not a warning.`,
+              `Read \`git log --oneline -10\`, match this repository's real message style
    (imperative subject, under 72 characters), and show the full proposed
-   message. Wait for the user to approve, edit or cancel.
-5. Commit only after approval; never amend an existing commit. Split
-   unrelated work into separate commits.
-6. Ask before pushing; never force-push. Report the commit hash, subject
-   and push status.`,
+   message. Wait for the user to approve, edit or cancel.`,
+              `Commit only after approval; never amend an existing commit and never
+   stage files the user did not approve. Split unrelated work into separate
+   commits.`,
+              `Ask before pushing; never force-push. Report the commit hash, subject and
+   push status.`,
+            ],
+            verification: verify,
+            done: [
+              'The staged diff was reviewed and summarized back to the user.',
+              'The secret scan came back clean, or the user was stopped.',
+              'The verification chain passed.',
+              'The user approved the exact message that was committed.',
+            ],
+            never: [
+              'Commit without showing the message and waiting for approval.',
+              'Amend, rebase or force-push.',
+              'Stage files the user did not ask for, including generated output.',
+              'Continue past a suspected secret for any reason.',
+            ],
+          },
         ),
       ];
       if (hasApiLayer(a)) {
         files.push(
           skill(
             'implement-api',
-            `Add an API endpoint to ${a.name} following the existing route patterns.`,
-            `# Implementing an API endpoint in ${a.name}
-
-1. Read the existing route/handler files${
-              a.apiRoutes.length
-                ? ` — start with ${a.apiRoutes
-                    .slice(0, 3)
-                    .map((r) => `\`${r}\``)
-                    .join(', ')}`
-                : ''
-            } —
-   and mirror their structure exactly.
-2. Validate every input at the boundary; reuse the project's existing
-   validation and error-response patterns.
-3. Keep the handler thin — put logic in the layer the existing endpoints
-   use for it.
-4. Add tests covering the success path, validation failures and error
-   responses.
-5. ${verify}`,
+            `Use when adding or changing an API endpoint in ${a.name}, following the existing route patterns.`,
+            {
+              title: `Implementing an API endpoint in ${a.name}`,
+              when: `Use this for any change to the request/response surface. Changes behind
+the handler belong in \`new-feature\` or \`fix-bug\`.`,
+              before: [
+                kitContext(),
+                '',
+                `Read the existing route/handler files${
+                  a.apiRoutes.length
+                    ? ` — start with ${a.apiRoutes
+                        .slice(0, 3)
+                        .map((r) => `\`${r}\``)
+                        .join(', ')}`
+                    : ''
+                } and mirror their structure exactly.`,
+              ],
+              steps: [
+                `Write down the contract first: method, path, request shape, response
+   shape, and every error response with its status code.`,
+                `Mirror the closest existing endpoint's structure — routing registration,
+   handler shape, serialization.`,
+                `Validate every input at the boundary using the project's existing
+   validation and error-response patterns; never trust a client value.`,
+                `Keep the handler thin — business logic goes in the layer the existing
+   endpoints use for it.`,
+                `Return the project's standard error shape on failure; never leak an
+   internal exception, stack trace or raw upstream body to the client.`,
+                `Add tests covering the success path, validation failures and error
+   responses.`,
+              ],
+              verification: verify,
+              done: [
+                'The route is registered and reachable the same way the existing ones are.',
+                'Every input is validated at the boundary.',
+                'Success, validation-failure and error responses are all tested.',
+                'The full verification chain passes.',
+              ],
+              never: [
+                'Return an unvalidated client value straight into a query or command.',
+                'Log or return secrets, tokens or raw upstream error bodies.',
+                'Put business logic directly in the handler.',
+              ],
+            },
           ),
         );
       }
@@ -579,18 +1200,43 @@ push until the user approves the relevant step.
         files.push(
           skill(
             'new-screen',
-            `Add a screen/page/view to ${a.name} following the existing UI structure.`,
-            `# Adding a screen to ${a.name}
-
-1. Find the closest existing screen/page and mirror its file layout,
-   naming and component structure.
-2. Register it the way the existing screens are — routing/navigation,
-   menus, deep links.
-3. Reuse the project's shared components and styling conventions; do not
-   introduce a new pattern for state or styling.
-4. Handle the non-happy paths every screen needs: loading, empty and
-   error states.
-5. ${verify}`,
+            `Use when adding a screen, page or view to ${a.name}, following the existing UI structure.`,
+            {
+              title: `Adding a screen to ${a.name}`,
+              when: `Use this for a new user-visible surface. Changing an existing screen's
+behavior belongs in \`new-feature\` or \`fix-bug\`.`,
+              before: [
+                kitContext(),
+                '',
+                `Find the closest existing screen and read it in full — file layout,
+naming, state handling and navigation registration all follow it.`,
+              ],
+              steps: [
+                `Mirror the closest existing screen's file layout, naming and component
+   structure.`,
+                `Register it the way the existing screens are registered — routing,
+   navigation, menus, deep links.`,
+                `Reuse the project's shared components and styling conventions; do not
+   introduce a new state-management or styling pattern for one screen.`,
+                `Handle every non-happy path the other screens handle: loading, empty,
+   error and permission-denied states.`,
+                `Clean up what the screen owns — subscriptions, listeners, timers and
+   controllers — when it goes away.`,
+                `Add tests for the important state variants, not only the loaded one.`,
+              ],
+              verification: verify,
+              done: [
+                "The screen is reachable through the app's real navigation.",
+                'Loading, empty and error states all render correctly.',
+                'Nothing the screen created outlives it.',
+                'The full verification chain passes.',
+              ],
+              never: [
+                'Hardcode strings, colors or spacing the project already has tokens or resources for.',
+                'Introduce a second styling or state pattern for a single screen.',
+                'Ship a screen whose only handled state is success.',
+              ],
+            },
           ),
         );
       }
@@ -606,51 +1252,175 @@ push until the user approves the relevant step.
     prompt: (digest) =>
       commonPrompt(
         `Generate 4–7 Claude Code slash-command files under ".claude/commands/".
-Each file is a markdown prompt the developer invokes as /<filename>; use
-$ARGUMENTS where the user's input belongs. Cover this project's real
-workflows: the verify/fix loop with its actual scripts, reviewing a diff
-against the project's conventions, scaffolding a new module/feature the way
-this architecture does it, releasing if the digest shows a release process,
-debugging the running app. Start each file with YAML frontmatter containing a
-one-line description. Each command's body should give the AI enough
-project-specific instruction to execute well (5–20 lines).`,
+Each file is a markdown prompt the developer invokes as /<filename>. Cover
+this project's real workflows: the verify/fix loop with its actual scripts,
+reviewing a diff against the project's conventions, scaffolding a new
+module/feature the way this architecture does it, releasing if the digest
+shows a release process, debugging the running app.
+
+Frontmatter for every command:
+
+---
+description: One line, imperative, saying what running it does.
+argument-hint: <what-the-user-types>   # only for commands that use $ARGUMENTS
+allowed-tools: Read, Grep, Glob, Bash  # only when the command should be
+                                       # restricted (e.g. a read-only review)
+---
+
+Use "$ARGUMENTS" where the user's input belongs, and say explicitly what the
+command does when it is empty — defaulting to the whole diff, asking, or
+failing are all fine, but it must be stated.
+
+The body uses these headings:
+
+## Context — the files and command output to read before acting, with the
+   real paths from the digest.
+## Task — numbered steps, each naming the concrete command or path.
+## Report — what to output, in what shape.
+
+Add a "## Constraints" section for anything the command must not do. A
+command that can change files states whether it stops for approval first.
+Each body is 10–30 lines and executable without the developer explaining
+anything further.`,
         digest,
       ),
     fallback: (a) => {
       const files: ArtifactFile[] = [];
-      const add = (name: string, description: string, body: string) =>
+      const add = (
+        name: string,
+        description: string,
+        body: string,
+        meta: { argumentHint?: string; allowedTools?: string } = {},
+      ): void => {
+        const front = [
+          `description: ${description}`,
+          ...(meta.argumentHint ? [`argument-hint: ${meta.argumentHint}`] : []),
+          ...(meta.allowedTools ? [`allowed-tools: ${meta.allowedTools}`] : []),
+        ].join('\n');
         files.push({
           file: `.claude/commands/${name}.md`,
-          content: `---\ndescription: ${description}\n---\n\n${body}\n`,
+          content: `---\n${front}\n---\n\n${body}\n`,
         });
+      };
+      const checklist = verificationChecklist(a);
+      const chain = checklist.length
+        ? checklist.map((c) => `\`${c}\``).join(' → ')
+        : 'the build and the tests';
       for (const [script] of workflowScripts(a)) {
         const cmdName = script.replace(/[:.]/g, '-');
+        const cmd = commandFor(a, script);
         add(
           cmdName,
-          `Run ${commandFor(a, script)} and fix anything it reports`,
-          `Run \`${commandFor(a, script)}\`. If it fails, diagnose the root cause and fix it — never by weakening tests or silencing checks — then re-run until it passes.`,
+          `Run ${cmd} and fix anything it reports`,
+          `## Context
+
+Run \`${cmd}\` and read its output in full before changing anything. If
+\`$ARGUMENTS\` names a path or test, scope the run to it; otherwise run it
+across the whole project.
+
+## Task
+
+1. Run \`${cmd}\`.
+2. If it passes, stop and say so — do not make changes nobody asked for.
+3. If it fails, diagnose the root cause of the first failure before touching
+   the rest; later failures are often the same cause.
+4. Fix at the cause, then re-run until it passes.
+
+## Report
+
+The failures, the root cause of each, the fix applied, and the final status.
+
+## Constraints
+
+- Never weaken a test, silence a check or disable a rule to make it pass.
+- Never commit, stage or push.`,
+          { argumentHint: '[path or test name]' },
         );
       }
       add(
         'verify',
         'Run the full verification chain and fix failures',
-        verificationChecklist(a).length
-          ? `Run, in order: ${verificationChecklist(a)
-              .map((c) => `\`${c}\``)
-              .join(
-                ' → ',
-              )}. Fix every failure at the root cause and re-run the chain until it is fully green. Summarize what was fixed.`
-          : `Build and test the project; fix every failure at the root cause and re-run until green.`,
+        `## Context
+
+This project's verification chain, in order: ${chain}. Run it in this order —
+a later step is meaningless if an earlier one is red.
+
+## Task
+
+1. Run each step in order, stopping at the first failure.
+2. Diagnose and fix at the root cause, then restart the chain from the top.
+3. Repeat until every step is green.
+
+## Report
+
+Which step failed, the root cause, the fix applied, and the final status of
+the whole chain.
+
+## Constraints
+
+- Never skip a step or reorder the chain.
+- Never lower a threshold, disable a rule or delete a test to get to green.
+- Never commit, stage or push.`,
       );
       add(
         'review',
         'Review the current diff against project conventions',
-        `Review the uncommitted diff in ${a.name} against .devpilot/rules.md: correctness, tests, conventions, scope, secrets. Report by file and line, most severe first.`,
+        `## Context
+
+Read \`.devpilot/rules.md\`, \`docs/conventions.md\` and the diff itself:
+
+\`\`\`bash
+git status --short
+git diff
+\`\`\`
+
+Review \`$ARGUMENTS\` when it names files; otherwise review the whole
+uncommitted diff.
+
+## Task
+
+1. Read each changed file in full, plus the tests covering it.
+2. Check correctness, tests, conventions, scope and secrets — in that order.
+3. Verify each finding against the actual code before reporting it.
+
+## Report
+
+Findings ordered by severity (Critical, High, Medium, Low). For each:
+\`file:line\`, the concrete failure, why it matters here, and the smallest
+fix. Then a one-line verdict. Say so plainly when there are no findings.
+
+## Constraints
+
+- Read-only: report findings, do not fix them.
+- No claim without a \`file:line\` behind it.`,
+        { argumentHint: '[files to review]', allowedTools: 'Read, Grep, Glob, Bash' },
       );
       add(
         'explain',
         'Explain how a part of this codebase works',
-        `Explain how $ARGUMENTS works in ${a.name}. Read the relevant source first; cite files and line numbers; include a short call-flow if useful.`,
+        `## Context
+
+Explain how \`$ARGUMENTS\` works in ${a.name}. If it is empty, ask which part
+before reading anything. Start from \`.devpilot/context.md\` and
+\`docs/architecture.md\`, then read the real source.
+
+## Task
+
+1. Find the entry point by searching for the name, command, route or text.
+2. Trace the control and data flow outward, noting each \`file:line\`.
+3. Read the tests covering it — they document the intended edge cases.
+
+## Report
+
+What it does, the flow as a file-by-file list, the key data structures, the
+edge cases handled, and where to change what. List anything you could not
+confirm as an open question.
+
+## Constraints
+
+- Read-only: explain, do not change anything.
+- Never describe code you have not opened.`,
+        { argumentHint: '<feature, file or symbol>', allowedTools: 'Read, Grep, Glob, Bash' },
       );
       return files;
     },
@@ -663,50 +1433,208 @@ project-specific instruction to execute well (5–20 lines).`,
     minFiles: 3,
     prompt: (digest) =>
       commonPrompt(
-        `Generate 3–4 reusable prompt files under ".devpilot/prompts/" that a
+        `Generate 3–5 reusable prompt files under ".devpilot/prompts/" that a
 developer on this project will actually reach for — e.g. reviewing a PR in
 this stack, implementing a new module following this architecture, debugging
-this runtime, writing tests in this project's style. Plain markdown, each
-starting with a "# Title" line, followed by a ready-to-paste prompt that
-bakes in the project's real context (stack, paths, commands, conventions).`,
+this runtime, writing tests in this project's style.
+
+These are copy-paste prompts for any assistant, so each one must carry its
+own context — it cannot assume the reader already loaded the kit. Each file
+is plain markdown with a "# Title" line, then:
+
+## When to use — the situation this prompt is for, in one or two lines.
+## Context — the project facts the assistant needs: stack, the real paths and
+   modules involved, the conventions that constrain the answer. Pulled from
+   the digest, stated as facts, not as links to files the reader may not have.
+## Task — numbered instructions, each concrete and checkable.
+## Output — the exact shape of the expected answer.
+
+End with a fenced placeholder block the developer fills in (the diff, the
+symptom, the module name), clearly marked, so the prompt is ready to paste.
+Constraints the assistant must respect — read-only, no speculation without a
+\`file:line\`, approval before destructive steps — belong in the Task section
+as explicit instructions.
+
+40–90 lines each.`,
         digest,
       ),
     fallback: (a) => {
       const checklist = verificationChecklist(a);
+      const chain = checklist.length
+        ? checklist.map((c) => `\`${c}\``).join(' → ')
+        : 'the build and the tests';
+      const dirs = topLevelDirs(a);
+      const layout = dirs.length ? dirs.map((d) => `\`${d}/\``).join(', ') : 'a flat layout';
+      const tooling = a.conventions.length
+        ? a.conventions.join('; ')
+        : 'no formatter or linter config detected — match the surrounding file';
       return [
         {
           file: '.devpilot/prompts/review.md',
           content: `# Review a change
 
-Review the current diff in ${a.name} (${stack(a)}) for:
-1. Correctness — logic errors and unhandled edge cases.
-2. Tests — behavior changes without matching tests.
-3. Conventions — violations of .devpilot/rules.md.
-4. Security — secrets, injection, unsafe file/network handling.
+## When to use
 
-Report by file and line, most severe first, with the smallest fix for each.
+Before a change to ${a.name} is committed or opened as a pull request, to
+catch defects while they are still cheap to fix.
+
+## Context
+
+- Project: ${a.name} — ${stack(a)}.
+- Top-level layout: ${layout}.
+- Tooling that must stay satisfied: ${tooling}.
+- Verification chain: ${chain}.
+
+## Task
+
+1. Read every changed file in full, plus the tests covering it — do not review
+   from the diff hunks alone.
+2. Check, in order: correctness (logic errors, unhandled edge cases, swallowed
+   failures), tests (behavior changes without matching tests, tests asserting
+   implementation instead of behavior), conventions (violations of the tooling
+   and idioms above), scope (drive-by changes outside the stated purpose), and
+   safety (secrets, credentials, generated files, destructive operations).
+3. Verify each finding against the actual code before reporting it. If the
+   evidence is incomplete, report it as an open question, not a defect.
+4. Do not fix anything — this is a review.
+
+## Output
+
+Findings ordered by severity (Critical, High, Medium, Low). Each finding:
+\`file:line\`, the concrete failure, why it matters in this project, and the
+smallest correct fix. Then a one-line verdict: ready to merge, or not. Say so
+plainly when there are no findings, and name what you could not verify.
+
+## The change
+
+\`\`\`diff
+<paste the diff here>
+\`\`\`
 `,
         },
         {
           file: '.devpilot/prompts/new-module.md',
           content: `# Implement a new module
 
-Implement <module> in ${a.name} (${stack(a)}). Before writing code, read
-docs/architecture.md and the closest existing module, then mirror its
-structure, naming and error handling. Include tests in the existing style${
-            checklist.length
-              ? ` and finish by running: ${checklist.map((c) => `\`${c}\``).join(' → ')}`
-              : ''
-          }.
+## When to use
+
+When adding a new module, component or subsystem to ${a.name} that should look
+like it was always part of the codebase.
+
+## Context
+
+- Project: ${a.name} — ${stack(a)}.
+- Top-level layout: ${layout} — the new module belongs inside the existing
+  structure; a new top-level directory needs a stated reason.
+- Tooling that must stay satisfied: ${tooling}.
+- Verification chain: ${chain}.
+
+## Task
+
+1. Read the closest existing module first and name it — the new one mirrors
+   its file placement, naming, error handling and exports.
+2. State the module's responsibility in one sentence, and what it explicitly
+   does not own.
+3. Implement the smallest complete version. No half-wired paths, no options
+   nobody asked for.
+4. Handle the failure paths the surrounding code handles, using the project's
+   existing error pattern rather than a new one.
+5. Add tests in the existing style, covering the happy path and at least one
+   failure path.
+6. Run the verification chain and report the result.
+
+## Output
+
+The implementation, plus a short summary: the precedent mirrored (with its
+path), the files added or changed, the tests added, and the verification
+result.
+
+## The module
+
+\`\`\`text
+<name the module and what it must do>
+\`\`\`
 `,
         },
         {
           file: '.devpilot/prompts/debug.md',
           content: `# Debug an issue
 
-Debug this issue in ${a.name}: <describe the symptom>. Reproduce it first,
-trace the actual code path (cite files/lines), state the root cause in one
-sentence, then apply the smallest fix and prove it with a test.
+## When to use
+
+When ${a.name} behaves incorrectly and the cause is not yet known.
+
+## Context
+
+- Project: ${a.name} — ${stack(a)}.
+- Top-level layout: ${layout}.
+- Verification chain: ${chain}.
+
+## Task
+
+1. Restate the symptom as input, expected behavior and observed behavior. If
+   one of the three is missing, ask for it before reading code.
+2. Reproduce it${a.scripts['test'] ? ` — ideally as a failing test (\`${commandFor(a, 'test')}\`)` : ''}. No diagnosis before a reproduction.
+3. Trace the real code path from the symptom back to the cause, citing every
+   \`file:line\` it passes through. Never infer a path from file names.
+4. State the root cause in one sentence and point at the exact line. The cause
+   must explain every detail of the symptom, including why the passing cases
+   pass.
+5. Apply the smallest fix at the cause, and keep the reproduction as a
+   regression test.
+6. Run the verification chain and report the result.
+
+## Output
+
+Symptom, reproduction, the trace as a numbered \`file:line\` list, the root
+cause in one sentence, the fix, the regression test, and anything the evidence
+does not settle.
+
+## The symptom
+
+\`\`\`text
+<describe the input, what you expected, and what happened>
+\`\`\`
+`,
+        },
+        {
+          file: '.devpilot/prompts/write-tests.md',
+          content: `# Write tests
+
+## When to use
+
+When existing behavior in ${a.name} needs coverage — before a refactor, after
+a bug, or where a risky path is untested.
+
+## Context
+
+- Project: ${a.name} — ${stack(a)}.
+- Test command: ${a.scripts['test'] ? `\`${commandFor(a, 'test')}\`` : 'no test script detected — say so before writing tests'}.
+- Verification chain: ${chain}.
+
+## Task
+
+1. Read an existing test first and mirror its structure, naming and setup —
+   do not introduce a second testing style.
+2. Test observable behavior through the public entry point, not private
+   internals; a test that breaks on every refactor is a liability.
+3. Cover the failure and edge paths, not only the happy path: empty input,
+   invalid input, boundaries, and the error each produces.
+4. Keep tests isolated — no shared mutable state, no dependence on execution
+   order, no writes outside a temporary directory, no real network calls.
+5. Verify each new test actually fails when the behavior it asserts is broken.
+6. Run the verification chain and report the result.
+
+## Output
+
+The tests, plus a short summary: what is now covered, what is deliberately
+not, and any behavior the tests exposed as already broken.
+
+## The target
+
+\`\`\`text
+<name the module, function or behavior to cover>
+\`\`\`
 `,
         },
       ];
@@ -770,6 +1698,22 @@ Two hard rules: never write a doc the project has no material for —
 skipping is correct, generic filler is a failure — and prefer a doc
 grounded in the digest's real structure over one from the list above.
 
+Standards every doc in the suite must meet:
+- Evidence over assertion. Each convention, invariant and claim names the
+  file (and symbol) that demonstrates it, inline — "…, as in
+  \`src/foo/bar.ts\`". A claim with nothing behind it is filler; cut it.
+- Open with a one-paragraph "what this covers / who should read it" so a
+  reader can tell in five seconds whether they are in the right file.
+- Close with a "Related" list linking the other docs in the suite that a
+  reader would need next, by relative path.
+- Prefer a table over prose whenever the content is a set of items with the
+  same shape (modules and their responsibilities, commands and what they do,
+  debt entries, error types).
+- Say what is NOT true as well as what is: the boundaries a module does not
+  own, the cases a workflow does not cover. Absence of a caveat reads as a
+  guarantee.
+- Never document a command, path or dependency that is not in the digest.
+
 Each doc you write should be 40–120 lines and dense with THIS project's
 real paths, names and commands.`,
         digest,
@@ -777,78 +1721,212 @@ real paths, names and commands.`,
     fallback: (a) => {
       const scripts = workflowScripts(a);
       const checklist = verificationChecklist(a);
+      const dirs = topLevelDirs(a);
+      /** Busiest files by symbol count — the concrete evidence a doc cites. */
+      const busiest = [...a.codeMap]
+        .sort((x, y) => y.symbols.length - x.symbols.length)
+        .slice(0, 5);
+      const related = (...links: [string, string][]): string =>
+        `\n## Related\n\n${links.map(([f, why]) => `- [${f}](${f}) — ${why}`).join('\n')}\n`;
+      const gaps = raisingTheBar(a);
       return [
         {
           file: 'docs/README.md',
           content: `# ${a.name} — documentation
+
+The engineering documentation for ${a.name} (${stack(a)}). Start with
+[architecture.md](architecture.md) if you are new; everything else is
+reference you reach for during a specific task.
 
 | Doc | Read this when… |
 | --- | --- |
 | [architecture.md](architecture.md) | you need the module map and how data flows between them |
 | [conventions.md](conventions.md) | you are writing code and want it to match the codebase |
 | [engineer-workflow.md](engineer-workflow.md) | you are setting up, running or verifying the project |
+| [engineering-standards.md](engineering-standards.md) | you want the quality bar and what this repo still needs to adopt |
 | [tech-debt.md](tech-debt.md) | you want to know the known rough edges before touching them |
 | [BEHAVIOUR_CONTRACT_TEMPLATE.md](BEHAVIOUR_CONTRACT_TEMPLATE.md) | you are specifying a feature's behavior before changing it |
 
-Generated by \`devpilot generate\`. Re-run with an AI provider and \`--force\`
-for docs written from an actual reading of the codebase.
+These docs are the human-facing half of the AI kit; the assistant-facing half
+lives in \`.devpilot/rules.md\` and \`.claude/\`. Both are generated by
+\`devpilot generate\` — re-run it with an AI provider and \`--force\` for docs
+written from an actual reading of the codebase.
 `,
         },
         {
           file: 'docs/architecture.md',
-          content: renderArchitectureMarkdown(a),
+          content:
+            renderArchitectureMarkdown(a) +
+            related(
+              ['conventions.md', 'the idioms to follow inside these modules'],
+              ['engineer-workflow.md', 'the commands that build and verify them'],
+            ),
         },
         {
           file: 'docs/conventions.md',
           content: `# ${a.name} — conventions
 
+How code in this repository is written. Read this before your first change;
+the reviewer checks against it. Where this file and the code disagree, the
+code wins — fix the file.
+
 ## Stack
 
-- ${stack(a)}.
-- ${a.totalFiles} files; primary languages: ${a.languages.map((l) => `${l.language} (${l.files})`).join(', ') || 'unknown'}.
+| Fact | Value |
+| --- | --- |
+| Stack | ${stack(a)} |
+| Files | ${a.totalFiles} |
+| Languages | ${a.languages.map((l) => `${l.language} (${l.files})`).join(', ') || 'unknown'} |
+| Layout | ${dirs.length ? dirs.map((d) => `\`${d}/\``).join(', ') : 'flat — no top-level module directories'} |
 
 ## Tooling
 
-${a.conventions.map((c) => `- ${c}`).join('\n') || '- No formatter/linter configs detected — match the style of the surrounding code.'}
+${
+  a.conventions.length
+    ? `These configs are checked in and authoritative — do not hand-format around them:\n\n${a.conventions.map((c) => `- ${c}`).join('\n')}`
+    : '- No formatter or linter config is checked in. Match the style of the surrounding code, and see [engineering-standards.md](engineering-standards.md) for closing that gap.'
+}
+
+## Where the weight sits
+
+${
+  busiest.length
+    ? `The densest modules by declared symbols — read one of these before adding a\nsimilar file, and mirror it:\n\n${busiest
+        .map(
+          (e) =>
+            `- \`${e.file}\` — ${e.symbols.slice(0, 6).join(', ')}${e.symbols.length > 6 ? `, +${e.symbols.length - 6} more` : ''}`,
+        )
+        .join('\n')}`
+    : 'No symbol-dense modules detected yet — mirror the closest existing file.'
+}
 
 ## Ground rules
 
 - Match the existing formatting, naming and idioms of the file you are in.
 - Mirror the closest existing module when adding a new one — placement,
   naming, error handling, exports.
-- Prefer clear, self-explanatory code over comments.
-`,
+- Handle failures the way the surrounding code handles them; do not introduce
+  a second error-handling pattern.
+- Validate input where it crosses a boundary (user input, files, network,
+  subprocess), not deep inside the call stack.
+- Prefer clear, self-explanatory code over comments; comment the "why" only.
+- No new dependency and no new top-level directory without a stated reason.
+${related(
+  ['architecture.md', 'which module a change belongs in'],
+  ['engineer-workflow.md', 'how to verify a change once written'],
+)}`,
         },
         {
           file: 'docs/engineer-workflow.md',
           content: `# ${a.name} — engineer workflow
 
+Day-to-day mechanics: what to run, in what order, and what "done" means.
+
 ## Everyday commands
 
-${scripts.length ? scripts.map(([name, cmd]) => `- \`${commandFor(a, name)}\`${a.scriptRunner ? ` — \`${cmd}\`` : ''}`).join('\n') : '- No scripts detected — build and run manually.'}
+${
+  scripts.length
+    ? `| Command | Runs |\n| --- | --- |\n${scripts
+        .map(
+          ([name, cmd]) =>
+            `| \`${commandFor(a, name)}\` | ${a.scriptRunner ? `\`${cmd}\`` : `the ${name} step`} |`,
+        )
+        .join('\n')}`
+    : '- No scripts detected — build and run the project manually.'
+}
 
 ## Verification
 
-${checklist.length ? `Run, in order, before considering any work done:\n\n${checklist.map((c, i) => `${i + 1}. \`${c}\``).join('\n')}` : 'Build and test the project manually; no verification scripts detected.'}
+${
+  checklist.length
+    ? `Run, in order, before considering any work done. A later step is\nmeaningless while an earlier one is red — fix and restart from the top:\n\n${checklist.map((c, i) => `${i + 1}. \`${c}\``).join('\n')}`
+    : 'Build and test the project manually; no verification scripts are configured.'
+}
+
+## Definition of done
+
+- The behavior works from its real entry point, not only in a test.
+- New behavior and new failure paths have tests.
+- The verification chain above is green end to end.
+- Docs are updated when user-visible behavior changed.
+- Nothing unrelated rides along in the change.
 
 ## Where things live
 
 \`\`\`
 ${a.tree}
 \`\`\`
-`,
+${related(
+  ['architecture.md', 'what each of those directories is responsible for'],
+  ['conventions.md', 'how to write the code that goes in them'],
+)}`,
+        },
+        {
+          file: 'docs/engineering-standards.md',
+          content: `# ${a.name} — engineering standards
+
+The bar every change is held to, and — honestly — where this repository does
+not meet it yet. Read this before proposing process changes.
+
+## The bar
+
+| Area | Standard |
+| --- | --- |
+| Correctness | Failures surface to the caller; nothing is swallowed silently. |
+| Input | Everything crossing a boundary is validated before use. |
+| Tests | Every behavior change ships with a test covering it and one failure path. |
+| Review | Findings cite \`file:line\` and the smallest correct fix. |
+| Secrets | No credentials, tokens or keys in the repository, logs or error output. |
+| Reversibility | Destructive or outward-facing steps stop for explicit user approval. |
+| Dependencies | A new dependency needs a stated reason the existing ones cannot cover. |
+
+## Where this repo stands
+
+${
+  a.conventions.length
+    ? `Checked-in tooling that already enforces part of the bar:\n\n${a.conventions.map((c) => `- ${c}`).join('\n')}`
+    : 'No formatter, linter or CI configuration is checked in yet.'
+}
+
+${
+  checklist.length
+    ? `Verification chain in place: ${checklist.map((c) => `\`${c}\``).join(' → ')}.`
+    : 'No verification chain is configured — nothing currently blocks a broken change.'
+}
+
+## Adoption steps
+
+${
+  gaps.length
+    ? `Each of these is a gap, not a description of today. Close them in order:\n\n${gaps.map((g, i) => `${i + 1}. ${g}`).join('\n')}`
+    : 'The tooling baseline is solid — keep tests, lint, formatting and CI green as the project grows.'
+}
+${related(
+  ['tech-debt.md', 'the specific debt items behind these gaps'],
+  ['engineer-workflow.md', 'the verification chain these standards rely on'],
+)}`,
         },
         {
           file: 'docs/tech-debt.md',
           content: `# ${a.name} — tech debt register
 
-Track known debt here so it is paid down deliberately instead of
-rediscovered. Add a row when you find or knowingly introduce debt.
+Known debt, recorded so it is paid down deliberately instead of rediscovered
+under deadline. Add a row when you find debt or knowingly introduce it — an
+unrecorded shortcut is indistinguishable from a bug later.
+
+A row belongs here when the code works but the way it works will cost someone
+later. Something that is simply broken is a bug: fix it, do not file it.
 
 | Area | Description | Impact | Suggested fix |
 | --- | --- | --- | --- |
 | _(none recorded yet)_ | | | |
-`,
+
+Impact is what it costs today — slower changes, a class of bug it invites, a
+path nobody can test — not how ugly it looks.
+${related(
+  ['engineering-standards.md', 'the bar these entries fall short of'],
+  ['architecture.md', 'which module each entry sits in'],
+)}`,
         },
         {
           file: 'docs/BEHAVIOUR_CONTRACT_TEMPLATE.md',

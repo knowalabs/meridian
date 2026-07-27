@@ -1,5 +1,21 @@
 # @sonalsithara/devpilot
 
+## 0.15.0
+
+### Minor Changes
+
+- Generated artifacts now follow a real contract instead of being free-form markdown.
+
+  The kit read well but was structurally thin: a subagent was a role paragraph and a numbered list, a skill was five steps, a slash command was one sentence. Every kind now has an explicit shape, enforced in both the AI prompt and the static fallback.
+
+  - **Subagents** get `model:` and `tools:` frontmatter — least privilege, so a reviewing agent is read-only by omission — plus `## Scope`, `## Context` (as `@`-references to the rest of the kit), `## Method`, `## Checklist` grouped by the areas the project actually has, a `## Severity` ladder defined in the project's own failure terms for review agents, a read-only `## Commands` block, a literal `## Output` template, and `## Forbidden`. Every finding must carry severity, `file:line`, the concrete failure, why it matters here, and the smallest fix — no claim without evidence behind it. The static set gains a `debugger` agent, and the AI is asked for 4–6 agents at 60–140 lines each.
+  - **Skills** are now `When to use` (including which sibling skill covers the neighbouring case) / `Before you start` / `Steps` / `Verification` / `Done when` (a checkbox list) / `Never`.
+  - **Slash commands** declare `argument-hint` and `allowed-tools` where they apply, state what they do with empty `$ARGUMENTS`, and use `Context` / `Task` / `Report` / `Constraints`.
+  - **Prompts** are self-contained and paste-ready: `When to use` / `Context` (project facts stated inline, not links) / `Task` / `Output`, ending in a fenced placeholder block. Adds a `write-tests` prompt.
+  - **Docs** must cite the file that proves each claim, open with what they cover, close with a `Related` list, and prefer tables for uniform content. The static suite gains `engineering-standards.md`, which states the bar, where the repo stands today, and each unmet standard as an explicit adoption step.
+
+  The shared prompt now also tells every kind to ground claims in evidence and to cross-reference the rest of the kit by path rather than restating it.
+
 ## 0.14.0
 
 ### Minor Changes
