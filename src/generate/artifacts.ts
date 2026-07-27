@@ -1251,12 +1251,21 @@ naming, state handling and navigation registration all follow it.`,
     minFiles: 4,
     prompt: (digest) =>
       commonPrompt(
-        `Generate 4–7 Claude Code slash-command files under ".claude/commands/".
+        `Generate 5–7 Claude Code slash-command files under ".claude/commands/".
 Each file is a markdown prompt the developer invokes as /<filename>. Cover
 this project's real workflows: the verify/fix loop with its actual scripts,
-reviewing a diff against the project's conventions, scaffolding a new
+reviewing a diff against the project's conventions, cleaning up the code the
+current session just changed without altering its behavior, scaffolding a new
 module/feature the way this architecture does it, releasing if the digest
 shows a release process, debugging the running app.
+
+The cleanup command is scoped, not repo-wide: it establishes which files the
+current task changed from the conversation plus the diff, audits only those
+against this project's real conventions, and makes behavior-preserving edits
+only — naming the concrete smells that matter in this stack (leftover debug
+output, dead code, logic duplicated from a helper this project already has,
+hardcoded values that belong in its config or token layer, stale generated
+output, missing tests) rather than generic advice.
 
 Frontmatter for every command:
 
@@ -1421,6 +1430,58 @@ confirm as an open question.
 - Read-only: explain, do not change anything.
 - Never describe code you have not opened.`,
         { argumentHint: '<feature, file or symbol>', allowedTools: 'Read, Grep, Glob, Bash' },
+      );
+      const dirs = topLevelDirs(a);
+      const helperHomes = dirs.length
+        ? `the existing helpers in ${dirs.map((d) => `\`${d}/\``).join(', ')}`
+        : 'a helper this project already has';
+      const tooling = a.conventions.length
+        ? a.conventions.join('; ')
+        : 'no formatter or linter config detected — match the surrounding file';
+      add(
+        'refactor',
+        'Clean up the code this session changed, without changing behavior',
+        `## Context
+
+Refactor only what the current task changed in ${a.name} — nothing else.
+Establish that scope from this conversation plus:
+
+\`\`\`bash
+git status --short
+git diff
+\`\`\`
+
+Scope to \`$ARGUMENTS\` when it names files or a base ref; otherwise take the
+uncommitted diff. Changes already in the tree that this session did not make
+are out of scope. Read \`.devpilot/rules.md\` and \`docs/conventions.md\`
+first — tooling that must stay satisfied: ${tooling}.
+
+## Task
+
+1. List the in-scope files and state the scope before editing anything.
+2. Audit each one for: leftover debug output and commented-out code, unused
+   imports and unreachable code, comments narrating what the code already
+   says, logic duplicated from ${helperHomes}, hardcoded values that belong
+   in this project's config or constants, generated output left stale by the
+   change, and behavior added this session without a test.
+3. Apply behavior-preserving edits only — same inputs, same outputs, same
+   public surface. Leave an intentional TODO in place unless you implement it.
+4. Anything that would change behavior, move code across a module boundary or
+   add a dependency: report it as a proposal, do not do it.
+5. Re-run ${chain} and fix what it reports.
+
+## Report
+
+The files refactored, each change grouped by the problem it resolves, the
+result of ${chain}, and anything left as a proposal.
+
+## Constraints
+
+- No behavior changes, no new features, no new dependencies.
+- Do not create an abstraction just to save a few lines.
+- Never delete or weaken a test to get the chain green.
+- Never commit, stage or push.`,
+        { argumentHint: '[files or base ref]' },
       );
       return files;
     },

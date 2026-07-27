@@ -415,6 +415,27 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('scopes the refactor command to the current change and forbids behavior changes', () => {
+    const root = makeProject();
+    try {
+      const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!.fallback(
+        analyzeProject(root),
+      );
+      const refactor = commands.find((f) => f.file === '.claude/commands/refactor.md')!.content;
+      // Scope comes from the session's own diff, not the whole repo.
+      expect(refactor).toContain('git diff');
+      expect(refactor).toContain('out of scope');
+      expect(refactor).toContain('argument-hint:');
+      // Behavior-preserving, and the verification chain still runs afterwards.
+      expect(refactor).toContain('behavior-preserving');
+      expect(refactor).toMatch(/npm run (lint|test|build)/);
+      for (const heading of ['## Context', '## Task', '## Report', '## Constraints'])
+        expect(refactor).toContain(heading);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('makes every reusable prompt self-contained and ready to paste', () => {
     const root = makeProject();
     try {
