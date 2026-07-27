@@ -23,7 +23,8 @@ import {
   kindsById,
   parseFileBlocks,
 } from './artifacts.js';
-import { fingerprintOf, hashContent, readManifest, writeManifest } from './manifest.js';
+import { fingerprintOf, readManifest, signatureOf, writeManifest } from './manifest.js';
+import { ArtifactIssue, formatIssue, validateArtifacts } from './validate.js';
 import { readCachedReview, writeCachedReview } from './cache.js';
 import { VERSION } from '../core/pkg.js';
 
@@ -82,6 +83,12 @@ export interface GenerateResult {
   aborted?: string;
   /** True when the codebase review was served from cache instead of the AI. */
   reviewFromCache?: boolean;
+  /**
+   * Claims in the generated content that the project contradicts — an invented
+   * script, a dead path reference, a malformed agent header. Survivors of the
+   * retry in `generateKind`, so the run reports what it kept.
+   */
+  issues: ArtifactIssue[];
 }
 
 /**
@@ -188,7 +195,14 @@ async function generateKind(
   provider: ProviderSpec | null,
   apiKey: string,
   analysis: ProjectAnalysis,
-): Promise<{ files: ArtifactFile[]; source: 'ai' | 'static'; error?: string }> {
+  root: string,
+  planned: string[],
+): Promise<{
+  files: ArtifactFile[];
+  source: 'ai' | 'static';
+  error?: string;
+  issues?: ArtifactIssue[];
+}> {
   if (!provider) return { files: kind.fallback(analysis), source: 'static' };
 
   // A well-formed response meets the kind's own bar, not just "some blocks".
@@ -200,21 +214,35 @@ async function generateKind(
 
   // AI mode never silently writes static templates: a failed kind writes
   // nothing, so a later re-run regenerates it with AI. One retry covers a
-  // response that forgets the file-block protocol or comes back incomplete;
-  // an incomplete second answer is kept — the re-run fills in what is missing,
-  // since existing files are skipped by default.
+  // response that forgets the file-block protocol, comes back incomplete, or
+  // makes a claim the project contradicts — an invented script or a malformed
+  // agent header is worse than a missing file, because it reads as authority.
+  // A second answer with the same faults is kept: the issues are reported, and
+  // a re-run fills in what is missing since existing files are skipped.
+  let lastIssues: ArtifactIssue[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await provider.ask(kind.prompt(digest), apiKey);
       const files = parseFileBlocks(response);
-      if (files.length > 0 && (isComplete(files) || attempt > 0)) {
+      const issues = files.length
+        ? validateArtifacts(kind, files, analysis, root, planned)
+        : lastIssues;
+      const blocking = issues.filter((i) => i.severity === 'error');
+      if (files.length > 0 && ((isComplete(files) && blocking.length === 0) || attempt > 0)) {
         if (!isComplete(files))
           log.warn(`${kind.name}: response incomplete after a retry — keeping what was returned.`);
-        return { files, source: 'ai' };
+        for (const issue of blocking)
+          log.warn(`${kind.name}: ${formatIssue(issue)} — kept after a retry.`);
+        return { files, source: 'ai', issues };
       }
-      log.warn(
-        `${kind.name}: provider returned ${files.length === 0 ? 'no file blocks' : 'an incomplete set of files'}${attempt ? '' : ' — retrying'}.`,
-      );
+      lastIssues = issues;
+      const reason =
+        files.length === 0
+          ? 'no file blocks'
+          : blocking.length > 0
+            ? `content the project contradicts (${formatIssue(blocking[0]!)})`
+            : 'an incomplete set of files';
+      log.warn(`${kind.name}: provider returned ${reason}${attempt ? '' : ' — retrying'}.`);
     } catch (err) {
       return { files: [], source: 'ai', error: err instanceof Error ? err.message : String(err) };
     }
@@ -375,11 +403,14 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     files: [],
     propagated: [],
     failed: [],
+    issues: [],
   };
 
-  // Hashes of everything this run writes, recorded in the kit manifest so
-  // `devpilot sync` can later tell user-edited files from untouched ones.
-  const writtenHashes = new Map<string, string>();
+  // Content signature of everything this run writes, recorded in the kit
+  // manifest so `devpilot sync` can later tell user-edited files from
+  // untouched ones — through the project's own formatter, which rewrites the
+  // kit's markdown without changing what it says.
+  const writtenSignatures = new Map<string, string>();
   const refreshable = new Set(opts.refresh ?? []);
 
   // Writes happen as each kind finishes, but the returned records are
@@ -408,7 +439,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
         continue;
       }
       writeFileAtomic(target, f.content);
-      writtenHashes.set(f.file, hashContent(f.content));
+      writtenSignatures.set(f.file, signatureOf(f.content));
       records.push({ kind: kindId, file: f.file, action: 'written', source });
     }
     return records;
@@ -485,25 +516,39 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   interface KindOutcome {
     kind: ArtifactKind;
     files: FileResult[];
+    issues: ArtifactIssue[];
     error?: string;
     generated: number;
     names: string;
   }
 
+  // Files this run will write across every kind: a reference to one of them is
+  // valid even though it is not on disk while the kind that cites it runs.
+  const plannedPaths = kinds.flatMap((k) => k.requiredFiles ?? []);
+
   const outcomes = await inPool(kinds, concurrency, async (kind): Promise<KindOutcome> => {
-    if (result.aborted) return { kind, files: [], error: 'skipped', generated: 0, names: '' };
+    if (result.aborted)
+      return { kind, files: [], issues: [], error: 'skipped', generated: 0, names: '' };
     const single =
       provider && !progress
         ? startSpinner(`Generating ${kind.name.toLowerCase()} — ${kind.description}…`)
         : null;
-    const { files, source, error } = await generateKind(kind, context, provider, apiKey, analysis);
+    const { files, source, error, issues } = await generateKind(
+      kind,
+      context,
+      provider,
+      apiKey,
+      analysis,
+      opts.root,
+      plannedPaths,
+    );
     progress?.update(
       `Generating ${kinds.length} artifact kinds — ${++completed}/${kinds.length} done…`,
     );
     if (error) {
       single?.fail(`${kind.name}: ${error}`);
       if (isQuotaError(error)) result.aborted = error;
-      return { kind, files: [], error, generated: 0, names: '' };
+      return { kind, files: [], issues: [], error, generated: 0, names: '' };
     }
     single?.succeed(
       `${kind.name}: ${files.length} file${files.length === 1 ? '' : 's'} ${pcDimFiles(files)}`,
@@ -511,6 +556,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     return {
       kind,
       files: write(kind.id, files, source, kind.allowedPaths, kind.alwaysOverwrite ?? []),
+      issues: issues ?? [],
       generated: files.length,
       names: pcDimFiles(files),
     };
@@ -533,6 +579,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       );
     }
     result.files.push(...outcome.files);
+    result.issues.push(...outcome.issues);
   }
 
   // Fresh rules should reach every tool's instruction file.
@@ -540,7 +587,10 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     result.propagated = generateRules(opts.root, analysis.name).map((g) => g.file);
     for (const file of result.propagated) {
       try {
-        writtenHashes.set(file, hashContent(fs.readFileSync(path.join(opts.root, file), 'utf8')));
+        writtenSignatures.set(
+          file,
+          signatureOf(fs.readFileSync(path.join(opts.root, file), 'utf8')),
+        );
       } catch {
         // A tool file that could not be read back is simply not tracked.
       }
@@ -553,14 +603,14 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   // the project, and recording the pre-write state would make a brand-new
   // kit read as already drifted. Prior entries survive for files this run
   // skipped; a run that wrote nothing leaves the manifest untouched.
-  if (!opts.dryRun && writtenHashes.size > 0) {
+  if (!opts.dryRun && writtenSignatures.size > 0) {
     const prior = readManifest(opts.root);
     writeManifest(opts.root, {
       devpilot: VERSION,
       generatedAt: new Date().toISOString(),
       provider: result.provider,
       fingerprint: fingerprintOf(analyzeProject(opts.root)),
-      files: { ...(prior?.files ?? {}), ...Object.fromEntries(writtenHashes) },
+      files: { ...(prior?.files ?? {}), ...Object.fromEntries(writtenSignatures) },
     });
   }
   return result;

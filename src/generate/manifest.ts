@@ -33,12 +33,57 @@ export interface KitManifest {
   generatedAt: string;
   provider: string | null;
   fingerprint: KitFingerprint;
-  /** sha256 of each generated file's content at the time it was written. */
+  /**
+   * Per generated file, the content signature recorded when it was written
+   * (`sig1:<sha256>`). Manifests written before signatures existed hold a
+   * bare sha256 of the raw content instead — `fileStates` reads both.
+   */
   files: Record<string, string>;
 }
 
+/** Marks a value as a signature hash rather than a legacy raw-content hash. */
+const SIG_PREFIX = 'sig1:';
+
 export function hashContent(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+/**
+ * Strip the cosmetic degrees of freedom a formatter owns: line endings,
+ * indentation and blank lines, list bullets (`*` vs `-` vs `+`), emphasis
+ * markers (`*text*` vs `_text_`), table pipes and cell padding, and escape
+ * backslashes. What survives is the words the file actually says.
+ */
+const cosmetic = (content: string): string =>
+  content
+    // Leading bullets only — a hyphen inside a sentence is content.
+    .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+    .replace(/[*_\\|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Signature of a generated file, used to tell a real hand edit from a
+ * cosmetic rewrite. Projects run their own formatter over the kit after
+ * `generate` writes it — Prettier alone rewrites emphasis markers, list
+ * bullets, table padding and blank lines. Hashing raw bytes made every kit
+ * file read as hand-edited the first time that happened, which silently froze
+ * `devpilot sync` out of ever refreshing them again.
+ *
+ * The trade-off is deliberate: an edit that changes nothing but formatting is
+ * not preserved by sync. An edit that changes a word is.
+ */
+export function signatureOf(content: string): string {
+  return SIG_PREFIX + hashContent(cosmetic(content));
+}
+
+/** True when `content` still matches what the manifest recorded for it. */
+function matchesRecorded(recorded: string, content: string): boolean {
+  // Legacy manifests recorded a bare hash of the raw content; compare in kind
+  // so an older kit keeps working until its next generate re-records it.
+  return recorded.startsWith(SIG_PREFIX)
+    ? recorded === signatureOf(content)
+    : recorded === hashContent(content);
 }
 
 export function fingerprintOf(a: ProjectAnalysis): KitFingerprint {
@@ -114,7 +159,7 @@ export function fileStates(root: string, manifest: KitManifest): FileStates {
       states.missing.push(file);
       continue;
     }
-    (hashContent(fs.readFileSync(target, 'utf8')) === hash ? states.clean : states.edited).push(
+    (matchesRecorded(hash, fs.readFileSync(target, 'utf8')) ? states.clean : states.edited).push(
       file,
     );
   }

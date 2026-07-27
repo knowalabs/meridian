@@ -5,6 +5,7 @@ import { availableProviders, modelFor, PROVIDERS, setRuntimeModel } from '../pro
 import { loadConfig } from '../core/config.js';
 import { promptChoice } from '../core/prompt.js';
 import { jsonMode, log } from '../core/logger.js';
+import { formatIssue } from '../generate/validate.js';
 
 /**
  * Interactive provider choice: shown when several providers could serve this
@@ -202,6 +203,19 @@ export async function generateCommand(
   for (const f of result.propagated) log.ok(`${f} ${pc.dim('(rules propagated)')}`);
   for (const f of skipped) log.dim(`  kept existing ${f.file} (use --force to overwrite)`);
   for (const f of rejected) log.warn(`rejected unsafe path from provider: ${f.file}`);
+
+  // Claims the project contradicts survived a retry, so they are on disk now.
+  // Reporting them beats silence: an invented script reads as authority to the
+  // next assistant that opens the file.
+  if (result.issues.length) {
+    log.warn(
+      `\n${result.issues.length} claim${result.issues.length === 1 ? '' : 's'} in the generated content ` +
+        `${result.issues.length === 1 ? 'does' : 'do'} not match this project:`,
+    );
+    for (const issue of result.issues.slice(0, 10)) log.warn(`  ${formatIssue(issue)}`);
+    if (result.issues.length > 10) log.dim(`  …and ${result.issues.length - 10} more`);
+    log.dim(`  Fix them in place, or re-run with ${pc.bold('--force')} for a fresh attempt.`);
+  }
 
   if (result.failed.length) {
     if (result.aborted) {

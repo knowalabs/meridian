@@ -8,6 +8,7 @@ import {
   fingerprintOf,
   hashContent,
   readManifest,
+  signatureOf,
 } from '../src/generate/manifest.js';
 import { runGenerate } from '../src/generate/pipeline.js';
 import { syncCommand } from '../src/commands/sync.js';
@@ -60,7 +61,46 @@ describe('kit manifest', () => {
     expect(manifest.files['.devpilot/rules.md']).toBeDefined();
     expect(manifest.files['CLAUDE.md']).toBeDefined();
     const rules = fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8');
-    expect(manifest.files['.devpilot/rules.md']).toBe(hashContent(rules));
+    expect(manifest.files['.devpilot/rules.md']).toBe(signatureOf(rules));
+  });
+
+  it('survives the project formatter rewriting the kit after generation', async () => {
+    await generateKit(root);
+    const file = path.join(root, '.devpilot/rules.md');
+    const original = fs.readFileSync(file, 'utf8');
+    // What Prettier does to generated markdown: emphasis markers, list
+    // bullets, table padding and blank lines — none of it changes the content.
+    fs.writeFileSync(
+      file,
+      original
+        .replace(/^- /gm, '* ')
+        .replace(/\n\n/g, '\n\n\n')
+        .replace(/\*([^*\n]+)\*/g, '_$1_'),
+    );
+    const states = fileStates(root, readManifest(root)!);
+    expect(states.clean).toContain('.devpilot/rules.md');
+    expect(states.edited).not.toContain('.devpilot/rules.md');
+  });
+
+  it('still sees a real edit through the formatter tolerance', async () => {
+    await generateKit(root);
+    const file = path.join(root, '.devpilot/rules.md');
+    fs.appendFileSync(file, '\n- Never touch the vendor directory.\n');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.devpilot/rules.md');
+  });
+
+  it('reads a legacy manifest that recorded raw content hashes', async () => {
+    await generateKit(root);
+    const manifest = readManifest(root)!;
+    const rules = fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8');
+    // Kits generated before signatures existed stored a bare sha256.
+    fs.writeFileSync(
+      path.join(root, '.devpilot/manifest.json'),
+      JSON.stringify({ ...manifest, files: { '.devpilot/rules.md': hashContent(rules) } }),
+    );
+    expect(fileStates(root, readManifest(root)!).clean).toContain('.devpilot/rules.md');
+    fs.appendFileSync(path.join(root, '.devpilot/rules.md'), '\nedited\n');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.devpilot/rules.md');
   });
 
   it('is not written by a dry run', async () => {

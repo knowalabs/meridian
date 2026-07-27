@@ -706,6 +706,61 @@ describe('runGenerate', () => {
     );
   });
 
+  it('retries a response that invents a script, then reports what it kept', async () => {
+    openVault().set('anthropic', 'test-key');
+    let calls = 0;
+    // demo-app has test/lint/build scripts — "typecheck" is invented.
+    const aiText =
+      '<<<FILE .devpilot/rules.md>>>\n## General\n- Run `npm run typecheck`.\n<<<END>>>';
+    setFetchForTests(async () => {
+      calls++;
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const result = await runGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+    });
+    expect(calls).toBe(3); // review pass + first attempt + retry
+    // The second answer is kept — a missing file helps nobody — but the claim
+    // the project contradicts is reported rather than passed off as fact.
+    expect(result.files).toContainEqual(
+      expect.objectContaining({ file: '.devpilot/rules.md', action: 'written' }),
+    );
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]!.message).toContain('no "typecheck" script');
+  });
+
+  it('accepts a response whose commands and paths all check out, without retrying', async () => {
+    openVault().set('anthropic', 'test-key');
+    let calls = 0;
+    const aiText =
+      '<<<FILE .devpilot/rules.md>>>\n## General\n- Run `npm run test` and read `src/index.ts`.\n<<<END>>>';
+    setFetchForTests(async () => {
+      calls++;
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const result = await runGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+    });
+    expect(calls).toBe(2);
+    expect(result.issues).toEqual([]);
+  });
+
   it('writes nothing for a kind whose AI call fails, so a re-run can resume it', async () => {
     openVault().set('anthropic', 'test-key');
     setFetchForTests(async () => new Response('boom', { status: 500 }));
