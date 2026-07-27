@@ -85,8 +85,13 @@ Examples:
   program
     .command('doctor')
     .alias('dr')
-    .description('Detect installed AI tools and missing dependencies')
-    .action(() => done(doctorCommand()));
+    .description('Check tools, providers, key vault and this project’s AI kit')
+    .option('--online', 'also verify each stored API key against its provider (costs no tokens)')
+    .addHelpText(
+      'after',
+      '\nOffline and read-only by default. Always exits 0 — parse --json to gate a script,\nor use "devpilot sync --check", which is built to fail a build.',
+    )
+    .action(async (opts: { online?: boolean }) => done(await doctorCommand(opts)));
 
   program
     .command('install [tool]')

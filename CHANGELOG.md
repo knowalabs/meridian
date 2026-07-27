@@ -1,5 +1,23 @@
 # @sonalsithara/devpilot
 
+## 0.14.0
+
+### Minor Changes
+
+- `devpilot doctor` is now a real health check instead of a tool list.
+
+  It was the first command a new user runs and it only answered one question — which AI tools are installed — while the things that actually block people went unreported. It now covers, in one pass:
+
+  - **Environment** — Node version against the supported minimum, whether the DevPilot home is writable (or can be created), and whether the global config parses.
+  - **AI tools** — as before, with install hints.
+  - **AI providers** — which ones `generate` and `ask` can use _right now_, the model each would run, and which one the router would pick by default. Unconfigured providers are grouped by what they need (a key, a CLI) instead of repeating the same line a dozen times.
+  - **Key vault** — the backend in use, the accounts stored in it, and any entry that cannot be read back (with `devpilot keys repair` as the fix).
+  - **Project kit** — whether this project has a kit, when it was generated and by which version, whether it has drifted from the code, which generated files were deleted, and how many were hand-edited and will therefore be preserved. Kits generated before manifests existed are called out as untrackable.
+
+  Every failing check carries the command that resolves it, and the report ends with a short ordered "next steps" list. Output stays read-only and offline, and the exit code stays 0 — a missing tool is a normal state, not a broken machine; scripts should parse `--json` (the report is a single structured document) or use `devpilot sync --check`, which exists to fail a build.
+
+  New `--online` flag: verify every stored API key against its provider with a free, tokenless request, reporting each as accepted, rejected or unreachable. It is the fastest way to find a key that has expired or been revoked.
+
 ## 0.13.0
 
 ### Minor Changes

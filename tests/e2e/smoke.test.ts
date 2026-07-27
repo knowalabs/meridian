@@ -56,4 +56,28 @@ describe('e2e: doctor', () => {
     expect(doc.tools.length).toBeGreaterThanOrEqual(8);
     expect(doc.tools.map((t) => t.id)).toContain('claude');
   });
+
+  it('reports environment, providers, vault and kit in one document', async () => {
+    const res = await runCli(['doctor', '--json'], sandbox, { cwd: sandbox.project });
+    const doc = JSON.parse(res.stdout) as {
+      devpilot: string;
+      environment: { label: string; level: string }[];
+      providers: { id: string; ready: boolean }[];
+      vault: { backend: string | null };
+      kit: { present: boolean };
+    };
+    expect(doc.devpilot).toMatch(/^\d+\.\d+\.\d+/);
+    expect(doc.environment.map((c) => c.label)).toContain('Node.js');
+    expect(doc.providers.map((p) => p.id)).toContain('anthropic');
+    expect(doc.vault.backend).toBeTruthy();
+    expect(doc.kit.present).toBe(false); // an empty sandbox project has no kit
+  });
+
+  it('prints a human report with next steps and stays exit 0', async () => {
+    const res = await runCli(['doctor'], sandbox, { cwd: sandbox.project });
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('AI providers');
+    expect(res.stdout).toContain('Project kit');
+    expect(res.stdout).toContain('Next steps');
+  });
 });

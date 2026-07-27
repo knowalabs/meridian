@@ -56,9 +56,9 @@ afterEach(() => {
 
 describe('doctor command', () => {
   // Probes every supported tool binary on the real system — slow on Windows CI.
-  it('reports every supported tool and exits 0', { timeout: 30_000 }, () => {
+  it('reports every supported tool and exits 0', { timeout: 30_000 }, async () => {
     configureLogger({ json: true });
-    expect(doctorCommand()).toBe(0);
+    expect(await doctorCommand()).toBe(0);
     const doc = lastJson<{ tools: { id: string }[]; missing: number }>();
     expect(doc.tools.length).toBeGreaterThanOrEqual(8);
     expect(doc.missing).toBeGreaterThanOrEqual(0);

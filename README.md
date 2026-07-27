@@ -25,7 +25,7 @@ Run `devpilot` with no arguments to open the interactive launcher: navigate the 
 
 | Command                                   | What it does                                                                                                                                                                                            |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `devpilot doctor`                         | Detect installed tools (Git, Node, VS Code, Cursor, Claude Code, Codex, Gemini CLI, Docker)                                                                                                             |
+| `devpilot doctor`                         | Health check: environment, installed tools, which AI providers are usable right now, key vault, and whether this project's kit is stale                                                                 |
 | `devpilot install <tool>` \| `all`        | Install and configure supported tools (npm / Homebrew / winget)                                                                                                                                         |
 | `devpilot auth [provider]`                | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter, Groq, DeepSeek, Mistral, xAI)                                                                                              |
 | `devpilot keys list/remove/repair`        | Manage stored keys (always masked, never plaintext)                                                                                                                                                     |
@@ -54,6 +54,16 @@ devpilot ask "explain this repo" --json | jq -r .answer
 cat build-error.log | devpilot ask "what failed here?"
 devpilot ask "review this diff" --model claude-opus-4-8 < <(git diff)
 ```
+
+### Checking your setup
+
+```bash
+devpilot doctor
+```
+
+is the first thing to run on a new machine or when something misbehaves. It reports the environment (Node version, DevPilot home, config), which AI tools are installed, **which providers `generate` and `ask` can actually use right now and which one they would route to**, the key vault backend and its stored accounts, and whether this project's generated kit is missing, stale or hand-edited — each failure paired with the command that fixes it, ending in a short "next steps" list.
+
+It is offline and read-only, and always exits 0: a missing tool is a normal state, not a broken machine. Parse `--json` to gate a script, or use `devpilot sync --check`, which is built to fail a build. Add `--online` to also verify each stored API key against its provider (a free, tokenless request) — the fastest way to find a key that has expired or been revoked.
 
 ### Knowing the cost before you spend it
 

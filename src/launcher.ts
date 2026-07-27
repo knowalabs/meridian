@@ -46,7 +46,7 @@ export function showWelcome(): void {
 ${pc.bold(`DevPilot ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
 
 ${pc.bold('Get started:')}
-${row('devpilot doctor', 'see which AI tools are installed')}
+${row('devpilot doctor', 'check tools, providers, vault and kit health')}
 ${row('devpilot install', 'install tools (interactive picker)')}
 ${row('devpilot auth', 'store an API key in the secure vault')}
 ${row('devpilot generate', 'make your project AI-ready in one shot')}
@@ -73,7 +73,11 @@ interface MenuItem {
 const QUIT = '__quit';
 
 const MENU: MenuItem[] = [
-  { command: 'doctor', label: 'Doctor', description: 'check which AI tools are installed' },
+  {
+    command: 'doctor',
+    label: 'Doctor',
+    description: 'check tools, providers, vault and kit health',
+  },
   { command: 'install', label: 'Install tools', description: 'install & configure AI tools' },
   { command: 'auth', label: 'Add API key', description: 'store a key in the secure vault' },
   { command: 'keys list', label: 'List keys', description: 'show stored API keys (masked)' },
