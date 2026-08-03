@@ -65,12 +65,21 @@ ${rules}
   },
 ];
 
-export const DEFAULT_RULES = `## General
+export const DEFAULT_RULES = `## Working agreement — non-negotiable
+
+- Read .devpilot/rules.md, docs/architecture.md and docs/conventions.md, plus
+  the files you are about to change, before your first edit. Say what you read.
+- Put new code in the module that already owns the concern, in the patterns
+  already there. Get approval before adding a module, dependency or layer.
+- Never rewrite, reorganize or regenerate documentation as a side effect of a
+  code change. Edit only what the change made wrong, and name every doc file
+  you touched in your summary.
+
+## General
 
 - Read .devpilot/context.md and docs/architecture.md before making changes.
 - Keep changes small and focused; follow existing patterns in the codebase.
 - Write or update tests alongside code changes.
-- Update documentation when behavior changes.
 
 ## Code Style
 

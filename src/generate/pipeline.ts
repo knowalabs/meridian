@@ -288,7 +288,12 @@ async function generateKind(
   error?: string;
   issues?: ArtifactIssue[];
 }> {
-  if (!provider) return { files: kind.fallback(analysis), source: 'static' };
+  // A kind's invariants hold for every source: what a provider returned is
+  // finalized exactly like the static template it replaced.
+  const finalize = (files: ArtifactFile[]): ArtifactFile[] =>
+    kind.finalize ? kind.finalize(files, analysis) : files;
+
+  if (!provider) return { files: finalize(kind.fallback(analysis)), source: 'static' };
 
   // A well-formed response meets the kind's own bar, not just "some blocks".
   const isComplete = (files: ArtifactFile[]): boolean => {
@@ -318,7 +323,7 @@ async function generateKind(
           log.warn(`${kind.name}: response incomplete after a retry — keeping what was returned.`);
         for (const issue of blocking)
           log.warn(`${kind.name}: ${formatIssue(issue)} — kept after a retry.`);
-        return { files, source: 'ai', issues };
+        return { files: finalize(files), source: 'ai', issues };
       }
       lastIssues = issues;
       const reason =

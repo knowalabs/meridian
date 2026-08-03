@@ -232,6 +232,131 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('leads the rules with the working agreement, whatever produced them', () => {
+    const root = makeProject();
+    try {
+      const analysis = analyzeProject(root);
+      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      const [statik] = rules.finalize!(rules.fallback(analysis), analysis);
+      expect(statik!.content.startsWith('## Working agreement')).toBe(true);
+      for (const clause of [
+        '1. Read before you write',
+        '2. Follow the architecture',
+        '3. Never touch documentation silently',
+        '4. Improve old code without changing what it does',
+        '5. Report a bug before you fix it',
+      ])
+        expect(statik!.content).toContain(clause);
+
+      // An AI response that omits the section gets it anyway, and keeps its own.
+      const [ai] = rules.finalize!(
+        [{ file: '.devpilot/rules.md', content: '## General\n\n- Ship fast.\n' }],
+        analysis,
+      );
+      expect(ai!.content).toContain('## Working agreement');
+      expect(ai!.content).toContain('- Ship fast.');
+
+      // Idempotent: rerunning over finalized content does not stack sections.
+      expect(rules.finalize!([ai!], analysis)[0]!.content).toBe(ai!.content);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('binds every kind to the read-first, in-architecture, hands-off-docs contract', () => {
+    for (const kind of ARTIFACT_KINDS) {
+      const prompt = kind.prompt('digest');
+      expect(prompt).toContain(
+        'read the kit files and the code it is about to touch BEFORE editing',
+      );
+      expect(prompt).toContain('never edit documentation as a side effect');
+    }
+    // The rules kind gets the section verbatim, so it must not write its own.
+    expect(ARTIFACT_KINDS.find((k) => k.id === 'rules')!.prompt('digest')).toContain(
+      'Do not write that section',
+    );
+  });
+
+  it('treats a weak codebase as the subject, never as the standard', () => {
+    for (const kind of ARTIFACT_KINDS) {
+      const prompt = kind.prompt('digest');
+      expect(prompt).toContain('The codebase is the subject, not the standard');
+      expect(prompt).toContain('legacy to migrate rather than as precedent to copy');
+    }
+    // The rules file gets a section naming what is below the bar and why.
+    expect(ARTIFACT_KINDS.find((k) => k.id === 'rules')!.prompt('digest')).toContain(
+      '## Legacy code',
+    );
+  });
+
+  it('rules fallback tells an assistant how to work in code below the standard', () => {
+    const root = makeProject();
+    try {
+      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      const analysis = analyzeProject(root);
+      const [file] = rules.finalize!(rules.fallback(analysis), analysis);
+      expect(file!.content).toContain('## Legacy code');
+      // New code meets the standard, restructuring is safe, bugs are reported.
+      expect(file!.content).toContain('New code meets the standard in this file');
+      expect(file!.content).toContain('behavior-preserving and test-backed');
+      expect(file!.content).toContain('Report a defect you find in old code before fixing it');
+      expect(file!.content).toContain('npm run test');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('always ships a code-modernizer agent that cannot change behavior or fix silently', () => {
+    const root = makeProject();
+    try {
+      const agents = ARTIFACT_KINDS.find((k) => k.id === 'agents')!;
+      // The AI is held to the same file, not just the static path.
+      expect(agents.requiredFiles).toContain('.claude/agents/code-modernizer.md');
+      expect(agents.prompt('digest')).toContain('.claude/agents/code-modernizer.md');
+
+      const file = agents
+        .fallback(analyzeProject(root))
+        .find((f) => f.file === '.claude/agents/code-modernizer.md');
+      expect(file).toBeDefined();
+      // It may edit, but never runs unattended destructive tooling.
+      expect(file!.content).toContain('  - Edit');
+      expect(file!.content).not.toContain('  - Write');
+      expect(file!.content).toContain('characterization tests');
+      expect(file!.content).toContain(
+        'Fixing a defect you found without reporting it and getting approval first',
+      );
+      expect(file!.content).toContain(
+        'Changing behavior, output, a public interface or an error path',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires a behavior-preserving refactor workflow in every kit', () => {
+    const root = makeProject();
+    try {
+      const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!;
+      expect(skills.requiredFiles).toContain('.claude/skills/refactor/SKILL.md');
+      expect(skills.prompt('digest')).toContain('REQUIRED 4');
+
+      const file = skills
+        .fallback(analyzeProject(root))
+        .find((f) => f.file === '.claude/skills/refactor/SKILL.md');
+      expect(file).toBeDefined();
+      expect(file!.content).toContain('characterization tests first');
+      expect(file!.content).toContain(
+        'Report every defect you find on the way instead of fixing it',
+      );
+      expect(file!.content).toContain(
+        'Fix a bug you found silently while refactoring, or leave it unreported.',
+      );
+      expect(file!.content).toContain('Optimize on a hunch');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('requires the universal skills from AI responses and always includes them statically', () => {
     const skills = ARTIFACT_KINDS.find((k) => k.id === 'skills')!;
     const required = ['commit', 'handle-errors', 'document'].map(
@@ -358,6 +483,24 @@ describe('static fallbacks', () => {
     const prompt = harness.prompt('digest');
     expect(prompt).toContain('.claude/settings.json');
     expect(prompt).toContain('NEVER allowlist anything destructive');
+    expect(prompt).toContain('"permissions.ask"');
+  });
+
+  it('harness fallback asks before documentation is written', () => {
+    const root = makeProject();
+    try {
+      const harness = ARTIFACT_KINDS.find((k) => k.id === 'harness')!;
+      const [settings] = harness.fallback(analyzeProject(root));
+      const parsed = JSON.parse(settings!.content) as {
+        permissions: { allow: string[]; ask: string[] };
+      };
+      for (const rule of ['Edit(docs/**)', 'Write(docs/**)', 'Edit(CLAUDE.md)', 'Edit(README.md)'])
+        expect(parsed.permissions.ask).toContain(rule);
+      // The prompt would be pointless if a write to the same path were allowed.
+      expect(parsed.permissions.allow.join(' ')).not.toMatch(/Edit\(|Write\(/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('keeps the ci kind opt-in and points it at sync --check', () => {
@@ -670,6 +813,44 @@ describe('runGenerate', () => {
     // Slash command uses the real script.
     const testCmd = fs.readFileSync(path.join(root, '.claude/commands/test.md'), 'utf8');
     expect(testCmd).toContain('npm run test');
+    // The working agreement reaches every tool through the rules mirror.
+    expect(fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8')).toContain(
+      '## Working agreement',
+    );
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain(
+      'Never touch documentation silently',
+    );
+  });
+
+  it('adds the working agreement to rules the provider wrote without it', async () => {
+    openVault().set('anthropic', 'test-key');
+    const aiText = [
+      '<<<FILE .devpilot/rules.md>>>',
+      '## General',
+      '',
+      '- Keep changes small.',
+      '<<<END>>>',
+    ].join('\n');
+    setFetchForTests(
+      async () =>
+        new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+
+    const result = await runGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+    });
+    expect(result.files.find((f) => f.file === '.devpilot/rules.md')?.action).toBe('written');
+    const written = fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8');
+    expect(written.startsWith('## Working agreement')).toBe(true);
+    expect(written).toContain('- Keep changes small.');
   });
 
   it('skips existing files unless --force', async () => {

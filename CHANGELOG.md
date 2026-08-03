@@ -1,5 +1,27 @@
 # @sonalsithara/devpilot
 
+## 0.18.0
+
+### Minor Changes
+
+- Every generated kit now opens with a working agreement no provider can water down.
+
+  A kit is only worth what an assistant actually does with it, and three failures kept surviving generation: documentation rewritten as an unannounced side effect of a code change, new code placed wherever the model felt like putting it, and implementation starting before the kit was read at all. The prompts asked for good rules; nothing guaranteed the rules covered these at all, and an AI response that omitted them was accepted as complete.
+
+  `.devpilot/rules.md` now leads with a fixed `## Working agreement` section in five numbered clauses — read before you write, follow the architecture, never touch documentation silently, improve old code without changing what it does, report a bug before you fix it. It is not prompted for: `ArtifactKind` gained a `finalize` pass, run over AI and static output alike, so the section is present whether the file came from a provider or the offline template. It is idempotent, so a re-run never stacks it and anything below it survives. The rules prompt is told the section is appended and must not restate it — its job is to make it enforceable with real paths: which module owns which concern, which files to read before touching each area, which of this project's documentation is generated.
+
+  The obligations reach the rest of the kit too. The shared artifact prompt now requires every generated agent, skill, command and prompt that can change files to read first, stay inside the owning module, and treat a documentation edit as deliberate and named rather than incidental. And the generated `.claude/settings.json` carries the mechanical half: `permissions.ask` rules for writes to `docs/`, `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` and `.devpilot/`, so a documentation change surfaces as a prompt instead of appearing in a diff after the fact.
+
+- Old code is modernized instead of imitated, and a defect is reported before it is fixed.
+
+  Generating a kit into an aging codebase produced the wrong instruction: "match the surrounding code" reads as "keep writing it the way it is already written". A weak codebase became its own standard, and the kit entrenched what it should have been raising.
+
+  The shared prompt now states the rule directly — the codebase is the subject, not the standard. Where the scan shows unvalidated boundaries, swallowed errors, duplicated logic, dead code or inline configuration, the generator must name the target pattern, cite the file that sits below it, and mark the existing code as legacy to migrate rather than precedent to copy. `.devpilot/rules.md` gains a `## Legacy code` section for exactly that, and the working agreement resolves the tension explicitly: consistency means consistency with the standard, not with the defect, and the local habit you chose not to copy gets named in your summary.
+
+  Improving that code is now a first-class workflow with a hard boundary around it. `refactor` becomes a required skill — previously only illustrative, even though the generated `new-feature` and `fix-bug` skills already pointed at it, so an AI kit could ship a dangling reference. It covers pinning current behavior before touching anything (characterization tests first where there is no coverage), one transformation at a time with the verification chain between steps, optimizing only with a measurement or complexity argument you can state, and deleting what the refactor replaced.
+
+  New required subagent `.claude/agents/code-modernizer.md` does the work under those constraints: it asks for a concrete scope when the request is vague, baselines the verification chain before starting, reverts a step that turns it red, and holds the public interface, outputs, side effects and failure modes identical. It gets `Edit` but not `Write`. Its single worst failure mode is stated as such — a defect it finds is reported first with `file:line`, impact and the smallest fix, then fixed only after approval, as its own change with a regression test. Its output template has a dedicated "Defects found (NOT fixed)" section, and both the AI prompt and the static fallback produce it, so an offline kit holds the same bar.
+
 ## 0.17.0
 
 ### Minor Changes

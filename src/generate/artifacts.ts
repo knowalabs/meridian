@@ -39,6 +39,12 @@ export interface ArtifactKind {
   dependsOn?: string[];
   prompt(digest: string, upstream?: ArtifactFile[]): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
+  /**
+   * Last pass over the files a run produced, AI or static alike, for the
+   * invariants a kind must carry no matter what a provider returned. Runs
+   * after validation, so it must only add content the project can back up.
+   */
+  finalize?(files: ArtifactFile[], analysis: ProjectAnalysis): ArtifactFile[];
 }
 
 /** The frontmatter block of a markdown artifact, or null when it has none. */
@@ -247,6 +253,131 @@ function raisingTheBar(a: ProjectAnalysis): string[] {
   return gaps;
 }
 
+/**
+ * The three failure modes a generated kit cannot leave to a provider's
+ * discretion: an assistant that implements before reading the kit, one that
+ * invents its own structure beside the project's, and one that rewrites
+ * documentation as an unannounced side effect. They are the same in every
+ * project, so they are appended verbatim rather than prompted for — the AI
+ * writes the project-specific rules around them.
+ */
+const WORKING_AGREEMENT = `## Working agreement — non-negotiable
+
+These rules outrank speed, convenience and your own judgement about what the
+code "obviously" needs. Breaking one is a defect even when the code works.
+
+### 1. Read before you write
+
+- Before your first edit in a session, read \`.devpilot/rules.md\`,
+  \`docs/architecture.md\` and \`docs/conventions.md\`, plus every file you are
+  about to change and its immediate neighbours. Say which ones you read.
+- Before adding anything, search for an existing implementation of the same
+  concern and extend it. A second way to do something already done here is a
+  defect, not a feature.
+- When a doc and the code disagree, the code is the evidence: follow the code
+  and report the stale doc — do not quietly "fix" either one.
+- Do not start implementing while a requirement is ambiguous. Ask, or state the
+  assumption you are proceeding on before writing code.
+
+### 2. Follow the architecture — do not invent your own
+
+- Put every new file in the module that already owns that concern per
+  \`docs/architecture.md\`. If nothing owns it, say so and get approval before
+  creating a new module or top-level directory.
+- Match the file you are editing: its error handling, naming, imports, logging,
+  state management and test style. Code that reads differently from what
+  surrounds it is wrong even when it passes.
+- Consistency means consistency with the standard, not with the defect. Where
+  the surrounding code is below the bar this kit sets — swallowed errors,
+  unvalidated input, copy-paste, dead code, secrets in source — write the new
+  code to the standard, keep it self-consistent, and name in your summary the
+  local habit you deliberately did not copy and why.
+- Never add a dependency, framework, abstraction layer or configuration format
+  without explicit approval. Use what the project already has.
+- Never re-architect, rename, reformat or "clean up" anything outside the scope
+  you were asked to change. Propose unrelated improvements; do not perform them.
+- If the correct fix requires crossing a boundary described in
+  \`docs/architecture.md\`, stop and get agreement on the boundary change first.
+
+### 3. Never touch documentation silently
+
+- Documentation is a reviewed deliverable, not scratch space. Never rewrite,
+  reorganize, reformat or regenerate \`docs/\`, \`README.md\`, \`CLAUDE.md\`,
+  \`AGENTS.md\`, \`GEMINI.md\` or anything under \`.devpilot/\` as a side effect of
+  a code change.
+- Edit a doc only when the change you were asked for makes it factually wrong,
+  or when you were asked to. Then edit the smallest section that is wrong and
+  leave the surrounding sections untouched.
+- Announce every documentation edit: list each file and what changed in the
+  summary of your work. A doc edit the user discovers afterwards is a defect.
+- \`CLAUDE.md\`, \`AGENTS.md\`, \`GEMINI.md\`, \`.cursor/rules/devpilot.mdc\` and
+  \`.github/copilot-instructions.md\` are generated from \`.devpilot/rules.md\`.
+  Edit \`.devpilot/rules.md\` and re-run \`devpilot generate rules --force\`;
+  a hand-edit to a mirror is overwritten on the next run.
+
+### 4. Improve old code without changing what it does
+
+- A refactor is behavior-preserving by definition: same inputs, same outputs,
+  same side effects, same public interface, same failure behavior. A change
+  that alters any of those is a fix or a feature — separate it and say so.
+- Prove it, do not assert it. Run the tests covering the code before you touch
+  it; where there are none, add characterization tests that pin the CURRENT
+  behavior first, quirks included. Untested legacy code is refactored only
+  after it has a net under it.
+- One kind of transformation at a time — rename, extract, inline, deduplicate,
+  reorder — verifying between steps. Never bundle a rewrite into an unrelated
+  change.
+- Optimize what you can show is slow: a measurement, a complexity argument, a
+  query in a loop you can point at. Speculative optimization that costs
+  readability is a defect, not an improvement.
+- Delete what the refactor replaced. Two live paths for one job is worse than
+  what you started with.
+- Old code is not licence to rewrite the project. Modernize the scope you were
+  given, leave the rest, and list what you would do next instead of doing it.
+
+### 5. Report a bug before you fix it
+
+- When you find a defect the task did not ask you to fix, stop and report it
+  first: \`file:line\`, what breaks, who it affects, how you know, and the
+  smallest correct fix. Then wait for the developer's decision.
+- Never fix it silently inside an unrelated change, and never leave it
+  unmentioned because it was out of scope. Both hide it.
+- If it blocks the task you were given, say so, give the options, and stop
+  rather than inventing a workaround around a known defect.
+- Once approved, fix it as its own change, with a test that fails before the
+  fix and passes after — behavior changes are never bundled into a refactor.
+`;
+
+/**
+ * Permission rules that make the documentation guard mechanical rather than
+ * advisory: with these under `permissions.ask`, a harness cannot write a doc
+ * or instruction file without the user seeing the prompt first.
+ */
+const DOC_WRITE_RULES = [
+  'Edit(docs/**)',
+  'Write(docs/**)',
+  'Edit(README.md)',
+  'Write(README.md)',
+  'Edit(CLAUDE.md)',
+  'Edit(AGENTS.md)',
+  'Edit(GEMINI.md)',
+  'Edit(.devpilot/**)',
+  'Write(.devpilot/**)',
+];
+
+/**
+ * Guarantee the working agreement leads the rules file. Idempotent: a rerun
+ * over content that already carries the section leaves it alone, so a user's
+ * own edits below it survive.
+ */
+export function withWorkingAgreement(files: ArtifactFile[]): ArtifactFile[] {
+  return files.map((f) =>
+    f.file === '.devpilot/rules.md' && !f.content.includes('## Working agreement')
+      ? { ...f, content: `${WORKING_AGREEMENT}\n${f.content.replace(/^\s+/, '')}` }
+      : f,
+  );
+}
+
 function commonPrompt(kindInstructions: string, digest: string): string {
   return `You are DevPilot, a tool that makes codebases AI-assistant-ready.
 First review the project digest below carefully — the layout, the real
@@ -273,6 +404,13 @@ Quality bar:
   stack's own ecosystem — error handling, input validation, security,
   test discipline, dependency hygiene — as concrete rules grounded in the
   code you can see, so every future change is held to that bar.
+- The codebase is the subject, not the standard. Where what you can see falls
+  below this stack's professional practice — no validation at the boundaries,
+  errors swallowed, duplicated logic, dead code, no tests, secrets or
+  configuration inline — do NOT encode it as "the convention here". Name the
+  target pattern, cite the file that is below it, and write the rule as the
+  one an assistant must follow from now on, with existing code marked as
+  legacy to migrate rather than as precedent to copy.
 - Write for where the project is going, not only where it is: use the
   maturity gaps and trajectory from the codebase review so the kit keeps
   the code professional as it grows. When you recommend a practice or tool
@@ -295,6 +433,12 @@ Quality bar:
   several projects. Name the packages, state which one a rule or step applies
   to, and use each package's own commands from its own directory — never a
   single set of root commands that only work for one of them.
+- Every agent, skill, command and prompt you generate that can change files
+  carries the same three obligations, phrased in this project's own terms:
+  read the kit files and the code it is about to touch BEFORE editing; keep
+  the change inside the module that owns the concern and in the patterns
+  already there; and never edit documentation as a side effect — a doc change
+  is deliberate, minimal and named in the report.
 - Any workflow step that is destructive or hard to reverse — committing,
   pushing, tagging, publishing, deleting, migrating — must be gated on
   explicit user approval: the workflow shows exactly what it is about to do
@@ -336,12 +480,31 @@ rules for AI assistants working in this repository. Structure it as:
 ## Testing — which test frameworks/configs exist, where tests live, what a
   change must include, exact commands to run
 ## Verification — the exact ordered commands to run before work is done
+## Legacy code — the parts of this codebase that sit below the standard set
+   above (name the files/modules from your review), the target pattern each
+   should move to, and the rules for working in them: new code meets the
+   standard even when its neighbours do not, restructuring stays
+   behavior-preserving and test-backed, and a defect found in old code is
+   reported to the developer before it is fixed. If nothing is below the
+   standard, say so in one line instead of inventing legacy.
 ## Safety — secrets, destructive operations, files never to touch
 ## Raising the bar — the standards this project should adopt next to reach
    enterprise quality, taken from the maturity gaps and trajectory in your
    codebase review. Each is an imperative with its concrete first step, and
    each is clearly an adoption step — never disguised as something the
    project already has.
+
+A fixed "## Working agreement" section — read the kit before editing, stay
+inside the existing architecture and patterns, never touch documentation
+silently, keep restructuring behavior-preserving, report a bug before fixing
+it — is prepended to your file automatically. Do not write that section
+yourself and do not restate it in general terms. Instead, make it enforceable
+HERE: in "Architecture", name the module that owns each concern and the
+boundary crossings that need approval; in "General", name the files an
+assistant must read before touching each area; in "Legacy code", name the real
+files that sit below the standard; in "Safety", name this project's own
+documentation and generated files by path, so "never edit docs silently"
+points at real paths.
 
 Every rule is an imperative one-liner an AI can follow. Aim for 60–140 lines
 of genuinely project-specific rules.`,
@@ -351,6 +514,7 @@ of genuinely project-specific rules.`,
       const dirs = topLevelDirs(a);
       const checklist = verificationChecklist(a);
       const testScripts = Object.keys(a.scripts).filter((s) => s.startsWith('test'));
+      const testCmd = a.scripts['test'] ? commandFor(a, 'test') : null;
       return [
         {
           file: '.devpilot/rules.md',
@@ -359,7 +523,8 @@ of genuinely project-specific rules.`,
 - Read \`.devpilot/context.md\` and \`docs/architecture.md\` before making changes.
 - Keep changes small and focused; follow existing patterns in the codebase.
 - Write or update tests alongside every behavior change.
-- Update documentation when behavior changes.
+- Update documentation only when the change makes it wrong, and name every doc
+  file you touched in your summary.
 
 ## Architecture
 
@@ -389,6 +554,18 @@ ${
 
 ${checklist.length ? `Run, in order, before considering any work done:\n\n${checklist.map((c, i) => `${i + 1}. \`${c}\``).join('\n')}` : '- Build/verify manually; no scripts detected.'}
 
+## Legacy code
+
+- New code meets the standard in this file even where the code around it does
+  not; keep it self-consistent and say which local habit you did not copy.
+- Restructuring old code is behavior-preserving and test-backed: pin the
+  current behavior first${testCmd ? ` (\`${testCmd}\`)` : ''}, then rename, extract or deduplicate in
+  small steps — use the \`refactor\` skill for the full procedure.
+- Report a defect you find in old code before fixing it: \`file:line\`, what
+  breaks, the smallest fix. Fix it as its own change once approved.
+- Modernize only the scope you were given; list what you would do next instead
+  of widening the change.
+
 ## Safety
 
 - Never commit secrets, API keys or credentials.
@@ -407,16 +584,18 @@ ${
         },
       ];
     },
+    finalize: withWorkingAgreement,
   },
   {
     id: 'agents',
     name: 'Subagents',
     description: 'Claude Code subagents (.claude/agents/)',
     allowedPaths: ['.claude/agents/'],
-    minFiles: 4,
+    minFiles: 5,
+    requiredFiles: ['.claude/agents/code-modernizer.md'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate 4–6 Claude Code subagent files under ".claude/agents/", each a
+        `Generate 5–7 Claude Code subagent files under ".claude/agents/", each a
 specialist for THIS project — for example: a code reviewer whose checklist is
 built from the project's real conventions and bug-prone areas visible in the
 code; a test runner/fixer that knows the exact test commands and layout; a
@@ -424,6 +603,31 @@ specialist for the project's core subsystem (name it in the project's own
 vocabulary); a refactoring guide that knows the module boundaries; a debugger
 that knows this runtime's failure modes. Derive the set from the digest —
 never generate an agent for a concern this project does not have.
+
+ONE agent is required in every project, at the exact path
+".claude/agents/code-modernizer.md": the agent that brings existing code up to
+this project's standard — consistency, duplication, dead code, obvious
+inefficiency — while holding behavior identical. Write it for the code the
+digest actually shows, and give it these properties, which are not optional:
+- It works to an agreed scope (a file, a module, a directory) that it asks for
+  when the request is vague, and it never widens that scope on its own.
+- It pins behavior before changing anything: the project's real test command
+  where one exists, characterization tests first where the target has no
+  coverage, and no refactor of code it cannot verify.
+- It changes structure only — never a public interface, an output, a side
+  effect or a failure mode. Anything that would is escalated, not done.
+- It makes code consistent with the standard in ".devpilot/rules.md" and
+  "docs/conventions.md", not with whatever the neighbouring file happens to do.
+- It optimizes only with evidence it states — a measurement, a complexity
+  argument, a repeated query — never on a hunch.
+- A defect it finds is REPORTED FIRST: file:line, what breaks, impact, the
+  smallest fix, then it waits for the developer's approval before touching it,
+  and fixes it as a separate change with a regression test. Fixing a bug
+  silently inside a refactor is its single worst failure mode.
+- It has Edit (and Write only if extraction genuinely needs new files), runs
+  the verification chain after every step, and reverts rather than pressing on
+  when a step turns the chain red.
+It follows the same body headings as every other agent below.
 
 Each file is YAML frontmatter followed by the agent's system prompt:
 
@@ -862,6 +1066,111 @@ The smallest change, plus the regression test that locks it in.
 - Proposing a fix before the cause is proven
 - Guessing at code you have not read`,
         ),
+        agent(
+          'code-modernizer',
+          `Use this agent to bring existing ${a.name} code up to the project's standard — consistency, duplication, dead code, obvious inefficiency — with behavior held identical and every defect reported before it is fixed.`,
+          'sonnet',
+          [...READ_ONLY, 'Edit'],
+          `You improve code that already works in \`${a.name}\` (${stack(a)}) without
+changing what it does. Age is not an excuse to leave code below the standard,
+and it is not licence to rewrite the project either.
+
+## Scope
+
+Work only on the file, module or directory the user names, inside ${boundaries}.
+If the request is vague ("clean up the code"), ask for a concrete scope before
+touching anything. Never widen the scope because the surrounding code also
+needs work — record it as a follow-up instead. Structure only: the public
+interface, the outputs, the side effects and the failure behavior of this code
+are exactly as they were when you finish.
+
+## Context
+
+${kitContext(['.devpilot/context.md'])}
+
+Then read the target code end to end, and its tests, before proposing anything.
+Where a doc and the code disagree, the code is the evidence: work from the code
+and report the stale doc.
+
+## Method
+
+1. Establish the baseline: run ${chain} and confirm it is green. A refactor that
+   starts from red cannot prove it changed nothing — report and stop.
+2. Inventory the target: dead code, duplicated logic, inconsistent naming and
+   error handling, missing validation at boundaries, and anything below
+   \`.devpilot/rules.md\`. Rank by risk-to-value, not by how easy it is.
+3. Check coverage of what you plan to touch${testCmd ? ` (\`${testCmd}\`)` : ''}. Where there is none, write
+   characterization tests that pin today's behavior — quirks and all — first.
+4. Apply ONE kind of transformation at a time — rename, extract, inline,
+   deduplicate, delete dead code — and re-run the chain between steps. Revert
+   the step rather than pressing on when it turns red.
+5. Bring what you touch up to the project's standard, not to its nearest
+   neighbour. Say which local habit you chose not to copy.
+6. Optimize only with evidence you can state: a measurement, a complexity
+   argument, a repeated query, an allocation in a hot path. No hunches.
+7. Report what you left alone, so the next pass starts where this one stopped.
+
+## Checklist
+
+### Behavior
+
+- The same tests pass, unmodified — none rewritten to match new internals.
+- No public interface, output, side effect or error path changed.
+- Code that had no coverage got characterization tests before it was moved.
+
+### Consistency
+
+- Naming, error handling and validation match \`docs/conventions.md\`.
+- No duplicated logic left with two live paths.
+- Dead code, unreachable branches and unused exports are gone, not commented out.
+
+### Optimization
+
+- Every performance change carries the evidence that motivated it.
+- No readability traded away for a speed-up that was never measured.
+
+## Severity
+
+- **Critical** — a change that alters behavior, or a silent bug fix inside a refactor.
+- **High** — a refactor of untested code with no characterization tests added.
+- **Medium** — inconsistency with the project's standard left in code you touched.
+- **Low** — cosmetic cleanups outside the agreed scope.
+
+## Commands
+
+${['```bash', ...checklist, 'git diff', 'git status'].join('\n')}
+\`\`\`
+
+## Output
+
+\`\`\`text
+## Scope
+What was agreed, and what was excluded.
+
+## Baseline
+The verification chain result before any change.
+
+## Changes
+1. [file:line] Transformation applied — why it is behavior-preserving.
+
+## Defects found (NOT fixed)
+1. [file:line] What breaks, impact, smallest fix — awaiting your decision.
+
+## Evidence
+The measurement or argument behind each optimization.
+
+## Left alone
+What is still below standard here, and what to do about it next.
+\`\`\`
+
+## Forbidden
+
+- Changing behavior, output, a public interface or an error path
+- Fixing a defect you found without reporting it and getting approval first
+- Refactoring code you have not put under test
+- Rewriting tests so a changed implementation passes
+- Widening the agreed scope, or reformatting files you were not asked to touch`,
+        ),
       ];
     },
   },
@@ -875,6 +1184,7 @@ The smallest change, plus the regression test that locks it in.
       '.claude/skills/commit/SKILL.md',
       '.claude/skills/handle-errors/SKILL.md',
       '.claude/skills/document/SKILL.md',
+      '.claude/skills/refactor/SKILL.md',
     ],
     prompt: (digest) =>
       commonPrompt(
@@ -888,7 +1198,7 @@ Skills are the kit's single home for workflows: the slash commands generated
 alongside them delegate to these files rather than restating them, so any
 multi-step procedure this project has belongs here and nowhere else.
 
-Three skills are required in every project, under these exact paths. They
+Four skills are required in every project, under these exact paths. They
 cover universal workflows, but their content must be as project-specific as
 the rest — a generic five-liner is a failure in each case.
 
@@ -932,9 +1242,27 @@ explicit adoption step. Include the check that catches the common failure:
 a behavior change merged with its documentation still describing the old
 behavior.
 
+REQUIRED 4 — ".claude/skills/refactor/SKILL.md": how to raise the quality of
+code that already exists in THIS project without changing what it does. This
+is the workflow for an aging or inconsistent codebase, so write it for the
+state the digest actually shows. Cover, grounded in real files: how to pin
+current behavior before touching anything — the project's own test command
+where it has one, and writing characterization tests first where the target
+code has no coverage; the transformations that are safe here and the order to
+apply them (rename, extract, inline, deduplicate, delete dead code), one at a
+time with the verification chain between steps; how to make code consistent
+with the project's standard rather than with its worst neighbour; how to
+justify an optimization with a measurement or a complexity argument instead
+of a hunch; and the hard rule that a defect discovered along the way is
+REPORTED to the developer — file:line, impact, smallest fix — and fixed only
+after approval, as a separate change with its own regression test. State
+plainly what makes a refactor invalid in this project: a changed public
+interface, a changed output or side effect, a test rewritten to match new
+internals, or two live paths left behind.
+
 Illustrative examples of the other kinds of skills a project might warrant
 (pick, rename, replace or invent as the digest dictates — none are
-required): "new-feature", "fix-bug", "refactor", "feature-info",
+required): "new-feature", "fix-bug", "feature-info",
 "new-utility", "implement-api" for a project with an API layer,
 "new-screen" for a UI app, or fully domain-specific ones — a CLI tool
 might want "new-command", a library "new-public-api", a project with a
@@ -1113,42 +1441,65 @@ the expected behavior and the observed behavior. Ask if any is missing.`,
         ),
         skill(
           'refactor',
-          `Use when restructuring ${a.name} without changing behavior — extracting, renaming, moving or deduplicating code.`,
+          `Use when raising the quality of existing ${a.name} code — making it consistent, removing duplication, optimizing — with behavior held identical.`,
           {
-            title: `Refactoring ${a.name}`,
+            title: `Refactoring ${a.name} without changing behavior`,
             when: `Use this only when observable behavior stays identical. The moment the
 change alters behavior it is a feature or a fix, and belongs in those
-workflows instead.`,
+workflows instead. This is also the workflow for older code that is below the
+standard in \`.devpilot/rules.md\`: bring it up to that standard here, in
+behavior-preserving steps, rather than opportunistically inside a feature.`,
             before: [
               kitContext(),
               '',
               `Confirm the suite is green before touching anything${testCmd ? ` (\`${testCmd}\`)` : ''} — a refactor
 that starts from red cannot prove it changed nothing.`,
+              '',
+              `Agree the scope with the developer first: the files or module in play, and
+what is explicitly out of scope. "Tidy the codebase" is not a scope.`,
             ],
             steps: [
-              `Write down the invariant: what must be observably identical afterwards.`,
+              `Write down the invariant: what must be observably identical afterwards —
+   inputs, outputs, side effects, public interface and failure behavior.`,
               `Confirm the code you are moving is covered by tests. If it is not, add the
-   characterization tests first — that is part of the refactor.`,
-              `Move in small steps — rename, extract, inline — running the tests between
-   steps.`,
+   characterization tests first — pinning what it does TODAY, quirks included.
+   That is part of the refactor, not a prerequisite you may skip.`,
+              `Move in small steps — rename, extract, inline, deduplicate, delete dead
+   code — one kind of transformation at a time, running the tests between steps.`,
+              `Bring what you touch up to the project's standard rather than to its
+   nearest neighbour: the error handling, validation and naming that
+   \`.devpilot/rules.md\` and \`docs/conventions.md\` require.`,
+              `Optimize only what you can justify — a measurement, a complexity
+   argument, a repeated query or an allocation in a hot loop you can point at.
+   Record the justification beside the change; drop the change if you have none.`,
               `Keep the module boundaries intact${dirs.length ? ` (${dirs.map((d) => `\`${d}/\``).join(', ')})` : ''}; a refactor that relocates a
    responsibility across a boundary needs sign-off first.`,
               `Keep the public interface stable unless changing it is the point; when it
    changes, update every caller in the same change.`,
               `Delete the code the refactor replaced — a refactor that leaves both paths
    alive has doubled the maintenance instead of reducing it.`,
+              `Report every defect you find on the way instead of fixing it: \`file:line\`,
+   what breaks, the impact, the smallest fix. Wait for the developer's decision,
+   then fix it as its own change with a regression test.`,
+              `Finish with the list of what you deliberately left alone, so the next pass
+   starts where this one stopped.`,
             ],
             verification: verify,
             done: [
               'Behavior is unchanged: the same tests pass, unmodified.',
+              'Code that had no coverage got characterization tests before it was moved.',
               'No dead or duplicated path is left behind.',
               'The public interface is stable, or every caller was updated.',
+              'Every defect found was reported, and none was fixed without approval.',
               'The full verification chain passes.',
             ],
             never: [
               'Mix a behavior change into a refactor commit.',
+              'Fix a bug you found silently while refactoring, or leave it unreported.',
               'Rewrite tests to match new internals instead of keeping them as the proof.',
               'Refactor code with no test coverage without adding coverage first.',
+              'Optimize on a hunch, or trade readability for a speed-up you cannot show.',
+              'Widen the agreed scope because the surrounding code also needs work.',
             ],
           },
         ),
@@ -2309,6 +2660,12 @@ valid JSON object (no comments, no trailing commas) with:
   are read-only or repo-local. NEVER allowlist anything destructive or
   outward-facing: no push, publish, deploy, tag, rm, sudo, curl, or package
   installs.
+- "permissions.ask": require confirmation before writing documentation and
+  instruction files, so they can never be rewritten as an unannounced side
+  effect of a code change. Include, for the doc paths the digest actually
+  shows: "Edit(docs/**)", "Write(docs/**)", "Edit(README.md)",
+  "Write(README.md)", "Edit(CLAUDE.md)", "Edit(AGENTS.md)",
+  "Edit(GEMINI.md)", "Edit(.devpilot/**)" and "Write(.devpilot/**)".
 - "permissions.deny": deny reads of the secret material this project could
   hold — ".env" files and any credential/key paths the digest shows (e.g.
   "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)").
@@ -2337,6 +2694,10 @@ you must not generate.`,
         $schema: 'https://json.schemastore.org/claude-code-settings.json',
         permissions: {
           allow: [...allow].sort(),
+          // Documentation and instruction files are reviewed deliverables:
+          // confirmation here is what stops them being rewritten as a silent
+          // side effect of a code change.
+          ask: [...DOC_WRITE_RULES],
           deny: ['Read(./.env)', 'Read(./.env.*)', 'Read(./**/*.pem)', 'Read(./**/*.key)'],
         },
       };
