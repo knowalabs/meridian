@@ -8,9 +8,7 @@ import { runInteractive, showWelcome } from './launcher.js';
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 if (nodeMajor < 18) {
-  console.error(
-    `devpilot requires Node.js 18 or newer (you are running ${process.versions.node}).`,
-  );
+  console.error(`knowa requires Node.js 18 or newer (you are running ${process.versions.node}).`);
   process.exit(EXIT.UNAVAILABLE);
 }
 
@@ -31,7 +29,7 @@ process.on('SIGINT', () => {
 
 async function main(): Promise<void> {
   if (process.argv.length <= 2) {
-    // Bare `devpilot`: interactive menu in a terminal, static overview otherwise.
+    // Bare `knowa`: interactive menu in a terminal, static overview otherwise.
     if (process.stdin.isTTY && process.stdout.isTTY) await runInteractive();
     else showWelcome();
     return;

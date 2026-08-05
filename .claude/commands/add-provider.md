@@ -17,7 +17,7 @@ If `$ARGUMENTS` is empty, ask the user for the new provider's id, whether it's a
 2. Implement `ask(prompt, apiKey)`:
    - Hosted API: call the shared `post()` helper for timeout/retry/401/429/404 mapping — do not hand-roll `fetch`.
    - Keyless CLI: shell out via the module's runner (test-seamed by `setRunForTests`), map a not-found spawn to a `CliError` with an install hint.
-3. Every `CliError` this provider throws needs an actionable `hint` (e.g. `Run "devpilot auth <id>" to update it.`).
+3. Every `CliError` this provider throws needs an actionable `hint` (e.g. `Run "knowa auth <id>" to update it.`).
 4. Add tests in `tests/router-network.test.ts` (hosted API, via `setFetchForTests` + fake timers) or alongside the CLI provider tests (via `setRunForTests`), covering success, auth failure, and the not-installed/timeout path.
 5. Update `README.md`'s provider list if this is a new keyless CLI provider.
 

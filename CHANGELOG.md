@@ -1,4 +1,4 @@
-# @sonalsithara/devpilot
+# @sonalsithara/knowa
 
 ## 0.19.0
 

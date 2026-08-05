@@ -26,13 +26,13 @@ describe('provider network behavior', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-router-net-'));
-    process.env.DEVPILOT_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-router-net-'));
+    process.env.KNOWA_HOME = tmp;
   });
 
   afterEach(() => {
     setFetchForTests(null);
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
     vi.useRealTimers();
   });
@@ -44,12 +44,12 @@ describe('provider network behavior', () => {
     await expect(anthropic.ask('hi', 'key')).resolves.toBe('hello there');
   });
 
-  it('maps 401 to a CliError hinting at devpilot auth', async () => {
+  it('maps 401 to a CliError hinting at knowa auth', async () => {
     setFetchForTests(async () => jsonResponse(401, { error: 'bad key' }));
     const err = await anthropic.ask('hi', 'bad').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).message).toContain('authentication failed');
-    expect((err as CliError).hint).toContain('devpilot auth anthropic');
+    expect((err as CliError).hint).toContain('knowa auth anthropic');
   });
 
   it('retries on 429, then succeeds', async () => {
@@ -205,12 +205,12 @@ describe('claude-code CLI provider', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cc-'));
-    process.env.DEVPILOT_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-cc-'));
+    process.env.KNOWA_HOME = tmp;
   });
   afterEach(() => {
     setRunForTests(null);
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -266,12 +266,12 @@ describe('codex-cli and gemini-cli providers', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cli-prov-'));
-    process.env.DEVPILOT_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-cli-prov-'));
+    process.env.KNOWA_HOME = tmp;
   });
   afterEach(() => {
     setRunForTests(null);
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

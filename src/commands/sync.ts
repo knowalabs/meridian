@@ -12,9 +12,9 @@ import {
 import { jsonMode, log } from '../core/logger.js';
 
 /**
- * `devpilot sync` — keep the generated AI kit alive after `generate`:
+ * `knowa sync` — keep the generated AI kit alive after `generate`:
  * detect when the codebase has drifted from the kit recorded in
- * .devpilot/manifest.json, then refresh only what is safe to refresh —
+ * .knowa/manifest.json, then refresh only what is safe to refresh —
  * hand-edited files are always preserved. `--check` reports and sets the
  * exit code without writing, which is what CI runs.
  */
@@ -48,7 +48,7 @@ export async function syncCommand(
   const manifest = readManifest(cwd);
   if (!manifest) {
     log.fail(
-      `No kit manifest found (${MANIFEST_FILE}). Run ${pc.bold('devpilot generate')} first — ` +
+      `No kit manifest found (${MANIFEST_FILE}). Run ${pc.bold('knowa generate')} first — ` +
         `generate records what it wrote so sync can keep it fresh.`,
     );
     return 1;
@@ -73,7 +73,7 @@ export async function syncCommand(
       `Kit is in sync with the codebase (${Object.keys(manifest.files).length} tracked files` +
         `${states.edited.length ? `, ${states.edited.length} hand-edited` : ''}).`,
     );
-    log.dim(`  last generated ${manifest.generatedAt} by devpilot ${manifest.devpilot}`);
+    log.dim(`  last generated ${manifest.generatedAt} by knowa ${manifest.knowa}`);
     return 0;
   }
 
@@ -81,7 +81,7 @@ export async function syncCommand(
     log.warn(
       `Kit is stale: ${drift.length} drift signal${drift.length === 1 ? '' : 's'}, ` +
         `${states.missing.length} missing file${states.missing.length === 1 ? '' : 's'}. ` +
-        `Run ${pc.bold('devpilot sync')} to refresh.`,
+        `Run ${pc.bold('knowa sync')} to refresh.`,
     );
     return 1;
   }
@@ -92,12 +92,12 @@ export async function syncCommand(
   if (opts.ai !== false && !pickProvider(opts.provider)) {
     if (opts.provider) {
       log.fail(
-        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`devpilot auth ${opts.provider}`)}.`,
+        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`knowa auth ${opts.provider}`)}.`,
       );
     } else {
       log.fail(
-        'devpilot sync refreshes your kit with AI, but no AI provider is configured. ' +
-          `Sign in to an AI CLI, run ${pc.bold('devpilot auth <provider>')}, or use ${pc.bold('devpilot sync --no-ai')} for static templates.`,
+        'knowa sync refreshes your kit with AI, but no AI provider is configured. ' +
+          `Sign in to an AI CLI, run ${pc.bold('knowa auth <provider>')}, or use ${pc.bold('knowa sync --no-ai')} for static templates.`,
       );
     }
     return 1;
@@ -132,7 +132,7 @@ export async function syncCommand(
       log.warn(`Stopped early — the provider hit a limit: ${result.aborted.slice(0, 200)}`);
     }
     log.warn(
-      `Not refreshed yet: ${result.failed.join(', ')}. Re-run ${pc.bold('devpilot sync')} later.`,
+      `Not refreshed yet: ${result.failed.join(', ')}. Re-run ${pc.bold('knowa sync')} later.`,
     );
     return 1;
   }

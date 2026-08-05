@@ -30,7 +30,7 @@ import { generateCommand } from '../src/commands/generate.js';
 import { configureLogger } from '../src/core/logger.js';
 
 function makeProject(extra: Record<string, string> = {}): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-gen-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-gen-'));
   fs.writeFileSync(
     path.join(root, 'package.json'),
     JSON.stringify({
@@ -72,10 +72,10 @@ describe('parseFileBlocks', () => {
 });
 
 describe('isAllowedPath', () => {
-  const allowed = ['.claude/agents/', '.devpilot/rules.md'];
+  const allowed = ['.claude/agents/', '.knowa/rules.md'];
   it('accepts files under an allowed prefix and exact matches', () => {
     expect(isAllowedPath('.claude/agents/reviewer.md', allowed)).toBe(true);
-    expect(isAllowedPath('.devpilot/rules.md', allowed)).toBe(true);
+    expect(isAllowedPath('.knowa/rules.md', allowed)).toBe(true);
   });
   it('rejects escapes, absolute paths and unrelated locations', () => {
     expect(isAllowedPath('../evil.md', allowed)).toBe(false);
@@ -83,7 +83,7 @@ describe('isAllowedPath', () => {
     expect(isAllowedPath('/etc/passwd', allowed)).toBe(false);
     expect(isAllowedPath('C:\\windows\\evil', allowed)).toBe(false);
     expect(isAllowedPath('src/index.ts', allowed)).toBe(false);
-    expect(isAllowedPath('.devpilot/rules.md.evil', allowed)).toBe(false);
+    expect(isAllowedPath('.knowa/rules.md.evil', allowed)).toBe(false);
   });
   it('confines the docs suite to docs/', () => {
     expect(isAllowedPath('docs/architecture.md', ['docs/'])).toBe(true);
@@ -158,7 +158,7 @@ describe('buildDigest', () => {
   });
 
   it('samples sources from non-JS languages like C++', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-cpp-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-cpp-'));
     try {
       fs.writeFileSync(path.join(root, 'CMakeLists.txt'), 'project(demo)\n');
       fs.mkdirSync(path.join(root, 'src'));
@@ -246,7 +246,7 @@ describe('static fallbacks', () => {
   });
 
   it('rules fallback lists adoption steps for tooling the project lacks', () => {
-    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-bare-'));
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-bare-'));
     try {
       // No scripts, lint, formatter or CI → every gap is reported.
       const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
@@ -299,7 +299,7 @@ describe('static fallbacks', () => {
 
       // An AI response that omits the section gets it anyway, and keeps its own.
       const [ai] = rules.finalize!(
-        [{ file: '.devpilot/rules.md', content: '## General\n\n- Ship fast.\n' }],
+        [{ file: '.knowa/rules.md', content: '## General\n\n- Ship fast.\n' }],
         analysis,
       );
       expect(ai!.content).toContain('## Working agreement');
@@ -560,8 +560,8 @@ describe('static fallbacks', () => {
     const root = makeProject();
     try {
       const [workflow] = ci.fallback(analyzeProject(root));
-      expect(workflow!.file).toBe('.github/workflows/devpilot-sync.yml');
-      expect(workflow!.content).toContain('devpilot sync --check');
+      expect(workflow!.file).toBe('.github/workflows/knowa-sync.yml');
+      expect(workflow!.content).toContain('knowa sync --check');
       expect(workflow!.content).not.toMatch(/secrets\./);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -627,7 +627,7 @@ describe('static fallbacks', () => {
         // "Done when" is a checkable list, not prose.
         expect(file.content).toContain('- [ ] ');
         // Preconditions point at the kit rather than restating it.
-        expect(file.content).toContain('@.devpilot/rules.md');
+        expect(file.content).toContain('@.knowa/rules.md');
       }
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -719,7 +719,7 @@ describe('static fallbacks', () => {
         content:
           '---\nname: ship-widget\ndescription: Use when shipping a widget.\n---\n\n# Ship\n',
       },
-      { file: '.devpilot/rules.md', content: '## General\n\n- Widgets ship on Fridays.\n' },
+      { file: '.knowa/rules.md', content: '## General\n\n- Widgets ship on Fridays.\n' },
     ];
     const prompt = commands.prompt('digest', upstream);
     expect(prompt).toContain('ship-widget — Use when shipping a widget.');
@@ -778,7 +778,7 @@ describe('static fallbacks', () => {
   });
 
   it('states the standards bar and marks unmet ones as adoption steps', () => {
-    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-bare-docs-'));
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-bare-docs-'));
     try {
       const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!.fallback(analyzeProject(bare));
       const standards = docs.find((f) => f.file === 'docs/engineering-standards.md')!.content;
@@ -794,12 +794,12 @@ describe('static fallbacks', () => {
     for (const kind of ARTIFACT_KINDS) {
       const prompt = kind.prompt('digest');
       expect(prompt, kind.id).toContain('Ground every non-obvious claim in evidence');
-      expect(prompt, kind.id).toContain('.devpilot/rules.md');
+      expect(prompt, kind.id).toContain('.knowa/rules.md');
     }
   });
 
   it('uses the ecosystem commands for a non-npm project', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-go-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-go-'));
     try {
       fs.writeFileSync(path.join(root, 'go.mod'), 'module demo\n\ngo 1.22\n');
       fs.writeFileSync(path.join(root, 'main.go'), 'package main\n\nfunc main() {}\n');
@@ -823,9 +823,9 @@ describe('runGenerate', () => {
 
   beforeEach(() => {
     root = makeProject();
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
     // Retry backoff is exercised in router-network.test.ts; here it would
     // only add real seconds of sleep to every failure path.
     setRetryDelayForTests(0);
@@ -833,8 +833,8 @@ describe('runGenerate', () => {
   afterEach(() => {
     setFetchForTests(null);
     setRetryDelayForTests(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -849,7 +849,7 @@ describe('runGenerate', () => {
     });
     expect(result.provider).toBeNull();
     const written = result.files.filter((f) => f.action === 'written').map((f) => f.file);
-    expect(written).toContain('.devpilot/rules.md');
+    expect(written).toContain('.knowa/rules.md');
     expect(written).toContain('.claude/agents/code-reviewer.md');
     expect(written).toContain('.claude/commands/test.md');
     expect(written).toContain('.claude/skills/new-feature/SKILL.md');
@@ -860,7 +860,7 @@ describe('runGenerate', () => {
     expect(written).not.toContain('.claude/skills/new-screen/SKILL.md');
     // Harness config is part of the default kit; the CI workflow is opt-in.
     expect(written).toContain('.claude/settings.json');
-    expect(written).not.toContain('.github/workflows/devpilot-sync.yml');
+    expect(written).not.toContain('.github/workflows/knowa-sync.yml');
     // Rules were propagated to every tool's instruction file.
     expect(result.propagated).toContain('CLAUDE.md');
     expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(true);
@@ -868,7 +868,7 @@ describe('runGenerate', () => {
     const testCmd = fs.readFileSync(path.join(root, '.claude/commands/test.md'), 'utf8');
     expect(testCmd).toContain('npm run test');
     // The working agreement reaches every tool through the rules mirror.
-    expect(fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8')).toContain(
+    expect(fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8')).toContain(
       '## Working agreement',
     );
     expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain(
@@ -879,7 +879,7 @@ describe('runGenerate', () => {
   it('adds the working agreement to rules the provider wrote without it', async () => {
     openVault().set('anthropic', 'test-key');
     const aiText = [
-      '<<<FILE .devpilot/rules.md>>>',
+      '<<<FILE .knowa/rules.md>>>',
       '## General',
       '',
       '- Keep changes small.',
@@ -901,15 +901,15 @@ describe('runGenerate', () => {
       dryRun: false,
       noAi: false,
     });
-    expect(result.files.find((f) => f.file === '.devpilot/rules.md')?.action).toBe('written');
-    const written = fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8');
+    expect(result.files.find((f) => f.file === '.knowa/rules.md')?.action).toBe('written');
+    const written = fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8');
     expect(written.startsWith('## Working agreement')).toBe(true);
     expect(written).toContain('- Keep changes small.');
   });
 
   it('skips existing files unless --force', async () => {
-    fs.mkdirSync(path.join(root, '.devpilot'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.devpilot/rules.md'), 'MINE');
+    fs.mkdirSync(path.join(root, '.knowa'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.knowa/rules.md'), 'MINE');
     const result = await runGenerate({
       root,
       kinds: ['rules'],
@@ -917,9 +917,9 @@ describe('runGenerate', () => {
       dryRun: false,
       noAi: true,
     });
-    const rules = result.files.find((f) => f.file === '.devpilot/rules.md');
+    const rules = result.files.find((f) => f.file === '.knowa/rules.md');
     expect(rules?.action).toBe('skipped-exists');
-    expect(fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8')).toBe('MINE');
+    expect(fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8')).toBe('MINE');
     expect(result.propagated).toEqual([]);
 
     const forced = await runGenerate({
@@ -929,9 +929,9 @@ describe('runGenerate', () => {
       dryRun: false,
       noAi: true,
     });
-    const forcedRules = forced.files.find((f) => f.file === '.devpilot/rules.md');
+    const forcedRules = forced.files.find((f) => f.file === '.knowa/rules.md');
     expect(forcedRules?.action).toBe('written');
-    expect(fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8')).not.toBe('MINE');
+    expect(fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8')).not.toBe('MINE');
   });
 
   it('dry run plans without writing', async () => {
@@ -981,7 +981,7 @@ describe('runGenerate', () => {
     expect(byFile['.claude/agents/api-reviewer.md']).toBe('written');
     expect(byFile['../../outside.md']).toBe('rejected-path');
     // The AI reading pass saved its codebase review.
-    expect(byFile['.devpilot/docs/codebase-review.md']).toBe('written');
+    expect(byFile['.knowa/docs/codebase-review.md']).toBe('written');
     expect(fs.existsSync(path.join(root, '.claude/agents/api-reviewer.md'))).toBe(true);
     expect(fs.existsSync(path.join(path.dirname(root), 'outside.md'))).toBe(false);
   });
@@ -992,7 +992,7 @@ describe('runGenerate', () => {
       async () =>
         new Response(
           JSON.stringify({
-            content: [{ type: 'text', text: '<<<FILE .devpilot/prompts/x.md>>>\nhi\n<<<END>>>' }],
+            content: [{ type: 'text', text: '<<<FILE .knowa/prompts/x.md>>>\nhi\n<<<END>>>' }],
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         ),
@@ -1006,14 +1006,14 @@ describe('runGenerate', () => {
     });
     expect(result.provider).toBe('anthropic');
     expect(result.files).toContainEqual(
-      expect.objectContaining({ file: '.devpilot/prompts/x.md', action: 'written' }),
+      expect.objectContaining({ file: '.knowa/prompts/x.md', action: 'written' }),
     );
   });
 
   it('accepts a complete response without retrying', async () => {
     openVault().set('anthropic', 'test-key');
     let calls = 0;
-    const aiText = '<<<FILE .devpilot/rules.md>>>\n## General\n- Be good.\n<<<END>>>';
+    const aiText = '<<<FILE .knowa/rules.md>>>\n## General\n- Be good.\n<<<END>>>';
     setFetchForTests(async () => {
       calls++;
       return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
@@ -1031,7 +1031,7 @@ describe('runGenerate', () => {
     });
     expect(calls).toBe(2); // review pass + one generation call
     expect(result.files).toContainEqual(
-      expect.objectContaining({ file: '.devpilot/rules.md', action: 'written' }),
+      expect.objectContaining({ file: '.knowa/rules.md', action: 'written' }),
     );
   });
 
@@ -1039,7 +1039,7 @@ describe('runGenerate', () => {
     openVault().set('anthropic', 'test-key');
     let calls = 0;
     // The prompts kind expects at least 3 files — one is incomplete.
-    const aiText = '<<<FILE .devpilot/prompts/only-one.md>>>\nhi\n<<<END>>>';
+    const aiText = '<<<FILE .knowa/prompts/only-one.md>>>\nhi\n<<<END>>>';
     setFetchForTests(async () => {
       calls++;
       return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
@@ -1058,7 +1058,7 @@ describe('runGenerate', () => {
     expect(calls).toBe(3); // review pass + first attempt + retry
     expect(result.failed).toEqual([]);
     expect(result.files).toContainEqual(
-      expect.objectContaining({ file: '.devpilot/prompts/only-one.md', action: 'written' }),
+      expect.objectContaining({ file: '.knowa/prompts/only-one.md', action: 'written' }),
     );
   });
 
@@ -1066,8 +1066,7 @@ describe('runGenerate', () => {
     openVault().set('anthropic', 'test-key');
     let calls = 0;
     // demo-app has test/lint/build scripts — "typecheck" is invented.
-    const aiText =
-      '<<<FILE .devpilot/rules.md>>>\n## General\n- Run `npm run typecheck`.\n<<<END>>>';
+    const aiText = '<<<FILE .knowa/rules.md>>>\n## General\n- Run `npm run typecheck`.\n<<<END>>>';
     setFetchForTests(async () => {
       calls++;
       return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
@@ -1087,7 +1086,7 @@ describe('runGenerate', () => {
     // The second answer is kept — a missing file helps nobody — but the claim
     // the project contradicts is reported rather than passed off as fact.
     expect(result.files).toContainEqual(
-      expect.objectContaining({ file: '.devpilot/rules.md', action: 'written' }),
+      expect.objectContaining({ file: '.knowa/rules.md', action: 'written' }),
     );
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0]!.message).toContain('no "typecheck" script');
@@ -1097,7 +1096,7 @@ describe('runGenerate', () => {
     openVault().set('anthropic', 'test-key');
     let calls = 0;
     const aiText =
-      '<<<FILE .devpilot/rules.md>>>\n## General\n- Run `npm run test` and read `src/index.ts`.\n<<<END>>>';
+      '<<<FILE .knowa/rules.md>>>\n## General\n- Run `npm run test` and read `src/index.ts`.\n<<<END>>>';
     setFetchForTests(async () => {
       calls++;
       return new Response(JSON.stringify({ content: [{ type: 'text', text: aiText }] }), {
@@ -1162,17 +1161,17 @@ describe('generateCommand', () => {
 
   beforeEach(() => {
     root = makeProject();
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
     configureLogger({ level: 'normal', json: false });
     vi.restoreAllMocks();
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -1190,7 +1189,7 @@ describe('generateCommand', () => {
     process.env.PATH = ''; // hide any local ollama binary
     try {
       expect(await generateCommand([], {}, root)).toBe(1);
-      expect(fs.existsSync(path.join(root, '.devpilot'))).toBe(false);
+      expect(fs.existsSync(path.join(root, '.knowa'))).toBe(false);
       expect(await generateCommand([], { ai: false }, root)).toBe(0);
     } finally {
       process.env.PATH = oldPath;
@@ -1308,13 +1307,13 @@ const isReviewPrompt = (text: string): boolean => text.includes('deep codebase r
  */
 const filesFor = (prompt: string): string => {
   const block = (file: string, body: string): string => `<<<FILE ${file}>>>\n${body}\n<<<END>>>`;
-  if (prompt.includes('.devpilot/prompts/')) {
-    return [1, 2, 3].map((n) => block(`.devpilot/prompts/p${n}.md`, `# Prompt ${n}`)).join('\n');
+  if (prompt.includes('.knowa/prompts/')) {
+    return [1, 2, 3].map((n) => block(`.knowa/prompts/p${n}.md`, `# Prompt ${n}`)).join('\n');
   }
   if (prompt.includes('.claude/settings.json')) {
     return block('.claude/settings.json', '{ "permissions": { "allow": [] } }');
   }
-  return block('.devpilot/rules.md', '## General\n\n- Be good.');
+  return block('.knowa/rules.md', '## General\n\n- Be good.');
 };
 
 describe('parallel kind generation', () => {
@@ -1323,17 +1322,17 @@ describe('parallel kind generation', () => {
 
   beforeEach(() => {
     root = makeProject();
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-par-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-par-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
     setRetryDelayForTests(0);
     openVault().set('anthropic', 'test-key');
   });
   afterEach(() => {
     setFetchForTests(null);
     setRetryDelayForTests(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -1347,7 +1346,7 @@ describe('parallel kind generation', () => {
       inFlight++;
       peak = Math.max(peak, inFlight);
       // Prompts answers last, so reporting order cannot be completion order.
-      await new Promise((r) => setTimeout(r, text.includes('.devpilot/prompts/') ? 30 : 5));
+      await new Promise((r) => setTimeout(r, text.includes('.knowa/prompts/') ? 30 : 5));
       inFlight--;
       return aiResponse(filesFor(text));
     });
@@ -1378,7 +1377,7 @@ describe('parallel kind generation', () => {
       const text = promptOf(init);
       if (isReviewPrompt(text)) return aiResponse('# Review');
       // Rules answers last, so propagation cannot depend on call order.
-      if (text.includes('.devpilot/rules.md')) await new Promise((r) => setTimeout(r, 20));
+      if (text.includes('.knowa/rules.md')) await new Promise((r) => setTimeout(r, 20));
       return aiResponse(filesFor(text));
     });
     const result = await runGenerate({
@@ -1402,17 +1401,17 @@ describe('codebase review cache', () => {
 
   beforeEach(() => {
     root = makeProject();
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-cache-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-cache-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
     setRetryDelayForTests(0);
     openVault().set('anthropic', 'test-key');
   });
   afterEach(() => {
     setFetchForTests(null);
     setRetryDelayForTests(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -1451,7 +1450,7 @@ describe('codebase review cache', () => {
     expect(settled.reviewFromCache).toBe(true);
     expect(reviewCalls()).toBe(2);
     // The cached review still lands in the kit.
-    expect(fs.existsSync(path.join(root, '.devpilot/docs/codebase-review.md'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.knowa/docs/codebase-review.md'))).toBe(true);
   });
 
   it('re-reads the codebase when --no-cache is passed', async () => {
@@ -1479,7 +1478,7 @@ describe('codebase review cache', () => {
     stubProvider();
     await run();
     expect(fs.existsSync(path.join(home, 'cache', 'reviews'))).toBe(true);
-    expect(fs.existsSync(path.join(root, '.devpilot', 'cache'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.knowa', 'cache'))).toBe(false);
   });
 });
 
@@ -1489,14 +1488,14 @@ describe('estimateGenerate', () => {
 
   beforeEach(() => {
     root = makeProject();
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-est-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-est-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
   });
   afterEach(() => {
     setFetchForTests(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -1559,17 +1558,17 @@ describe('file requests during the codebase review', () => {
     root = makeProject({
       'design-notes.md': '# Notes\n\nThe scheduler is deliberately single-threaded.\n',
     });
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-req-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-req-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
     setRetryDelayForTests(0);
     openVault().set('anthropic', 'test-key');
   });
   afterEach(() => {
     setFetchForTests(null);
     setRetryDelayForTests(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -1604,7 +1603,7 @@ describe('file requests during the codebase review', () => {
     expect(reviewPrompts[0]).toContain('<<<REQUEST>>>');
     expect(reviewPrompts[1]).toContain('deliberately single-threaded');
     // The review it finally wrote is what lands in the kit, protocol stripped.
-    const review = fs.readFileSync(path.join(root, '.devpilot/docs/codebase-review.md'), 'utf8');
+    const review = fs.readFileSync(path.join(root, '.knowa/docs/codebase-review.md'), 'utf8');
     expect(review).toContain('It is explained in design-notes.md.');
     expect(review).not.toContain('<<<REQUEST>>>');
   });
@@ -1653,7 +1652,7 @@ describe('file requests during the codebase review', () => {
       const text = promptOf(init);
       if (!isReviewPrompt(text)) return aiResponse(filesFor(text));
       reviewCalls++;
-      // What a review of DevPilot itself looks like: it describes the request
+      // What a review of Knowa itself looks like: it describes the request
       // protocol because the project's own source implements it.
       return aiResponse(
         '# Review\n\n## Gotchas\n\nThe reviewer may ask for files:\n\n' +
@@ -1673,7 +1672,7 @@ describe('file requests during the codebase review', () => {
 
     expect(reviewCalls).toBe(1);
     expect(result.requestedFiles).toEqual([]);
-    const review = fs.readFileSync(path.join(root, '.devpilot/docs/codebase-review.md'), 'utf8');
+    const review = fs.readFileSync(path.join(root, '.knowa/docs/codebase-review.md'), 'utf8');
     expect(review).toContain('## Gotchas');
   });
 
@@ -1774,17 +1773,17 @@ describe('grounded retry, end to end', () => {
 
   beforeEach(() => {
     root = makeProject();
-    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-retry-'));
-    process.env.DEVPILOT_HOME = home;
-    process.env.DEVPILOT_VAULT = 'file';
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-home-retry-'));
+    process.env.KNOWA_HOME = home;
+    process.env.KNOWA_VAULT = 'file';
     setRetryDelayForTests(0);
     openVault().set('anthropic', 'test-key');
   });
   afterEach(() => {
     setFetchForTests(null);
     setRetryDelayForTests(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -1792,9 +1791,9 @@ describe('grounded retry, end to end', () => {
   it('retries with what the first answer got wrong, and keeps the fix', async () => {
     const kindPrompts: string[] = [];
     const block = (body: string): string =>
-      `<<<FILE .devpilot/prompts/p1.md>>>\n${body}\n<<<END>>>\n` +
-      `<<<FILE .devpilot/prompts/p2.md>>>\n# Two\n<<<END>>>\n` +
-      `<<<FILE .devpilot/prompts/p3.md>>>\n# Three\n<<<END>>>`;
+      `<<<FILE .knowa/prompts/p1.md>>>\n${body}\n<<<END>>>\n` +
+      `<<<FILE .knowa/prompts/p2.md>>>\n# Two\n<<<END>>>\n` +
+      `<<<FILE .knowa/prompts/p3.md>>>\n# Three\n<<<END>>>`;
     setFetchForTests(async (_url, init) => {
       const text = promptOf(init);
       if (isReviewPrompt(text)) return aiResponse('# Review');
@@ -1822,7 +1821,7 @@ describe('grounded retry, end to end', () => {
     expect(kindPrompts[1]).toContain('PREVIOUS ATTEMPT WAS REJECTED');
     // The repaired answer is what lands, and it no longer carries the claim.
     expect(result.issues).toEqual([]);
-    const written = fs.readFileSync(path.join(root, '.devpilot/prompts/p1.md'), 'utf8');
+    const written = fs.readFileSync(path.join(root, '.knowa/prompts/p1.md'), 'utf8');
     expect(written).toContain('npm run test');
   });
 });

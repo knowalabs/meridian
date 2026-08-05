@@ -2,7 +2,7 @@ import path from 'node:path';
 import { ProjectAnalysis, renderArchitectureMarkdown } from '../scan/analyzer.js';
 
 /**
- * Artifact kinds for `devpilot generate`: everything a developer would
+ * Artifact kinds for `knowa generate`: everything a developer would
  * otherwise hand-write to make a project AI-ready — rules, subagents, skills,
  * slash commands, reusable prompts and docs. Each kind knows how to prompt an
  * AI provider for project-tailored content and how to fall back to a rich
@@ -215,7 +215,7 @@ const inspectionCommands = (a: ProjectAnalysis): string[] =>
 
 /** The kit files every generated project has, as `@`-references for an agent. */
 const kitContext = (extra: string[] = []): string =>
-  ['.devpilot/rules.md', 'docs/architecture.md', 'docs/conventions.md', ...extra]
+  ['.knowa/rules.md', 'docs/architecture.md', 'docs/conventions.md', ...extra]
     .map((f) => `@${f}`)
     .join('\n');
 
@@ -268,7 +268,7 @@ code "obviously" needs. Breaking one is a defect even when the code works.
 
 ### 1. Read before you write
 
-- Before your first edit in a session, read \`.devpilot/rules.md\`,
+- Before your first edit in a session, read \`.knowa/rules.md\`,
   \`docs/architecture.md\` and \`docs/conventions.md\`, plus every file you are
   about to change and its immediate neighbours. Say which ones you read.
 - Before adding anything, search for an existing implementation of the same
@@ -303,16 +303,16 @@ code "obviously" needs. Breaking one is a defect even when the code works.
 
 - Documentation is a reviewed deliverable, not scratch space. Never rewrite,
   reorganize, reformat or regenerate \`docs/\`, \`README.md\`, \`CLAUDE.md\`,
-  \`AGENTS.md\`, \`GEMINI.md\` or anything under \`.devpilot/\` as a side effect of
+  \`AGENTS.md\`, \`GEMINI.md\` or anything under \`.knowa/\` as a side effect of
   a code change.
 - Edit a doc only when the change you were asked for makes it factually wrong,
   or when you were asked to. Then edit the smallest section that is wrong and
   leave the surrounding sections untouched.
 - Announce every documentation edit: list each file and what changed in the
   summary of your work. A doc edit the user discovers afterwards is a defect.
-- \`CLAUDE.md\`, \`AGENTS.md\`, \`GEMINI.md\`, \`.cursor/rules/devpilot.mdc\` and
-  \`.github/copilot-instructions.md\` are generated from \`.devpilot/rules.md\`.
-  Edit \`.devpilot/rules.md\` and re-run \`devpilot generate rules --force\`;
+- \`CLAUDE.md\`, \`AGENTS.md\`, \`GEMINI.md\`, \`.cursor/rules/knowa.mdc\` and
+  \`.github/copilot-instructions.md\` are generated from \`.knowa/rules.md\`.
+  Edit \`.knowa/rules.md\` and re-run \`knowa generate rules --force\`;
   a hand-edit to a mirror is overwritten on the next run.
 
 ### 4. Improve old code without changing what it does
@@ -361,8 +361,8 @@ const DOC_WRITE_RULES = [
   'Edit(CLAUDE.md)',
   'Edit(AGENTS.md)',
   'Edit(GEMINI.md)',
-  'Edit(.devpilot/**)',
-  'Write(.devpilot/**)',
+  'Edit(.knowa/**)',
+  'Write(.knowa/**)',
 ];
 
 /**
@@ -372,7 +372,7 @@ const DOC_WRITE_RULES = [
  */
 export function withWorkingAgreement(files: ArtifactFile[]): ArtifactFile[] {
   return files.map((f) =>
-    f.file === '.devpilot/rules.md' && !f.content.includes('## Working agreement')
+    f.file === '.knowa/rules.md' && !f.content.includes('## Working agreement')
       ? { ...f, content: `${WORKING_AGREEMENT}\n${f.content.replace(/^\s+/, '')}` }
       : f,
   );
@@ -416,7 +416,7 @@ ${parts.join('\n')}
 }
 
 function commonPrompt(kindInstructions: string, digest: string, upstream?: ArtifactFile[]): string {
-  return `You are DevPilot, a tool that makes codebases AI-assistant-ready.
+  return `You are Knowa, a tool that makes codebases AI-assistant-ready.
 First review the project digest below carefully — the layout, the real
 frameworks, scripts, dependencies, conventions and the actual source code
 excerpts. Then generate the requested files.
@@ -462,10 +462,10 @@ Quality bar:
   the same way and an assistant can find what it needs by heading.
 - Cross-reference the rest of the kit instead of restating it. These paths
   are always generated alongside your files, so you can rely on them:
-  ".devpilot/rules.md" (canonical rules, mirrored into CLAUDE.md/AGENTS.md/
-  GEMINI.md), ".devpilot/context.md" (generated project context),
+  ".knowa/rules.md" (canonical rules, mirrored into CLAUDE.md/AGENTS.md/
+  GEMINI.md), ".knowa/context.md" (generated project context),
   "docs/architecture.md", "docs/conventions.md", "docs/engineer-workflow.md",
-  and ".devpilot/docs/codebase-review.md" (your own review of this codebase).
+  and ".knowa/docs/codebase-review.md" (your own review of this codebase).
 - When the digest has a "Workspace packages" section, this repository holds
   several projects. Name the packages, state which one a rule or step applies
   to, and use each package's own commands from its own directory — never a
@@ -501,12 +501,12 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
   {
     id: 'rules',
     name: 'Rules',
-    description: 'canonical project rules (.devpilot/rules.md → all tools)',
-    allowedPaths: ['.devpilot/rules.md'],
-    requiredFiles: ['.devpilot/rules.md'],
+    description: 'canonical project rules (.knowa/rules.md → all tools)',
+    allowedPaths: ['.knowa/rules.md'],
+    requiredFiles: ['.knowa/rules.md'],
     prompt: (digest) =>
       commonPrompt(
-        `Generate exactly one file: ".devpilot/rules.md" — the canonical coding
+        `Generate exactly one file: ".knowa/rules.md" — the canonical coding
 rules for AI assistants working in this repository. Structure it as:
 
 ## General — how to approach changes in this codebase
@@ -554,10 +554,10 @@ of genuinely project-specific rules.`,
       const testCmd = a.scripts['test'] ? commandFor(a, 'test') : null;
       return [
         {
-          file: '.devpilot/rules.md',
+          file: '.knowa/rules.md',
           content: `## General
 
-- Read \`.devpilot/context.md\` and \`docs/architecture.md\` before making changes.
+- Read \`.knowa/context.md\` and \`docs/architecture.md\` before making changes.
 - Keep changes small and focused; follow existing patterns in the codebase.
 - Write or update tests alongside every behavior change.
 - Update documentation only when the change makes it wrong, and name every doc
@@ -654,7 +654,7 @@ digest actually shows, and give it these properties, which are not optional:
   coverage, and no refactor of code it cannot verify.
 - It changes structure only — never a public interface, an output, a side
   effect or a failure mode. Anything that would is escalated, not done.
-- It makes code consistent with the standard in ".devpilot/rules.md" and
+- It makes code consistent with the standard in ".knowa/rules.md" and
   "docs/conventions.md", not with whatever the neighbouring file happens to do.
 - It optimizes only with evidence it states — a measurement, a complexity
   argument, a repeated query — never on a hunch.
@@ -778,7 +778,7 @@ unrelated modules, and do not fix, format or regenerate anything.
 
 Read before reviewing:
 
-${kitContext(['.devpilot/context.md'])}
+${kitContext(['.knowa/context.md'])}
 
 Docs state intent; the code is the evidence. When they disagree, report the
 disagreement instead of assuming the docs are current.
@@ -828,7 +828,7 @@ incomplete, report it as an open question rather than a defect.
 
 ### Conventions
 
-- The change matches \`docs/conventions.md\` and \`.devpilot/rules.md\`.
+- The change matches \`docs/conventions.md\` and \`.knowa/rules.md\`.
 ${a.conventions.length ? a.conventions.map((c) => `- The configured tooling is respected: ${c}.`).join('\n') : '- The change matches the formatting and naming of the file it lives in.'}
 
 ### Boundaries
@@ -981,7 +981,7 @@ sign-off before implementation starts.
 
 Read before planning:
 
-${kitContext(['.devpilot/context.md'])}
+${kitContext(['.knowa/context.md'])}
 
 Then read the modules the change touches${dirs.length ? ` (top-level: ${boundaries})` : ''}, and the closest
 existing feature that already does something similar.
@@ -1048,7 +1048,7 @@ approves.
 
 Read before investigating:
 
-${kitContext(['.devpilot/context.md'])}
+${kitContext(['.knowa/context.md'])}
 
 ## Method
 
@@ -1125,7 +1125,7 @@ are exactly as they were when you finish.
 
 ## Context
 
-${kitContext(['.devpilot/context.md'])}
+${kitContext(['.knowa/context.md'])}
 
 Then read the target code end to end, and its tests, before proposing anything.
 Where a doc and the code disagree, the code is the evidence: work from the code
@@ -1137,7 +1137,7 @@ and report the stale doc.
    starts from red cannot prove it changed nothing — report and stop.
 2. Inventory the target: dead code, duplicated logic, inconsistent naming and
    error handling, missing validation at boundaries, and anything below
-   \`.devpilot/rules.md\`. Rank by risk-to-value, not by how easy it is.
+   \`.knowa/rules.md\`. Rank by risk-to-value, not by how easy it is.
 3. Check coverage of what you plan to touch${testCmd ? ` (\`${testCmd}\`)` : ''}. Where there is none, write
    characterization tests that pin today's behavior — quirks and all — first.
 4. Apply ONE kind of transformation at a time — rename, extract, inline,
@@ -1488,7 +1488,7 @@ the expected behavior and the observed behavior. Ask if any is missing.`,
             when: `Use this only when observable behavior stays identical. The moment the
 change alters behavior it is a feature or a fix, and belongs in those
 workflows instead. This is also the workflow for older code that is below the
-standard in \`.devpilot/rules.md\`: bring it up to that standard here, in
+standard in \`.knowa/rules.md\`: bring it up to that standard here, in
 behavior-preserving steps, rather than opportunistically inside a feature.`,
             before: [
               kitContext(),
@@ -1509,7 +1509,7 @@ what is explicitly out of scope. "Tidy the codebase" is not a scope.`,
    code — one kind of transformation at a time, running the tests between steps.`,
               `Bring what you touch up to the project's standard rather than to its
    nearest neighbour: the error handling, validation and naming that
-   \`.devpilot/rules.md\` and \`docs/conventions.md\` require.`,
+   \`.knowa/rules.md\` and \`docs/conventions.md\` require.`,
               `Optimize only what you can justify — a measurement, a complexity
    argument, a repeated query or an allocation in a hot loop you can point at.
    Record the justification beside the change; drop the change if you have none.`,
@@ -1551,7 +1551,7 @@ what is explicitly out of scope. "Tidy the codebase" is not a scope.`,
             title: `Explaining a feature of ${a.name}`,
             when: `Use this to build an accurate picture before a change, or to answer "how
 does this work?". It is read-only — it produces an explanation, not a diff.`,
-            before: [kitContext(['.devpilot/context.md'])],
+            before: [kitContext(['.knowa/context.md'])],
             steps: [
               `Locate the entry point: search ${sourceHome} for the feature's name,
    command, route or user-visible text.`,
@@ -1753,8 +1753,8 @@ neighbouring section before adding one so the new text matches its shape.`,
    old name, flag or default. A change merged beside documentation still
    describing the old behavior is the failure this workflow exists to catch.`,
               `Refresh the generated kit when the change altered the project's shape,
-   so \`.devpilot/\` and the tool instruction files stop describing the old
-   structure: \`devpilot sync\`.`,
+   so \`.knowa/\` and the tool instruction files stop describing the old
+   structure: \`knowa sync\`.`,
             ],
             verification: `Grep the docs for the old name, flag or default you replaced — no stale hit
 may remain. Run any command or example you wrote down, exactly as written.${
@@ -1889,7 +1889,7 @@ naming, state handling and navigation registration all follow it.`,
       // Only the rules go in whole. A command delegates to a skill rather than
       // restating it, so it needs the skills' names and descriptions — pasting
       // their bodies here would invite exactly the duplication below forbids.
-      const rules = (upstream ?? []).filter((f) => f.file === '.devpilot/rules.md');
+      const rules = (upstream ?? []).filter((f) => f.file === '.knowa/rules.md');
       const delegation = skills.length
         ? `This project's kit already contains these skills, each at
 ".claude/skills/<name>/SKILL.md":
@@ -2045,7 +2045,7 @@ the whole chain.
         'Review the current diff against project conventions',
         `## Context
 
-Read \`.devpilot/rules.md\`, \`docs/conventions.md\` and the diff itself:
+Read \`.knowa/rules.md\`, \`docs/conventions.md\` and the diff itself:
 
 \`\`\`bash
 git status --short
@@ -2096,7 +2096,7 @@ git diff
 
 Scope to \`$ARGUMENTS\` when it names files or a base ref; otherwise take the
 uncommitted diff. Changes already in the tree that this session did not make
-are out of scope. Read \`.devpilot/rules.md\` and \`docs/conventions.md\`
+are out of scope. Read \`.knowa/rules.md\` and \`docs/conventions.md\`
 first — tooling that must stay satisfied: ${tooling}.
 
 ## Task
@@ -2141,13 +2141,13 @@ result of ${chain}, and anything left as a proposal.
   {
     id: 'prompts',
     name: 'Prompts',
-    description: 'reusable prompt library (.devpilot/prompts/)',
-    allowedPaths: ['.devpilot/prompts/'],
+    description: 'reusable prompt library (.knowa/prompts/)',
+    allowedPaths: ['.knowa/prompts/'],
     minFiles: 3,
     dependsOn: ['rules'],
     prompt: (digest, upstream) =>
       commonPrompt(
-        `Generate 3–5 reusable prompt files under ".devpilot/prompts/" that a
+        `Generate 3–5 reusable prompt files under ".knowa/prompts/" that a
 developer on this project will actually reach for — e.g. reviewing a PR in
 this stack, implementing a new module following this architecture, debugging
 this runtime, writing tests in this project's style.
@@ -2185,7 +2185,7 @@ as explicit instructions.
         : 'no formatter or linter config detected — match the surrounding file';
       return [
         {
-          file: '.devpilot/prompts/review.md',
+          file: '.knowa/prompts/review.md',
           content: `# Review a change
 
 ## When to use
@@ -2228,7 +2228,7 @@ plainly when there are no findings, and name what you could not verify.
 `,
         },
         {
-          file: '.devpilot/prompts/new-module.md',
+          file: '.knowa/prompts/new-module.md',
           content: `# Implement a new module
 
 ## When to use
@@ -2272,7 +2272,7 @@ result.
 `,
         },
         {
-          file: '.devpilot/prompts/debug.md',
+          file: '.knowa/prompts/debug.md',
           content: `# Debug an issue
 
 ## When to use
@@ -2313,7 +2313,7 @@ does not settle.
 `,
         },
         {
-          file: '.devpilot/prompts/write-tests.md',
+          file: '.knowa/prompts/write-tests.md',
           content: `# Write tests
 
 ## When to use
@@ -2465,8 +2465,8 @@ reference you reach for during a specific task.
 | [BEHAVIOUR_CONTRACT_TEMPLATE.md](BEHAVIOUR_CONTRACT_TEMPLATE.md) | you are specifying a feature's behavior before changing it |
 
 These docs are the human-facing half of the AI kit; the assistant-facing half
-lives in \`.devpilot/rules.md\` and \`.claude/\`. Both are generated by
-\`devpilot generate\` — re-run it with an AI provider and \`--force\` for docs
+lives in \`.knowa/rules.md\` and \`.claude/\`. Both are generated by
+\`knowa generate\` — re-run it with an AI provider and \`--force\` for docs
 written from an actual reading of the codebase.
 `,
         },
@@ -2715,7 +2715,7 @@ valid JSON object (no comments, no trailing commas) with:
   effect of a code change. Include, for the doc paths the digest actually
   shows: "Edit(docs/**)", "Write(docs/**)", "Edit(README.md)",
   "Write(README.md)", "Edit(CLAUDE.md)", "Edit(AGENTS.md)",
-  "Edit(GEMINI.md)", "Edit(.devpilot/**)" and "Write(.devpilot/**)".
+  "Edit(GEMINI.md)", "Edit(.knowa/**)" and "Write(.knowa/**)".
 - "permissions.deny": deny reads of the secret material this project could
   hold — ".env" files and any credential/key paths the digest shows (e.g.
   "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)").
@@ -2757,17 +2757,17 @@ you must not generate.`,
   {
     id: 'ci',
     name: 'CI kit check',
-    description: 'GitHub Action that fails when the AI kit is stale (opt-in: devpilot generate ci)',
-    allowedPaths: ['.github/workflows/devpilot-sync.yml'],
-    requiredFiles: ['.github/workflows/devpilot-sync.yml'],
+    description: 'GitHub Action that fails when the AI kit is stale (opt-in: knowa generate ci)',
+    allowedPaths: ['.github/workflows/knowa-sync.yml'],
+    requiredFiles: ['.github/workflows/knowa-sync.yml'],
     optIn: true,
     prompt: (digest) =>
       commonPrompt(
-        `Generate exactly one file: ".github/workflows/devpilot-sync.yml" — a
+        `Generate exactly one file: ".github/workflows/knowa-sync.yml" — a
 GitHub Actions workflow that keeps this repository's generated AI kit
-honest: it runs "npx -y @sonalsithara/devpilot sync --check", which exits
+honest: it runs "npx -y @sonalsithara/knowa sync --check", which exits
 non-zero when the codebase has drifted from the kit recorded in
-.devpilot/manifest.json.
+.knowa/manifest.json.
 
 Rules for the workflow:
 - Trigger on pull_request, and on push only for the default branch the
@@ -2783,8 +2783,8 @@ Rules for the workflow:
       ),
     fallback: () => [
       {
-        file: '.github/workflows/devpilot-sync.yml',
-        content: `name: DevPilot kit check
+        file: '.github/workflows/knowa-sync.yml',
+        content: `name: Knowa kit check
 
 on:
   pull_request:
@@ -2799,9 +2799,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # Static drift check against .devpilot/manifest.json — no AI provider
+      # Static drift check against .knowa/manifest.json — no AI provider
       # or secrets needed. Exits 1 when the kit is stale.
-      - run: npx -y @sonalsithara/devpilot sync --check
+      - run: npx -y @sonalsithara/knowa sync --check
 `,
       },
     ],

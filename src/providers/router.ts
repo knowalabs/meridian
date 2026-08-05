@@ -25,9 +25,9 @@ export interface ProviderSpec {
   /** Default model; users can override via config `router.models.<id>`. */
   model: string;
   /**
-   * Model versions the picker offers, best first. DevPilot ships a starting
+   * Model versions the picker offers, best first. Knowa ships a starting
    * set per provider — it is deliberately not exhaustive, and providers
-   * release faster than DevPilot does, so the picker always offers free-text
+   * release faster than Knowa does, so the picker always offers free-text
    * entry and `router.models.<id>` accepts any string. Omit for a provider
    * whose catalogue cannot be usefully enumerated (OpenRouter's thousands of
    * models) or is per-machine (Ollama, discovered live instead).
@@ -50,7 +50,7 @@ export interface ProviderSpec {
   ask(prompt: string, apiKey: string): Promise<string>;
   /**
    * Same answer as `ask`, delivered incrementally. Present only for providers
-   * that stream over HTTP; `devpilot ask` falls back to `ask` without it.
+   * that stream over HTTP; `knowa ask` falls back to `ask` without it.
    */
   askStream?(prompt: string, apiKey: string, onDelta: (text: string) => void): Promise<string>;
 }
@@ -65,7 +65,7 @@ export interface ModelPricing {
  * unit that is actually billed. Providers whose model is overridden, or whose
  * model is not listed here, simply report no cost rather than a wrong one.
  * Users can add or correct entries under `router.pricing.<model>` in
- * ~/.devpilot/config.json, which always wins over this table.
+ * ~/.knowa/config.json, which always wins over this table.
  */
 const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-sonnet-5': { inputPerMTok: 3, outputPerMTok: 15 },
@@ -313,12 +313,12 @@ async function classifyStatus(
 ): Promise<'ok' | 'retry'> {
   if (res.status === 401 || res.status === 403) {
     throw new CliError(`${ctx.provider}: authentication failed (HTTP ${res.status})`, {
-      hint: `Your API key is missing, invalid or expired. Run "devpilot auth ${ctx.provider}" to update it.`,
+      hint: `Your API key is missing, invalid or expired. Run "knowa auth ${ctx.provider}" to update it.`,
     });
   }
   if (res.status === 404) {
     throw new CliError(`${ctx.provider}: model or endpoint not found (HTTP 404)`, {
-      hint: `The default model may have been retired. Override it in ${'~/.devpilot/config.json'} under router.models.${ctx.provider}.`,
+      hint: `The default model may have been retired. Override it in ${'~/.knowa/config.json'} under router.models.${ctx.provider}.`,
     });
   }
   if (RETRYABLE_STATUS.has(res.status) && !last) return 'retry';
@@ -533,7 +533,7 @@ export const PROVIDERS: ProviderSpec[] = [
       );
       if (res.notFound) {
         throw new CliError('claude-code: the "claude" CLI is not installed', {
-          hint: 'Install it with "devpilot install claude", then run "claude" once to sign in.',
+          hint: 'Install it with "knowa install claude", then run "claude" once to sign in.',
         });
       }
       if (res.error?.includes('ETIMEDOUT')) {
@@ -545,7 +545,7 @@ export const PROVIDERS: ProviderSpec[] = [
         throw new CliError(
           `claude-code: claude -p failed — ${(res.stderr || res.stdout || 'no output').slice(0, 300)}`,
           {
-            hint: 'Run "claude" once to sign in with your subscription, then retry. A different model can be set in ~/.devpilot/config.json under router.models.claude-code.',
+            hint: 'Run "claude" once to sign in with your subscription, then retry. A different model can be set in ~/.knowa/config.json under router.models.claude-code.',
           },
         );
       }
@@ -600,7 +600,7 @@ export const PROVIDERS: ProviderSpec[] = [
     binary: 'codex',
     parallel: 2,
     async ask(prompt) {
-      const outFile = path.join(os.tmpdir(), `devpilot-codex-${process.pid}-${Date.now()}.txt`);
+      const outFile = path.join(os.tmpdir(), `knowa-codex-${process.pid}-${Date.now()}.txt`);
       const args = [
         'exec',
         '-',
@@ -624,7 +624,7 @@ export const PROVIDERS: ProviderSpec[] = [
       }
       if (res.notFound) {
         throw new CliError('codex-cli: the "codex" CLI is not installed', {
-          hint: 'Install it with "devpilot install codex", then run "codex login".',
+          hint: 'Install it with "knowa install codex", then run "codex login".',
         });
       }
       if (res.error?.includes('ETIMEDOUT')) {
@@ -700,7 +700,7 @@ export const PROVIDERS: ProviderSpec[] = [
       const res = await runImpl('gemini', args, prompt, { timeoutMs: 600_000 });
       if (res.notFound) {
         throw new CliError('gemini-cli: the "gemini" CLI is not installed', {
-          hint: 'Install it with "devpilot install gemini", then run "gemini" once to sign in with your Google account.',
+          hint: 'Install it with "knowa install gemini", then run "gemini" once to sign in with your Google account.',
         });
       }
       if (res.error?.includes('ETIMEDOUT')) {
@@ -919,9 +919,9 @@ export async function verifyApiKey(providerId: string, apiKey: string): Promise<
 export function availableProviders(): string[] {
   const vault = openVault();
   const keys = vault.list();
-  // Opt-out for specific providers, e.g. DEVPILOT_DISABLE_PROVIDERS=claude-code,ollama
+  // Opt-out for specific providers, e.g. KNOWA_DISABLE_PROVIDERS=claude-code,ollama
   const disabled = new Set(
-    (process.env.DEVPILOT_DISABLE_PROVIDERS ?? '').split(',').map((s) => s.trim()),
+    (process.env.KNOWA_DISABLE_PROVIDERS ?? '').split(',').map((s) => s.trim()),
   );
   return PROVIDERS.filter(
     (p) =>

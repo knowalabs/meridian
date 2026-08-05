@@ -11,7 +11,7 @@ import {
   type KeyVerification,
 } from '../providers/router.js';
 import { openVault, type VaultBackend } from '../core/vault.js';
-import { devpilotHome, globalConfigPath } from '../core/paths.js';
+import { knowaHome, globalConfigPath } from '../core/paths.js';
 import { readJsonFile } from '../core/fsx.js';
 import { diffFingerprints, fileStates, fingerprintOf, readManifest } from '../generate/manifest.js';
 import { analyzeProject } from '../scan/analyzer.js';
@@ -19,7 +19,7 @@ import { VERSION } from '../core/pkg.js';
 import { jsonMode, log } from '../core/logger.js';
 
 /**
- * `devpilot doctor` — the first command a new user runs, so it answers the
+ * `knowa doctor` — the first command a new user runs, so it answers the
  * questions that actually block people: which AI tools are installed, which
  * providers `generate`/`ask` can use *right now* and which one they would
  * pick, whether the key vault is readable, and whether this project's kit is
@@ -31,7 +31,7 @@ import { jsonMode, log } from '../core/logger.js';
  *
  * The exit code stays 0 even when checks fail: a missing tool or an
  * unconfigured provider is a normal state, not a broken machine. Scripts that
- * need to gate on the result read `--json` (or use `devpilot sync --check`,
+ * need to gate on the result read `--json` (or use `knowa sync --check`,
  * which exists to fail a build).
  */
 
@@ -77,7 +77,7 @@ interface KitStatus {
 }
 
 export interface DoctorReportJson {
-  devpilot: string;
+  knowa: string;
   environment: Check[];
   tools: ToolStatus[];
   missing: number;
@@ -100,25 +100,25 @@ function environmentChecks(): Check[] {
       : {
           label: 'Node.js',
           level: 'fail',
-          detail: `v${process.versions.node} — DevPilot needs v${MINIMUM_NODE_MAJOR} or newer`,
+          detail: `v${process.versions.node} — Knowa needs v${MINIMUM_NODE_MAJOR} or newer`,
           fix: 'https://nodejs.org/en/download',
         },
   );
 
   // The home is created on demand, so "not there yet" is not a fault — what
   // matters is whether it could be written. Doctor never creates it itself.
-  const home = devpilotHome();
+  const home = knowaHome();
   const target = fs.existsSync(home) ? home : path.dirname(home);
   try {
     fs.accessSync(target, fs.constants.W_OK);
     checks.push({
-      label: 'DevPilot home',
+      label: 'Knowa home',
       level: 'ok',
       detail: target === home ? home : `${home} (will be created on first use)`,
     });
   } catch {
     checks.push({
-      label: 'DevPilot home',
+      label: 'Knowa home',
       level: 'fail',
       detail: `${home} is not writable`,
       fix: `check the permissions on ${target}`,
@@ -175,7 +175,7 @@ function providerStatuses(available: string[]): ProviderStatus[] {
     if (!ready) {
       if (p.needsKey && !stored.has(p.id)) blockedBy = 'no API key stored';
       else if (p.binary) blockedBy = `the "${p.binary}" CLI is not on PATH`;
-      else blockedBy = 'disabled via DEVPILOT_DISABLE_PROVIDERS';
+      else blockedBy = 'disabled via KNOWA_DISABLE_PROVIDERS';
     }
     return { id: p.id, name: p.name, model: modelFor(p), ready, blockedBy };
   });
@@ -216,7 +216,7 @@ function kitStatus(cwd: string): KitStatus {
     root: cwd,
     present: true,
     generatedAt: manifest.generatedAt,
-    generatedBy: manifest.devpilot,
+    generatedBy: manifest.knowa,
     drift: diffFingerprints(manifest.fingerprint, fingerprintOf(analyzeProject(cwd))),
     missing: states.missing,
     edited: states.edited,
@@ -244,7 +244,7 @@ const KEY_CHECK_NOTE: Record<KeyVerification, { level: Level; text: string }> = 
 
 function render(report: DoctorReportJson): void {
   log.title(
-    `DevPilot ${report.devpilot} — ${process.platform} ${process.arch}, node ${process.versions.node}\n`,
+    `Knowa ${report.knowa} — ${process.platform} ${process.arch}, node ${process.versions.node}\n`,
   );
 
   log.info(pc.bold('Environment'));
@@ -275,7 +275,7 @@ function render(report: DoctorReportJson): void {
     (p) => !p.ready && !needKey.includes(p) && !needCli.includes(p),
   );
   if (needKey.length) {
-    line('warn', 'need a key', needKey.map((p) => p.id).join(', '), 'devpilot auth <provider>');
+    line('warn', 'need a key', needKey.map((p) => p.id).join(', '), 'knowa auth <provider>');
   }
   if (needCli.length) {
     line(
@@ -286,22 +286,17 @@ function render(report: DoctorReportJson): void {
     );
   }
   if (otherwiseOff.length) {
-    line(
-      'warn',
-      'disabled',
-      otherwiseOff.map((p) => p.id).join(', '),
-      'DEVPILOT_DISABLE_PROVIDERS',
-    );
+    line('warn', 'disabled', otherwiseOff.map((p) => p.id).join(', '), 'KNOWA_DISABLE_PROVIDERS');
   }
   if (!report.routesTo) {
     log.info(
-      `  ${pc.dim('No provider configured — generate and ask need one. Sign in to an AI CLI or run')} ${pc.bold('devpilot auth')}${pc.dim('.')}`,
+      `  ${pc.dim('No provider configured — generate and ask need one. Sign in to an AI CLI or run')} ${pc.bold('knowa auth')}${pc.dim('.')}`,
     );
   }
 
   log.info(`\n${pc.bold('Key vault')}`);
   if (!report.vault.backend) {
-    line('fail', 'vault', 'could not be opened', 'devpilot keys repair');
+    line('fail', 'vault', 'could not be opened', 'knowa keys repair');
   } else {
     line(
       'ok',
@@ -315,7 +310,7 @@ function render(report: DoctorReportJson): void {
         'fail',
         'unreadable',
         report.vault.unreadable.join(', '),
-        'devpilot keys repair (backs up first)',
+        'knowa keys repair (backs up first)',
       );
     }
   }
@@ -326,24 +321,24 @@ function render(report: DoctorReportJson): void {
 
 function renderKit(kit: KitStatus): void {
   if (!kit.present) {
-    const legacy = fs.existsSync(path.join(kit.root, '.devpilot'));
+    const legacy = fs.existsSync(path.join(kit.root, '.knowa'));
     line(
       'warn',
       'kit',
       legacy
         ? 'generated before kit manifests existed — sync cannot track it'
         : 'no AI kit in this project yet',
-      'devpilot generate',
+      'knowa generate',
     );
     return;
   }
-  line('ok', 'generated', `${kit.generatedAt} by devpilot ${kit.generatedBy}`);
+  line('ok', 'generated', `${kit.generatedAt} by knowa ${kit.generatedBy}`);
   if (kit.drift.length || kit.missing.length) {
     line(
       'warn',
       'freshness',
       `stale — ${kit.drift.length} drift signal(s), ${kit.missing.length} file(s) deleted`,
-      'devpilot sync',
+      'knowa sync',
     );
     for (const d of kit.drift.slice(0, 5)) log.info(`    ${pc.dim(d)}`);
     if (kit.drift.length > 5) log.info(`    ${pc.dim(`… and ${kit.drift.length - 5} more`)}`);
@@ -361,18 +356,18 @@ function renderNextSteps(report: DoctorReportJson): void {
   if (report.environment.some((c) => c.level === 'fail')) {
     steps.push('fix the environment problems above — nothing else will work reliably');
   }
-  if (!report.routesTo) steps.push(`${pc.bold('devpilot auth')} — or sign in to an AI CLI`);
-  if (report.vault.unreadable.length) steps.push(pc.bold('devpilot keys repair'));
+  if (!report.routesTo) steps.push(`${pc.bold('knowa auth')} — or sign in to an AI CLI`);
+  if (report.vault.unreadable.length) steps.push(pc.bold('knowa keys repair'));
   if (!report.kit.present) {
-    steps.push(`${pc.bold('devpilot generate')} — make this project AI-ready`);
+    steps.push(`${pc.bold('knowa generate')} — make this project AI-ready`);
   } else if (report.kit.drift.length || report.kit.missing.length) {
-    steps.push(`${pc.bold('devpilot sync')} — the kit is behind the code`);
+    steps.push(`${pc.bold('knowa sync')} — the kit is behind the code`);
   }
   if (report.providers.some((p) => p.keyCheck === 'invalid')) {
-    steps.push(`${pc.bold('devpilot auth <provider>')} — a stored key was rejected`);
+    steps.push(`${pc.bold('knowa auth <provider>')} — a stored key was rejected`);
   }
   if (report.missing) {
-    steps.push(`${pc.bold('devpilot install all')} — ${report.missing} tool(s) missing`);
+    steps.push(`${pc.bold('knowa install all')} — ${report.missing} tool(s) missing`);
   }
 
   log.info('');
@@ -407,7 +402,7 @@ export async function doctorCommand(
 
   const tools = toolStatuses();
   const report: DoctorReportJson = {
-    devpilot: VERSION,
+    knowa: VERSION,
     environment: environmentChecks(),
     tools,
     missing: tools.filter((t) => !t.installed).length,

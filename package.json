@@ -1,5 +1,5 @@
 {
-  "name": "@sonalsithara/devpilot",
+  "name": "@sonalsithara/knowa",
   "version": "0.19.0",
   "description": "One command to set up every AI coding tool on any machine.",
   "keywords": [
@@ -16,20 +16,20 @@
   ],
   "author": "Sonal Sithara <sonalsithara2352@gmail.com>",
   "license": "MIT",
-  "homepage": "https://github.com/sonal-sithara/devpilot#readme",
+  "homepage": "https://github.com/sonal-sithara/knowa#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sonal-sithara/devpilot.git"
+    "url": "git+https://github.com/sonal-sithara/knowa.git"
   },
   "bugs": {
-    "url": "https://github.com/sonal-sithara/devpilot/issues"
+    "url": "https://github.com/sonal-sithara/knowa/issues"
   },
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "bin": {
-    "devpilot": "./dist/index.js"
+    "knowa": "./dist/index.js"
   },
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",

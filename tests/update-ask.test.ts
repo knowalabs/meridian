@@ -18,17 +18,17 @@ const { askCommand } = await import('../src/commands/ask.js');
 let tmp: string;
 
 beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-upd-'));
-  process.env.DEVPILOT_HOME = tmp;
-  process.env.DEVPILOT_VAULT = 'file';
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-upd-'));
+  process.env.KNOWA_HOME = tmp;
+  process.env.KNOWA_VAULT = 'file';
   runLiveMock.mockReset();
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
-  delete process.env.DEVPILOT_HOME;
-  delete process.env.DEVPILOT_VAULT;
+  delete process.env.KNOWA_HOME;
+  delete process.env.KNOWA_VAULT;
   vi.restoreAllMocks();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -39,7 +39,7 @@ describe('update command exit codes', () => {
     expect(await updateCommand({ self: true })).toBe(0);
     const [cmd, args] = runLiveMock.mock.calls[0]!;
     expect(cmd).toBe('npm');
-    expect(args!.join(' ')).toContain('devpilot@latest');
+    expect(args!.join(' ')).toContain('knowa@latest');
   });
 
   it('returns 1 when the self-update fails (was: silent success)', async () => {

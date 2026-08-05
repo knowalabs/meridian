@@ -1,6 +1,6 @@
 ---
-name: devpilot-test-runner
-description: Use to run DevPilot's Vitest suite, diagnose a failing test or a coverage-threshold breach, and fix it without breaking test isolation or the sandboxing conventions in tests/*.test.ts.
+name: knowa-test-runner
+description: Use to run Knowa's Vitest suite, diagnose a failing test or a coverage-threshold breach, and fix it without breaking test isolation or the sandboxing conventions in tests/*.test.ts.
 model: sonnet
 tools:
   - Read
@@ -34,7 +34,7 @@ If a test's expectation conflicts with current `src/` behavior, treat the source
 
 1. Run `npm run test:coverage` first — it is the one command that reports both failures and threshold breaches in one pass.
 2. Read the failing test file in full, not just the failing `it()` block, to recover its `beforeEach`/`afterEach` setup.
-3. Confirm sandboxing: any test touching `core/vault.ts`, `core/config.ts`, or `generate/pipeline.ts` must set `process.env.DEVPILOT_HOME` to a temp dir (`fs.mkdtempSync`) and, for vault tests, `process.env.DEVPILOT_VAULT = 'file'`, with `afterEach` cleanup via `fs.rmSync(..., { recursive: true, force: true })` — a missing sandbox is itself the bug, not a flake.
+3. Confirm sandboxing: any test touching `core/vault.ts`, `core/config.ts`, or `generate/pipeline.ts` must set `process.env.KNOWA_HOME` to a temp dir (`fs.mkdtempSync`) and, for vault tests, `process.env.KNOWA_VAULT = 'file'`, with `afterEach` cleanup via `fs.rmSync(..., { recursive: true, force: true })` — a missing sandbox is itself the bug, not a flake.
 4. For a failure in `tests/router-network.test.ts` or `tests/ask-stream.test.ts`, check the test uses `setFetchForTests`/`setRunForTests` and, for retry/backoff assertions, `vi.useFakeTimers()` + `await vi.advanceTimersByTimeAsync(...)` — never add a real network call or a real `setTimeout` delay to make an assertion pass.
 5. For a failure touching `src/generate/artifacts.ts` or `src/generate/pipeline.ts`, extend the existing `describe('isAllowedPath')` / `describe('parseFileBlocks')` / `describe('static fallbacks')` blocks in `tests/generate.test.ts` rather than writing a standalone script — every `ArtifactKind` must still produce files inside its own `allowedPaths`.
 6. If coverage dropped below threshold, find the specific uncovered branch (`vitest run --coverage` prints per-file percentages) and add a targeted test case — never restructure code purely to inflate a number.
@@ -45,8 +45,8 @@ If a test's expectation conflicts with current `src/` behavior, treat the source
 
 ### Test isolation
 
-- Every test touching DevPilot home/vault state sandboxes via `DEVPILOT_HOME`/`DEVPILOT_VAULT=file` and cleans up in `afterEach`.
-- No test touches the real OS keychain, the real `~/.devpilot`, or makes a live network call.
+- Every test touching Knowa home/vault state sandboxes via `KNOWA_HOME`/`KNOWA_VAULT=file` and cleans up in `afterEach`.
+- No test touches the real OS keychain, the real `~/.knowa`, or makes a live network call.
 
 ### Coverage thresholds
 
@@ -98,5 +98,5 @@ git diff
 - Never lower the coverage thresholds in `vitest.config.ts`.
 - Never delete or skip (`.skip`/`.todo`) a failing test to make a run green — fix the code or the test's actual assertion.
 - Never add a real network call or a real `setTimeout` delay to a test.
-- Never touch the real OS keychain or the developer's real `~/.devpilot` directory.
+- Never touch the real OS keychain or the developer's real `~/.knowa` directory.
 - Never run `npm run test:e2e` without first checking the change actually touches `generate`, `cli.ts`, or another e2e-exercised path — it rebuilds the whole project.

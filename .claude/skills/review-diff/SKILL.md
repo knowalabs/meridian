@@ -1,6 +1,6 @@
 ---
 name: review-diff
-description: Use to review the current diff against DevPilot's module boundaries and code-style conventions before it is committed.
+description: Use to review the current diff against Knowa's module boundaries and code-style conventions before it is committed.
 ---
 
 # Review Diff
@@ -12,7 +12,7 @@ Before committing or opening a PR, to check a change against this repo's actual 
 ## Before you start
 
 - @CLAUDE.md — full module-boundary list and Code Style / Safety sections
-- @.devpilot/rules.md — the canonical mirror of the same rules
+- @.knowa/rules.md — the canonical mirror of the same rules
 - @docs/architecture.md
 - @docs/conventions.md
 

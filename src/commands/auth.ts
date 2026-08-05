@@ -51,7 +51,7 @@ export async function authCommand(
   if (keyArg) {
     log.warn(
       'Keys passed as command arguments can be recorded in your shell history. ' +
-        `Prefer ${pc.bold(`devpilot auth ${chosen}`)} and the hidden prompt.`,
+        `Prefer ${pc.bold(`knowa auth ${chosen}`)} and the hidden prompt.`,
     );
   }
   const key = keyArg ?? (await promptSecret(`Enter ${chosen} API key (input hidden): `));
@@ -106,7 +106,7 @@ export function keysListCommand(): number {
   }
   log.title(`API Keys (${vault.backend})\n`);
   if (keys.length === 0) {
-    log.info(`No keys stored. Run ${pc.bold('devpilot auth')} to add one.`);
+    log.info(`No keys stored. Run ${pc.bold('knowa auth')} to add one.`);
     return 0;
   }
   for (const account of keys) {
@@ -124,7 +124,7 @@ export function keysRepairCommand(): number {
     return 0;
   }
   for (const b of backups) log.dim(`  backed up ${b}`);
-  log.ok(`Vault reinitialized. Re-add your keys with ${pc.bold('devpilot auth')}.`);
+  log.ok(`Vault reinitialized. Re-add your keys with ${pc.bold('knowa auth')}.`);
   return 0;
 }
 

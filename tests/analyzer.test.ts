@@ -8,7 +8,7 @@ describe('project analyzer', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-scan-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-scan-'));
     fs.writeFileSync(
       path.join(tmp, 'package.json'),
       JSON.stringify({
@@ -52,7 +52,7 @@ describe('project analyzer', () => {
   });
 
   it('derives runnable commands for non-npm ecosystems, Makefile first', () => {
-    const rust = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-rust-'));
+    const rust = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-rust-'));
     try {
       fs.writeFileSync(path.join(rust, 'Cargo.toml'), '[package]\nname = "demo"\n');
       fs.writeFileSync(path.join(rust, 'src.rs'), 'fn main() {}\n');
@@ -68,7 +68,7 @@ describe('project analyzer', () => {
   });
 
   it('derives Python commands from pyproject tool mentions', () => {
-    const py = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-py-'));
+    const py = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-py-'));
     try {
       fs.writeFileSync(
         path.join(py, 'pyproject.toml'),
@@ -92,7 +92,7 @@ describe('project analyzer', () => {
       ['demo.csproj', '<Project />', '.NET', { test: 'dotnet test', build: 'dotnet build' }],
     ];
     for (const [file, content, framework, scripts] of cases) {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-eco-'));
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-eco-'));
       try {
         fs.writeFileSync(path.join(dir, file), content);
         const a = analyzeProject(dir);
@@ -105,8 +105,8 @@ describe('project analyzer', () => {
   });
 
   it('detects Django and Rails on top of their base ecosystems', () => {
-    const dj = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-dj-'));
-    const rails = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-rails-'));
+    const dj = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-dj-'));
+    const rails = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-rails-'));
     try {
       fs.writeFileSync(path.join(dj, 'manage.py'), '#!/usr/bin/env python\n');
       const a = analyzeProject(dj);
@@ -125,7 +125,7 @@ describe('project analyzer', () => {
   });
 
   it('detects CI systems beyond GitHub Actions as conventions', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-ci-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-ci-'));
     try {
       fs.writeFileSync(path.join(dir, '.gitlab-ci.yml'), 'stages: [test]\n');
       fs.writeFileSync(path.join(dir, 'Jenkinsfile'), 'pipeline {}\n');
@@ -185,7 +185,7 @@ describe('project analyzer', () => {
       ['App.java', 'public class App {}\ninterface Runner {}\n', ['class App', 'interface Runner']],
     ];
     for (const [file, content, expected] of cases) {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-sym-'));
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-sym-'));
       try {
         fs.writeFileSync(path.join(dir, file), content);
         const a = analyzeProject(dir);

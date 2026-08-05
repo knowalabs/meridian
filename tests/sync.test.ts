@@ -16,7 +16,7 @@ import { analyzeProject } from '../src/scan/analyzer.js';
 import { configureLogger } from '../src/core/logger.js';
 
 function makeProject(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-sync-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-sync-'));
   fs.writeFileSync(
     path.join(root, 'package.json'),
     JSON.stringify({
@@ -58,15 +58,15 @@ describe('kit manifest', () => {
     expect(manifest.provider).toBeNull();
     expect(manifest.fingerprint.scripts['test']).toBe('vitest run');
     // Written artifacts and propagated tool files are both tracked.
-    expect(manifest.files['.devpilot/rules.md']).toBeDefined();
+    expect(manifest.files['.knowa/rules.md']).toBeDefined();
     expect(manifest.files['CLAUDE.md']).toBeDefined();
-    const rules = fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8');
-    expect(manifest.files['.devpilot/rules.md']).toBe(signatureOf(rules));
+    const rules = fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8');
+    expect(manifest.files['.knowa/rules.md']).toBe(signatureOf(rules));
   });
 
   it('survives the project formatter rewriting the kit after generation', async () => {
     await generateKit(root);
-    const file = path.join(root, '.devpilot/rules.md');
+    const file = path.join(root, '.knowa/rules.md');
     const original = fs.readFileSync(file, 'utf8');
     // What Prettier does to generated markdown: emphasis markers, list
     // bullets, table padding and blank lines — none of it changes the content.
@@ -78,29 +78,29 @@ describe('kit manifest', () => {
         .replace(/\*([^*\n]+)\*/g, '_$1_'),
     );
     const states = fileStates(root, readManifest(root)!);
-    expect(states.clean).toContain('.devpilot/rules.md');
-    expect(states.edited).not.toContain('.devpilot/rules.md');
+    expect(states.clean).toContain('.knowa/rules.md');
+    expect(states.edited).not.toContain('.knowa/rules.md');
   });
 
   it('still sees a real edit through the formatter tolerance', async () => {
     await generateKit(root);
-    const file = path.join(root, '.devpilot/rules.md');
+    const file = path.join(root, '.knowa/rules.md');
     fs.appendFileSync(file, '\n- Never touch the vendor directory.\n');
-    expect(fileStates(root, readManifest(root)!).edited).toContain('.devpilot/rules.md');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.knowa/rules.md');
   });
 
   it('reads a legacy manifest that recorded raw content hashes', async () => {
     await generateKit(root);
     const manifest = readManifest(root)!;
-    const rules = fs.readFileSync(path.join(root, '.devpilot/rules.md'), 'utf8');
+    const rules = fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8');
     // Kits generated before signatures existed stored a bare sha256.
     fs.writeFileSync(
-      path.join(root, '.devpilot/manifest.json'),
-      JSON.stringify({ ...manifest, files: { '.devpilot/rules.md': hashContent(rules) } }),
+      path.join(root, '.knowa/manifest.json'),
+      JSON.stringify({ ...manifest, files: { '.knowa/rules.md': hashContent(rules) } }),
     );
-    expect(fileStates(root, readManifest(root)!).clean).toContain('.devpilot/rules.md');
-    fs.appendFileSync(path.join(root, '.devpilot/rules.md'), '\nedited\n');
-    expect(fileStates(root, readManifest(root)!).edited).toContain('.devpilot/rules.md');
+    expect(fileStates(root, readManifest(root)!).clean).toContain('.knowa/rules.md');
+    fs.appendFileSync(path.join(root, '.knowa/rules.md'), '\nedited\n');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.knowa/rules.md');
   });
 
   it('is not written by a dry run', async () => {
@@ -110,10 +110,10 @@ describe('kit manifest', () => {
 
   it('classifies files as clean, edited or missing', async () => {
     await generateKit(root);
-    fs.appendFileSync(path.join(root, '.devpilot/rules.md'), '\n- my own rule\n');
+    fs.appendFileSync(path.join(root, '.knowa/rules.md'), '\n- my own rule\n');
     fs.rmSync(path.join(root, '.claude/commands/verify.md'));
     const states = fileStates(root, readManifest(root)!);
-    expect(states.edited).toContain('.devpilot/rules.md');
+    expect(states.edited).toContain('.knowa/rules.md');
     expect(states.missing).toContain('.claude/commands/verify.md');
     expect(states.clean).toContain('.claude/skills/commit/SKILL.md');
   });
@@ -180,7 +180,7 @@ describe('syncCommand', () => {
 
   it('refreshes stale files, regenerates deleted ones and preserves hand edits', async () => {
     await generateKit(root);
-    const rulesPath = path.join(root, '.devpilot/rules.md');
+    const rulesPath = path.join(root, '.knowa/rules.md');
     const edited = fs.readFileSync(rulesPath, 'utf8') + '\n- my own rule\n';
     fs.writeFileSync(rulesPath, edited);
     fs.rmSync(path.join(root, '.claude/commands/verify.md'));
@@ -198,8 +198,8 @@ describe('syncCommand', () => {
 
   it('does nothing when the kit is already in sync', async () => {
     await generateKit(root);
-    const before = fs.statSync(path.join(root, '.devpilot/rules.md')).mtimeMs;
+    const before = fs.statSync(path.join(root, '.knowa/rules.md')).mtimeMs;
     expect(await syncCommand({ ai: false }, root)).toBe(0);
-    expect(fs.statSync(path.join(root, '.devpilot/rules.md')).mtimeMs).toBe(before);
+    expect(fs.statSync(path.join(root, '.knowa/rules.md')).mtimeMs).toBe(before);
   });
 });

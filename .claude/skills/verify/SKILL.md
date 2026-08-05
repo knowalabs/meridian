@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Use to run DevPilot's full verification chain in CI order and fix any failures before a change is considered done.
+description: Use to run Knowa's full verification chain in CI order and fix any failures before a change is considered done.
 ---
 
 # Verify

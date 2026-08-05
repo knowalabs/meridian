@@ -65,7 +65,7 @@ describe('createIgnore', () => {
   };
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-ignore-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-ignore-'));
   });
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -75,7 +75,7 @@ describe('createIgnore', () => {
     const ignore = createIgnore(tmp);
     expect(ignore.ignores('node_modules', true)).toBe(true);
     expect(ignore.ignores('dist', true)).toBe(true);
-    expect(ignore.ignores('.devpilot', true)).toBe(true);
+    expect(ignore.ignores('.knowa', true)).toBe(true);
     expect(ignore.ignores('src', true)).toBe(false);
   });
 
@@ -137,7 +137,7 @@ describe('createIgnore', () => {
 describe('analyzer honors ignores', () => {
   let tmp: string;
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-ignore-scan-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-ignore-scan-'));
   });
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });

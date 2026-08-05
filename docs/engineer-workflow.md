@@ -1,12 +1,12 @@
 # Engineer workflow
 
-Day-one setup, the real npm scripts, the exact ordered verification CI runs, and the release/publish process for `@sonalsithara/devpilot`. Read this before your first commit, or whenever you forget which command to run next. Not covered: how to use `devpilot` once installed globally — that's the README; this is about developing DevPilot itself.
+Day-one setup, the real npm scripts, the exact ordered verification CI runs, and the release/publish process for `@sonalsithara/knowa`. Read this before your first commit, or whenever you forget which command to run next. Not covered: how to use `knowa` once installed globally — that's the README; this is about developing Knowa itself.
 
 ## Day one
 
 1. Clone the repo and install: `npm install` (Node `>=18` required — enforced at runtime by `src/index.ts`'s version check, and matrix-tested in CI on 18/20/22).
 2. Run `npm run dev -- <command>` (`tsx src/index.ts`) to exercise the CLI without building — e.g. `npm run dev -- doctor`.
-3. Tests are sandboxed via `process.env.DEVPILOT_HOME` (temp dir) and `process.env.DEVPILOT_VAULT = 'file'` — they never touch your real OS keychain or `~/.devpilot` (see `tests/doctor.test.ts`, `tests/commands.test.ts`).
+3. Tests are sandboxed via `process.env.KNOWA_HOME` (temp dir) and `process.env.KNOWA_VAULT = 'file'` — they never touch your real OS keychain or `~/.knowa` (see `tests/doctor.test.ts`, `tests/commands.test.ts`).
 
 ## Everyday commands
 

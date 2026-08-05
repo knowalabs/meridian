@@ -1,6 +1,6 @@
 # Behaviour contract template
 
-A fill-in template for writing down what a piece of DevPilot's behavior actually does _before_ changing it — so a change can be checked against what was true, not against memory. Copy this into your PR description or a scratch file when touching anything with non-obvious current behavior (retry logic, the vault backends, `isAllowedPath`, the manifest/sync drift rules). Not a doc about a specific module — it's the process to run against any of them.
+A fill-in template for writing down what a piece of Knowa's behavior actually does _before_ changing it — so a change can be checked against what was true, not against memory. Copy this into your PR description or a scratch file when touching anything with non-obvious current behavior (retry logic, the vault backends, `isAllowedPath`, the manifest/sync drift rules). Not a doc about a specific module — it's the process to run against any of them.
 
 ## When to use this
 
@@ -42,7 +42,7 @@ What must NOT change (existing callers/tests relying on current behavior):
 
 ## Why this exists
 
-DevPilot's own fail-closed AI generation, retry/backoff, and drift-detection logic are exactly the kind of behavior that's easy to "simplify" into something subtly different — the contract above forces the current behavior to be stated and evidenced before a diff is written, not inferred from the diff afterward.
+Knowa's own fail-closed AI generation, retry/backoff, and drift-detection logic are exactly the kind of behavior that's easy to "simplify" into something subtly different — the contract above forces the current behavior to be stated and evidenced before a diff is written, not inferred from the diff afterward.
 
 ## Related
 

@@ -40,7 +40,7 @@ async function chooseProvider(): Promise<string | undefined> {
   });
   log.title('Which AI should generate your kit?');
   const picked = await promptChoice(`Provider ${pc.dim(`[Enter = ${recommended}]`)}:`, choices);
-  log.dim(`(skip this next time with --provider <id> or "devpilot router --prefer <id>")`);
+  log.dim(`(skip this next time with --provider <id> or "knowa router --prefer <id>")`);
   return picked ?? recommended;
 }
 
@@ -52,10 +52,10 @@ const CUSTOM_MODEL = '\0custom';
  * then remembered under `router.models.<id>` — the same shape as a saved
  * `router.prefer` skipping the provider prompt above. An explicit --model, a
  * pipe, JSON mode, or a provider with nothing to choose between all skip it;
- * `devpilot router --model <provider> <model>` changes it later.
+ * `knowa router --model <provider> <model>` changes it later.
  *
  * The shipped catalogue is a starting point, never a whitelist: providers
- * ship models faster than DevPilot releases, so the last entry always accepts
+ * ship models faster than Knowa releases, so the last entry always accepts
  * a model id typed in full.
  */
 async function chooseModel(providerId: string | undefined): Promise<void> {
@@ -77,11 +77,11 @@ async function chooseModel(providerId: string | undefined): Promise<void> {
   const model = (picked === CUSTOM_MODEL ? await promptLine('Model id: ') : picked) || fallback;
 
   saveModelChoice(spec.id, model);
-  log.dim(`(saved — change it with "devpilot router --model ${spec.id} <model>")`);
+  log.dim(`(saved — change it with "knowa router --model ${spec.id} <model>")`);
 }
 
 /**
- * `devpilot generate --estimate` — what the run would cost, before spending
+ * `knowa generate --estimate` — what the run would cost, before spending
  * anything. Builds the real digest (no AI call) and reports the size of the
  * work: an honest range, since response length is unknowable up front.
  */
@@ -105,7 +105,7 @@ function estimateCommand(
   }
 
   const k = (n: number): string => `${Math.round(n / 1000)}k`;
-  log.title('Estimate for devpilot generate');
+  log.title('Estimate for knowa generate');
   log.info(
     `  Provider     ${est.provider ? `${est.provider} [${est.model}]` : 'none — static templates, no AI calls'}`,
   );
@@ -117,7 +117,7 @@ function estimateCommand(
     // A forced-but-unavailable provider must not read as a deliberate choice.
     if (opts.provider) {
       log.warn(
-        `Provider "${opts.provider}" is not available — add its key with ${pc.bold(`devpilot auth ${opts.provider}`)}. ` +
+        `Provider "${opts.provider}" is not available — add its key with ${pc.bold(`knowa auth ${opts.provider}`)}. ` +
           `Estimated for a static run instead.`,
       );
     }
@@ -132,14 +132,14 @@ function estimateCommand(
     log.info(`  Cost         ~$${est.usdLow.toFixed(2)}–$${est.usdHigh.toFixed(2)}`);
     if (est.priceSource === 'builtin') {
       log.dim(
-        `  Using DevPilot's indicative list price for ${est.model}. Providers change prices — ` +
-          `set your own under router.pricing.${est.model} in ~/.devpilot/config.json.`,
+        `  Using Knowa's indicative list price for ${est.model}. Providers change prices — ` +
+          `set your own under router.pricing.${est.model} in ~/.knowa/config.json.`,
       );
     }
   } else if (est.calls) {
     log.info(`  Cost         unknown — no price on file for ${est.model}`);
     log.dim(
-      `  Add one under router.pricing.${est.model} in ~/.devpilot/config.json ` +
+      `  Add one under router.pricing.${est.model} in ~/.knowa/config.json ` +
         `({ "inputPerMTok": 3, "outputPerMTok": 15 }) to see a figure here.`,
     );
   }
@@ -151,7 +151,7 @@ function estimateCommand(
 }
 
 /**
- * `devpilot generate` — generate the complete AI kit for this project:
+ * `knowa generate` — generate the complete AI kit for this project:
  * rules, subagents, skills, slash commands, prompts and a professional
  * docs suite,
  * tailored by AI when a provider is configured.
@@ -208,15 +208,15 @@ export async function generateCommand(
   if (opts.ai !== false && !pickProvider(opts.provider)) {
     if (opts.provider) {
       log.fail(
-        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`devpilot auth ${opts.provider}`)}.`,
+        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`knowa auth ${opts.provider}`)}.`,
       );
     } else {
-      log.fail('devpilot generate reads your codebase with AI, but no AI provider is configured.');
+      log.fail('knowa generate reads your codebase with AI, but no AI provider is configured.');
       log.info(
         `\n  Use a signed-in CLI:  Claude Code (${pc.bold('claude')}), Codex (${pc.bold('codex login')}) or Gemini CLI (${pc.bold('gemini')}) — no API key needed` +
-          `\n  Or add an API key:    ${pc.bold('devpilot auth anthropic')}  (or openai, google, openrouter)` +
+          `\n  Or add an API key:    ${pc.bold('knowa auth anthropic')}  (or openai, google, openrouter)` +
           `\n  Or a local model:     install Ollama (${pc.bold('ollama serve')})` +
-          `\n  Offline templates:    ${pc.bold('devpilot generate --no-ai')}  (explicitly skip AI)`,
+          `\n  Offline templates:    ${pc.bold('knowa generate --no-ai')}  (explicitly skip AI)`,
       );
     }
     return 1;
@@ -282,7 +282,7 @@ export async function generateCommand(
     }
     log.warn(`Not generated yet: ${result.failed.join(', ')}.`);
     log.info(
-      `\nEverything already written is kept. Re-run ${pc.bold('devpilot generate')} later ` +
+      `\nEverything already written is kept. Re-run ${pc.bold('knowa generate')} later ` +
         `(e.g. when your usage window resets) — it continues where it left off, ` +
         `or route elsewhere now with ${pc.bold('--provider')}.`,
     );

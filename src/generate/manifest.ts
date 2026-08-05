@@ -6,14 +6,14 @@ import { writeFileAtomic } from '../core/fsx.js';
 import { topLevelDirs } from './artifacts.js';
 
 /**
- * Kit manifest (.devpilot/manifest.json): what `devpilot generate` knew about
+ * Kit manifest (.knowa/manifest.json): what `knowa generate` knew about
  * the project when it wrote the kit, and a hash of every file it wrote.
- * `devpilot sync` compares this against a fresh analysis to detect drift
+ * `knowa sync` compares this against a fresh analysis to detect drift
  * (the codebase outgrew the kit) and against the files on disk to detect
  * user edits (which sync must preserve, never overwrite).
  */
 
-export const MANIFEST_FILE = '.devpilot/manifest.json';
+export const MANIFEST_FILE = '.knowa/manifest.json';
 
 /** The comparable facts of an analysis — cheap to diff, stable to serialize. */
 export interface KitFingerprint {
@@ -28,8 +28,8 @@ export interface KitFingerprint {
 }
 
 export interface KitManifest {
-  /** DevPilot version that wrote the kit. */
-  devpilot: string;
+  /** Knowa version that wrote the kit. */
+  knowa: string;
   generatedAt: string;
   provider: string | null;
   fingerprint: KitFingerprint;
@@ -68,7 +68,7 @@ const cosmetic = (content: string): string =>
  * `generate` writes it — Prettier alone rewrites emphasis markers, list
  * bullets, table padding and blank lines. Hashing raw bytes made every kit
  * file read as hand-edited the first time that happened, which silently froze
- * `devpilot sync` out of ever refreshing them again.
+ * `knowa sync` out of ever refreshing them again.
  *
  * The trade-off is deliberate: an edit that changes nothing but formatting is
  * not preserved by sync. An edit that changes a word is.

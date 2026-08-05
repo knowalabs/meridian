@@ -1,13 +1,13 @@
 ---
 name: debug-generate
-description: Use when a devpilot generate (or sync) run produced wrong, missing, or stale files and the cause needs tracing through the digest/pipeline.
+description: Use when a knowa generate (or sync) run produced wrong, missing, or stale files and the cause needs tracing through the digest/pipeline.
 ---
 
 # Debug Generate
 
 ## When to use
 
-A `devpilot generate` (or `devpilot sync`) run wrote nothing for a kind, wrote the wrong content, rejected a path, or seems to be using stale AI review data. Not for adding new capability — that's `@.claude/skills/add-artifact-kind/SKILL.md` or `@.claude/skills/add-ai-provider/SKILL.md`.
+A `knowa generate` (or `knowa sync`) run wrote nothing for a kind, wrote the wrong content, rejected a path, or seems to be using stale AI review data. Not for adding new capability — that's `@.claude/skills/add-artifact-kind/SKILL.md` or `@.claude/skills/add-ai-provider/SKILL.md`.
 
 ## Before you start
 
@@ -19,8 +19,8 @@ A `devpilot generate` (or `devpilot sync`) run wrote nothing for a kind, wrote t
 
 ## Steps
 
-1. Reproduce with `devpilot generate --dry-run --json [kind]` (or the failing kind by id) in the target project — this shows the planned `FileResult[]` (`action`, `source`) without writing anything.
-2. Run `devpilot generate --estimate` to see the digest size and token estimate with no AI call — rules out a digest-budget problem (`digestBudgetFor`) before suspecting the provider.
+1. Reproduce with `knowa generate --dry-run --json [kind]` (or the failing kind by id) in the target project — this shows the planned `FileResult[]` (`action`, `source`) without writing anything.
+2. Run `knowa generate --estimate` to see the digest size and token estimate with no AI call — rules out a digest-budget problem (`digestBudgetFor`) before suspecting the provider.
 3. If the `GenerateResult.failed` array names the kind, the AI response either returned zero `<<<FILE>>>` blocks or was missing a `requiredFiles` entry after one retry — `generateKind` in `pipeline.ts` writes nothing in that case by design; check the printed warning for which.
 4. If a file shows `action: 'rejected-path'`, the AI (or fallback) suggested a path outside the kind's `allowedPaths` — verify against `isAllowedPath` in `artifacts.ts` (absolute paths, `C:\` drive letters, and `..` escapes are always rejected).
 5. If output looks stale, rerun with `--no-cache` to bypass `cache.ts`'s cached codebase review and force a fresh read.

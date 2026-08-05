@@ -23,15 +23,15 @@ describe('streaming providers', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-stream-'));
-    process.env.DEVPILOT_HOME = tmp;
-    process.env.DEVPILOT_VAULT = 'file';
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-stream-'));
+    process.env.KNOWA_HOME = tmp;
+    process.env.KNOWA_VAULT = 'file';
   });
   afterEach(() => {
     setFetchForTests(null);
     setRuntimeModel(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -104,15 +104,15 @@ describe('OpenAI-compatible providers', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-compat-'));
-    process.env.DEVPILOT_HOME = tmp;
-    process.env.DEVPILOT_VAULT = 'file';
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-compat-'));
+    process.env.KNOWA_HOME = tmp;
+    process.env.KNOWA_VAULT = 'file';
   });
   afterEach(() => {
     setFetchForTests(null);
     setRuntimeModel(null);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -162,9 +162,9 @@ describe('ask command', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-askcmd-'));
-    process.env.DEVPILOT_HOME = tmp;
-    process.env.DEVPILOT_VAULT = 'file';
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-askcmd-'));
+    process.env.KNOWA_HOME = tmp;
+    process.env.KNOWA_VAULT = 'file';
     configureLogger({ level: 'quiet' });
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -174,8 +174,8 @@ describe('ask command', () => {
     setRuntimeModel(null);
     configureLogger({ level: 'normal', json: false });
     vi.restoreAllMocks();
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

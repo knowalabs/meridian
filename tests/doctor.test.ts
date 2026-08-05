@@ -24,7 +24,7 @@ async function runDoctor(opts: { online?: boolean } = {}): Promise<DoctorReportJ
 }
 
 beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-doctor-'));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-doctor-'));
   project = path.join(tmp, 'project');
   fs.mkdirSync(project, { recursive: true });
   fs.writeFileSync(
@@ -33,13 +33,13 @@ beforeEach(() => {
   );
   fs.mkdirSync(path.join(project, 'src'));
   fs.writeFileSync(path.join(project, 'src/index.ts'), 'export const app = 1;\n');
-  process.env.DEVPILOT_HOME = path.join(tmp, 'home');
+  process.env.KNOWA_HOME = path.join(tmp, 'home');
   // buildCli() calls ensureHome() before any command runs; mirror that here.
-  fs.mkdirSync(process.env.DEVPILOT_HOME, { recursive: true });
-  process.env.DEVPILOT_VAULT = 'file';
+  fs.mkdirSync(process.env.KNOWA_HOME, { recursive: true });
+  process.env.KNOWA_VAULT = 'file';
   // Without this the suite would consult whichever AI CLIs the developer
   // happens to have signed in to, making provider assertions machine-specific.
-  process.env.DEVPILOT_DISABLE_PROVIDERS = 'claude-code,codex-cli,gemini-cli,ollama';
+  process.env.KNOWA_DISABLE_PROVIDERS = 'claude-code,codex-cli,gemini-cli,ollama';
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -47,25 +47,25 @@ beforeEach(() => {
 afterEach(() => {
   configureLogger({ level: 'normal', json: false });
   setFetchForTests(null);
-  delete process.env.DEVPILOT_HOME;
-  delete process.env.DEVPILOT_VAULT;
-  delete process.env.DEVPILOT_DISABLE_PROVIDERS;
+  delete process.env.KNOWA_HOME;
+  delete process.env.KNOWA_VAULT;
+  delete process.env.KNOWA_DISABLE_PROVIDERS;
   vi.restoreAllMocks();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe('doctor: environment', () => {
-  it('reports the running node and a writable DevPilot home', async () => {
+  it('reports the running node and a writable Knowa home', async () => {
     const doc = await runDoctor();
     const node = doc.environment.find((c) => c.label === 'Node.js')!;
     expect(node.level).toBe('ok');
     expect(node.detail).toContain(process.versions.node);
-    expect(doc.environment.find((c) => c.label === 'DevPilot home')?.level).toBe('ok');
+    expect(doc.environment.find((c) => c.label === 'Knowa home')?.level).toBe('ok');
   });
 
   it('treats a missing config as fine and a corrupt one as a warning', async () => {
     expect((await runDoctor()).environment.find((c) => c.label === 'Config')?.level).toBe('ok');
-    fs.writeFileSync(path.join(process.env.DEVPILOT_HOME!, 'config.json'), '{ not json');
+    fs.writeFileSync(path.join(process.env.KNOWA_HOME!, 'config.json'), '{ not json');
     const corrupt = (await runDoctor()).environment.find((c) => c.label === 'Config')!;
     expect(corrupt.level).toBe('warn');
     expect(corrupt.fix).toContain('config.json');
@@ -163,15 +163,15 @@ describe('doctor: project kit', () => {
 
   it('reports a deleted generated file as missing', async () => {
     await runGenerate({ root: project, kinds: ['rules'], force: true, dryRun: false, noAi: true });
-    fs.rmSync(path.join(project, '.devpilot/rules.md'));
-    expect((await runDoctor()).kit.missing).toContain('.devpilot/rules.md');
+    fs.rmSync(path.join(project, '.knowa/rules.md'));
+    expect((await runDoctor()).kit.missing).toContain('.knowa/rules.md');
   });
 
   it('reports a hand-edited generated file as preserved, not as drift', async () => {
     await runGenerate({ root: project, kinds: ['rules'], force: true, dryRun: false, noAi: true });
-    fs.writeFileSync(path.join(project, '.devpilot/rules.md'), '# my own rules\n');
+    fs.writeFileSync(path.join(project, '.knowa/rules.md'), '# my own rules\n');
     const doc = await runDoctor();
-    expect(doc.kit.edited).toContain('.devpilot/rules.md');
+    expect(doc.kit.edited).toContain('.knowa/rules.md');
     expect(doc.kit.missing).toEqual([]);
   });
 });
@@ -185,6 +185,6 @@ describe('doctor: human output', () => {
       expect(out).toContain(section);
     }
     expect(out).toContain('Next steps');
-    expect(out).toContain('devpilot generate');
+    expect(out).toContain('knowa generate');
   });
 });

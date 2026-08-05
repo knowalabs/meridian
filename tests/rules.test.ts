@@ -8,7 +8,7 @@ describe('rules generator', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-rules-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-rules-'));
   });
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -17,7 +17,7 @@ describe('rules generator', () => {
   it('creates default rules.md on first load', () => {
     const rules = loadRules(tmp);
     expect(rules).toContain('Never commit secrets');
-    expect(fs.existsSync(path.join(tmp, '.devpilot', 'rules.md'))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, '.knowa', 'rules.md'))).toBe(true);
   });
 
   it('generates a file for every supported tool', () => {
@@ -26,13 +26,13 @@ describe('rules generator', () => {
     expect(fs.existsSync(path.join(tmp, 'CLAUDE.md'))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'AGENTS.md'))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'GEMINI.md'))).toBe(true);
-    expect(fs.existsSync(path.join(tmp, '.cursor', 'rules', 'devpilot.mdc'))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, '.cursor', 'rules', 'knowa.mdc'))).toBe(true);
     expect(fs.existsSync(path.join(tmp, '.github', 'copilot-instructions.md'))).toBe(true);
   });
 
-  it('propagates custom rules from .devpilot/rules.md', () => {
-    fs.mkdirSync(path.join(tmp, '.devpilot'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, '.devpilot', 'rules.md'), '- Always use tabs\n');
+  it('propagates custom rules from .knowa/rules.md', () => {
+    fs.mkdirSync(path.join(tmp, '.knowa'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.knowa', 'rules.md'), '- Always use tabs\n');
     generateRules(tmp, 'my-app');
     const claude = fs.readFileSync(path.join(tmp, 'CLAUDE.md'), 'utf8');
     expect(claude).toContain('Always use tabs');

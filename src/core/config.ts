@@ -11,13 +11,13 @@ export interface RouterConfig {
   /** Per-provider model overrides, e.g. { anthropic: "claude-opus-4-8" }. */
   models?: Record<string, string>;
   /**
-   * Per-model USD price per million tokens, used by `devpilot generate
-   * --estimate`. Keyed by model id; overrides DevPilot's built-in table.
+   * Per-model USD price per million tokens, used by `knowa generate
+   * --estimate`. Keyed by model id; overrides Knowa's built-in table.
    */
   pricing?: Record<string, { inputPerMTok: number; outputPerMTok: number }>;
 }
 
-export interface DevPilotConfig {
+export interface KnowaConfig {
   version: number;
   telemetry: boolean;
   router: RouterConfig;
@@ -25,20 +25,20 @@ export interface DevPilotConfig {
   providers: string[];
 }
 
-const DEFAULT_CONFIG: DevPilotConfig = {
+const DEFAULT_CONFIG: KnowaConfig = {
   version: 1,
   telemetry: false,
   router: { optimize: 'quality' },
   providers: [],
 };
 
-function defaults(): DevPilotConfig {
+function defaults(): KnowaConfig {
   // Deep copy — callers mutate the returned config, and a shared nested
   // `router` object would leak state between loads.
   return { ...DEFAULT_CONFIG, router: { ...DEFAULT_CONFIG.router }, providers: [] };
 }
 
-export function loadConfig(): DevPilotConfig {
+export function loadConfig(): KnowaConfig {
   const file = globalConfigPath();
   const result = readJsonFile<unknown>(file);
   if (!result.ok) {
@@ -54,7 +54,7 @@ export function loadConfig(): DevPilotConfig {
   return coerceConfig(result.value, defaults());
 }
 
-export function saveConfig(config: DevPilotConfig): void {
+export function saveConfig(config: KnowaConfig): void {
   ensureHome();
   writeFileAtomic(globalConfigPath(), JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
 }

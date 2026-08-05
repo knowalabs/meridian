@@ -12,7 +12,7 @@ vi.mock('../src/core/exec.js', () => ({
   versionOf: (bin: string) => versionOfMock(bin),
 }));
 
-const { devpilotHome } = await import('../src/core/paths.js');
+const { knowaHome } = await import('../src/core/paths.js');
 const { makePlugin, TOOL_SPECS } = await import('../src/plugins/tools.js');
 const { mcpConfigTargets } = await import('../src/mcp/configure.js');
 
@@ -25,11 +25,11 @@ afterEach(() => {
   setPlatform(realPlatform);
 });
 
-describe('devpilotHome per platform', () => {
+describe('knowaHome per platform', () => {
   const savedAppData = process.env.APPDATA;
 
   beforeEach(() => {
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
   });
 
   afterEach(() => {
@@ -37,22 +37,22 @@ describe('devpilotHome per platform', () => {
     else process.env.APPDATA = savedAppData;
   });
 
-  it('DEVPILOT_HOME wins everywhere', () => {
-    process.env.DEVPILOT_HOME = '/custom/home';
+  it('KNOWA_HOME wins everywhere', () => {
+    process.env.KNOWA_HOME = '/custom/home';
     setPlatform('win32');
-    expect(devpilotHome()).toBe('/custom/home');
-    delete process.env.DEVPILOT_HOME;
+    expect(knowaHome()).toBe('/custom/home');
+    delete process.env.KNOWA_HOME;
   });
 
-  it('uses %APPDATA%\\devpilot on Windows', () => {
+  it('uses %APPDATA%\\knowa on Windows', () => {
     setPlatform('win32');
     process.env.APPDATA = path.join('C:', 'Users', 'test', 'AppData', 'Roaming');
-    expect(devpilotHome()).toBe(path.join(process.env.APPDATA, 'devpilot'));
+    expect(knowaHome()).toBe(path.join(process.env.APPDATA, 'knowa'));
   });
 
-  it('uses ~/.devpilot elsewhere', () => {
+  it('uses ~/.knowa elsewhere', () => {
     setPlatform('linux');
-    expect(devpilotHome()).toBe(path.join(os.homedir(), '.devpilot'));
+    expect(knowaHome()).toBe(path.join(os.homedir(), '.knowa'));
   });
 });
 

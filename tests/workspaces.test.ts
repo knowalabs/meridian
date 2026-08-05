@@ -19,7 +19,7 @@ describe('workspace detection', () => {
     write(`${rel}/package.json`, JSON.stringify({ name, ...extra }));
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-ws-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-ws-'));
   });
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -121,7 +121,7 @@ describe('workspaces in the analysis and digest', () => {
   };
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-ws-scan-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-ws-scan-'));
     write('package.json', JSON.stringify({ name: 'monorepo', workspaces: ['packages/*'] }));
     write(
       'packages/api/package.json',

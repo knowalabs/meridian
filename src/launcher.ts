@@ -30,9 +30,9 @@ export function showBanner(): void {
   const wide = (process.stdout.columns ?? 80) >= 68;
   console.log('');
   if (wide) {
-    for (const row of bannerRows('DEVPILOT')) console.log(`  ${pc.cyan(row)}`);
+    for (const row of bannerRows('KNOWA')) console.log(`  ${pc.cyan(row)}`);
   } else {
-    console.log(`  ${pc.cyan(pc.bold('✈ DevPilot'))}`);
+    console.log(`  ${pc.cyan(pc.bold('✈ Knowa'))}`);
   }
   console.log(
     `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
@@ -43,26 +43,26 @@ export function showBanner(): void {
 export function showWelcome(): void {
   const row = (cmd: string, what: string) => `  ${pc.cyan(cmd.padEnd(28))} ${what}`;
   console.log(`
-${pc.bold(`DevPilot ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
+${pc.bold(`Knowa ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
 
 ${pc.bold('Get started:')}
-${row('devpilot doctor', 'check tools, providers, vault and kit health')}
-${row('devpilot install', 'install tools (interactive picker)')}
-${row('devpilot auth', 'store an API key in the secure vault')}
-${row('devpilot generate', 'make your project AI-ready in one shot')}
+${row('knowa doctor', 'check tools, providers, vault and kit health')}
+${row('knowa install', 'install tools (interactive picker)')}
+${row('knowa auth', 'store an API key in the secure vault')}
+${row('knowa generate', 'make your project AI-ready in one shot')}
 
 ${pc.bold('Everyday:')}
-${row('devpilot sync', 'refresh the AI kit when the codebase drifts')}
-${row('devpilot ask "…"', 'ask AI via the smart router')}
-${row('devpilot mcp search', 'find & install MCP servers')}
+${row('knowa sync', 'refresh the AI kit when the codebase drifts')}
+${row('knowa ask "…"', 'ask AI via the smart router')}
+${row('knowa mcp search', 'find & install MCP servers')}
 
-Run ${pc.bold('devpilot --help')} for all commands, or ${pc.bold('devpilot <command> --help')} for details.`);
+Run ${pc.bold('knowa --help')} for all commands, or ${pc.bold('knowa <command> --help')} for details.`);
 }
 
 /* ----------------------------------- menu ----------------------------------- */
 
 interface MenuItem {
-  /** devpilot subcommand line this item runs. */
+  /** knowa subcommand line this item runs. */
   command: string;
   label: string;
   description: string;
@@ -105,7 +105,7 @@ const MENU: MenuItem[] = [
 
 /**
  * Arrow-key menu with a hybrid input line: typing filters the menu, and any
- * text that matches no item is run as a raw devpilot command on Enter.
+ * text that matches no item is run as a raw knowa command on Enter.
  * Resolves with the chosen command line, or null to quit.
  */
 function menuPrompt(): Promise<string | null> {
@@ -136,17 +136,17 @@ function menuPrompt(): Promise<string | null> {
         const active = i === selected;
         const marker = active ? pc.cyan('❯') : ' ';
         const label = active ? pc.cyan(pc.bold(item.label.padEnd(16))) : item.label.padEnd(16);
-        const cmd = item.command === QUIT ? '' : pc.dim(`devpilot ${item.command}`.padEnd(24));
+        const cmd = item.command === QUIT ? '' : pc.dim(`knowa ${item.command}`.padEnd(24));
         lines.push(`  ${marker} ${label} ${cmd} ${pc.dim(item.description)}`);
       }
       lines.push('');
       if (buffer && items.length === 0) {
         lines.push(
-          `  ${pc.cyan('❯')} devpilot ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
+          `  ${pc.cyan('❯')} knowa ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
         );
       } else if (buffer) {
         lines.push(
-          `  ${pc.dim('>')} devpilot ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
+          `  ${pc.dim('>')} knowa ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
         );
       } else {
         lines.push(`  ${pc.dim('> start typing to filter or enter any command…')}`);
@@ -244,7 +244,7 @@ export function tokenize(line: string): string[] {
 
 async function runCommandLine(line: string): Promise<number> {
   // Users may type the binary name out of habit — accept both forms.
-  const argv = tokenize(line.replace(/^devpilot\s+/, ''));
+  const argv = tokenize(line.replace(/^knowa\s+/, ''));
   process.exitCode = 0;
   try {
     await buildCli({ exitOverride: true }).parseAsync(argv, { from: 'user' });
@@ -270,10 +270,10 @@ export async function runInteractive(): Promise<void> {
   for (;;) {
     const line = await menuPrompt();
     if (line === null) {
-      console.log(pc.dim('  Bye! Run devpilot anytime to come back.\n'));
+      console.log(pc.dim('  Bye! Run knowa anytime to come back.\n'));
       return;
     }
-    console.log(`  ${pc.dim('$')} ${pc.bold(`devpilot ${line}`)}`);
+    console.log(`  ${pc.dim('$')} ${pc.bold(`knowa ${line}`)}`);
     const code = await runCommandLine(line);
     console.log(
       code === 0 ? pc.dim('\n  ── done ──\n') : pc.yellow(`\n  ── exited with code ${code} ──\n`),

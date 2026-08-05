@@ -19,7 +19,7 @@ export interface ToolPlugin {
   doctor(): DoctorReport;
   install(): Promise<boolean> | boolean;
   uninstall(): Promise<boolean> | boolean;
-  /** Apply DevPilot-managed configuration (rules, MCP, etc.). */
+  /** Apply Knowa-managed configuration (rules, MCP, etc.). */
   configure(): Promise<boolean> | boolean;
   /** Verify the tool works after install/configure. */
   validate(): boolean;

@@ -25,7 +25,7 @@ describe('e2e: keys round-trip (file vault)', () => {
     expect(doc.keys[0]!.masked).not.toContain('e2e-test');
 
     // The secret never lands on disk in plaintext.
-    const keysDir = path.join(sandbox.home, '.devpilot', 'keys');
+    const keysDir = path.join(sandbox.home, '.knowa', 'keys');
     for (const f of fs.readdirSync(keysDir)) {
       expect(fs.readFileSync(path.join(keysDir, f), 'utf8')).not.toContain('sk-e2e-test-key-123');
     }
@@ -40,7 +40,7 @@ describe('e2e: keys round-trip (file vault)', () => {
 
   it('corrupt vault → clear error → keys repair recovers', async () => {
     await runCli(['auth', 'openai', 'sk-corrupt-me', '--no-verify'], sandbox);
-    const vaultFile = path.join(sandbox.home, '.devpilot', 'keys', 'vault.enc');
+    const vaultFile = path.join(sandbox.home, '.knowa', 'keys', 'vault.enc');
     fs.writeFileSync(vaultFile, 'garbage');
 
     const broken = await runCli(['keys', 'list'], sandbox);
@@ -67,10 +67,10 @@ describe('e2e: generate', () => {
     const doc = JSON.parse(gen.stdout) as { files: { file: string; action: string }[] };
     expect(doc.files.length).toBeGreaterThan(10);
     for (const f of [
-      '.devpilot/project.json',
-      '.devpilot/context.md',
+      '.knowa/project.json',
+      '.knowa/context.md',
       'docs/architecture.md',
-      '.devpilot/rules.md',
+      '.knowa/rules.md',
       'README_AI.md',
       'CLAUDE.md',
       'AGENTS.md',
@@ -105,7 +105,7 @@ describe('e2e: sync', () => {
       path.join(sandbox.project, 'package.json'),
       JSON.stringify({ name: 'sync-e2e', scripts: { test: 'vitest run', lint: 'eslint .' } }),
     );
-    const rules = path.join(sandbox.project, '.devpilot/rules.md');
+    const rules = path.join(sandbox.project, '.knowa/rules.md');
     const edited = fs.readFileSync(rules, 'utf8') + '\n- my own rule\n';
     fs.writeFileSync(rules, edited);
 

@@ -1,13 +1,13 @@
 ---
-name: release-devpilot
-description: Use when preparing a new DevPilot release — version bump, CHANGELOG entry, and a tag matching the CI publish gate.
+name: release-knowa
+description: Use when preparing a new Knowa release — version bump, CHANGELOG entry, and a tag matching the CI publish gate.
 ---
 
-# Release DevPilot
+# Release Knowa
 
 ## When to use
 
-Cutting a new version of `@sonalsithara/devpilot` for npm publish. This is a destructive/hard-to-reverse workflow — every step below stops for explicit user approval before acting, per `CLAUDE.md`'s safety rules.
+Cutting a new version of `@sonalsithara/knowa` for npm publish. This is a destructive/hard-to-reverse workflow — every step below stops for explicit user approval before acting, per `CLAUDE.md`'s safety rules.
 
 ## Before you start
 

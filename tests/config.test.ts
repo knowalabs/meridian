@@ -8,12 +8,12 @@ describe('config corruption handling', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-config-'));
-    process.env.DEVPILOT_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-config-'));
+    process.env.KNOWA_HOME = tmp;
   });
 
   afterEach(() => {
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

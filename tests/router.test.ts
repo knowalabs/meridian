@@ -18,11 +18,11 @@ describe('ai router', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-router-'));
-    process.env.DEVPILOT_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-router-'));
+    process.env.KNOWA_HOME = tmp;
   });
   afterEach(() => {
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -105,12 +105,12 @@ describe('model catalogue', () => {
   const spec = (id: string): ProviderSpec => PROVIDERS.find((p) => p.id === id)!;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-models-'));
-    process.env.DEVPILOT_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-models-'));
+    process.env.KNOWA_HOME = tmp;
   });
   afterEach(() => {
     setRunForTests(null);
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

@@ -36,16 +36,16 @@ describe('mcp configure', () => {
   let project: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-mcp-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-mcp-'));
     project = path.join(tmp, 'project');
     fs.mkdirSync(project, { recursive: true });
-    process.env.DEVPILOT_HOME = path.join(tmp, 'home');
+    process.env.KNOWA_HOME = path.join(tmp, 'home');
     mockHome = path.join(tmp, 'userhome');
     fs.mkdirSync(mockHome, { recursive: true });
   });
 
   afterEach(() => {
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     mockHome = '';
     fs.rmSync(tmp, { recursive: true, force: true });
   });

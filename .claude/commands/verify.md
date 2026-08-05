@@ -1,5 +1,5 @@
 ---
-description: Run DevPilot's format/lint/build/coverage/e2e chain in CI order and fix failures
+description: Run Knowa's format/lint/build/coverage/e2e chain in CI order and fix failures
 argument-hint: [lint|format|build|coverage|e2e]
 ---
 

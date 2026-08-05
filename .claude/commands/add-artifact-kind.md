@@ -1,5 +1,5 @@
 ---
-description: Scaffold a new devpilot-generate artifact kind
+description: Scaffold a new knowa-generate artifact kind
 argument-hint: <kind-id>
 ---
 

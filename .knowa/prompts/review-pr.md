@@ -1,12 +1,12 @@
-# Review a DevPilot Pull Request
+# Review a Knowa Pull Request
 
 ## When to use
 
-Before merging a PR that touches `src/**/*.ts` or `tests/**/*.ts` in `@sonalsithara/devpilot` — the CLI that makes other codebases AI-assistant-ready.
+Before merging a PR that touches `src/**/*.ts` or `tests/**/*.ts` in `@sonalsithara/knowa` — the CLI that makes other codebases AI-assistant-ready.
 
 ## Context
 
-- Node.js/TypeScript CLI (`devpilot`), ESM only (`"type": "module"`), strict `tsconfig.json` with `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`.
+- Node.js/TypeScript CLI (`knowa`), ESM only (`"type": "module"`), strict `tsconfig.json` with `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`.
 - Relative imports must use explicit `.js` extensions (NodeNext resolution) — e.g. `import './core/colorflag.js'` in `src/index.ts`.
 - ESLint (`eslint.config.js`) errors on `src/**` for `@typescript-eslint/no-explicit-any`, `no-floating-promises`, `no-misused-promises`.
 - Module boundaries: `src/commands/*.ts` are thin adapters (parse/validate, call `core`/`generate`/`providers`/`scan`, return an exit code) — no business logic in a Commander `.action()`. `src/scan/analyzer.ts` is read-only and must never write files. Only `src/generate/` and `src/rules/generators.ts` write generated output.

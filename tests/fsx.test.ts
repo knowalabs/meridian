@@ -8,7 +8,7 @@ describe('fsx', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-fsx-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-fsx-'));
   });
 
   afterEach(() => {

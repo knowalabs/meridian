@@ -1,5 +1,5 @@
 ---
-description: Trace a devpilot generate/sync failure to its root cause
+description: Trace a knowa generate/sync failure to its root cause
 argument-hint: <symptom or failing command>
 allowed-tools: Read, Grep, Glob, Bash
 ---

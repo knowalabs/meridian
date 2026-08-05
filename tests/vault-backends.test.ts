@@ -26,22 +26,22 @@ describe('vault backend selection', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-vaultsel-'));
-    process.env.DEVPILOT_HOME = tmp;
-    delete process.env.DEVPILOT_VAULT;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-vaultsel-'));
+    process.env.KNOWA_HOME = tmp;
+    delete process.env.KNOWA_VAULT;
     runMock.mockReset().mockReturnValue(okResult());
     whichMock.mockReset().mockReturnValue('/usr/bin/found');
   });
 
   afterEach(() => {
     setPlatform(realPlatform);
-    delete process.env.DEVPILOT_HOME;
-    delete process.env.DEVPILOT_VAULT;
+    delete process.env.KNOWA_HOME;
+    delete process.env.KNOWA_VAULT;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('DEVPILOT_VAULT=file forces the plain encrypted file vault', () => {
-    process.env.DEVPILOT_VAULT = 'file';
+  it('KNOWA_VAULT=file forces the plain encrypted file vault', () => {
+    process.env.KNOWA_VAULT = 'file';
     setPlatform('darwin');
     expect(openVault().backend).toBe('encrypted-file');
   });
@@ -78,9 +78,9 @@ describe('keychain vault (mocked security CLI)', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-vaultkc-'));
-    process.env.DEVPILOT_HOME = tmp;
-    delete process.env.DEVPILOT_VAULT;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-vaultkc-'));
+    process.env.KNOWA_HOME = tmp;
+    delete process.env.KNOWA_VAULT;
     setPlatform('darwin');
     runMock.mockReset().mockReturnValue(okResult());
     whichMock.mockReset().mockReturnValue('/usr/bin/security');
@@ -88,7 +88,7 @@ describe('keychain vault (mocked security CLI)', () => {
 
   afterEach(() => {
     setPlatform(realPlatform);
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -118,9 +118,9 @@ describe('secret-tool vault (mocked)', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-vaultst-'));
-    process.env.DEVPILOT_HOME = tmp;
-    delete process.env.DEVPILOT_VAULT;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-vaultst-'));
+    process.env.KNOWA_HOME = tmp;
+    delete process.env.KNOWA_VAULT;
     setPlatform('linux');
     runMock.mockReset().mockReturnValue(okResult());
     whichMock.mockReset().mockReturnValue('/usr/bin/secret-tool');
@@ -128,7 +128,7 @@ describe('secret-tool vault (mocked)', () => {
 
   afterEach(() => {
     setPlatform(realPlatform);
-    delete process.env.DEVPILOT_HOME;
+    delete process.env.KNOWA_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

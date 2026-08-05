@@ -1,17 +1,17 @@
-# Debug a DevPilot Runtime Failure
+# Debug a Knowa Runtime Failure
 
 ## When to use
 
-`devpilot` itself fails at runtime — a provider network/auth error, a vault backend failure, a `generate`/`sync` kit failure, or a launcher/TUI issue — and you need root cause before touching code.
+`knowa` itself fails at runtime — a provider network/auth error, a vault backend failure, a `generate`/`sync` kit failure, or a launcher/TUI issue — and you need root cause before touching code.
 
 ## Context
 
-- Every user-facing failure is a `CliError` (`src/core/errors.ts`) with an actionable `hint` — start there; the hint usually names the fix (e.g. `Run "devpilot auth ${ctx.provider}" to update it.`).
+- Every user-facing failure is a `CliError` (`src/core/errors.ts`) with an actionable `hint` — start there; the hint usually names the fix (e.g. `Run "knowa auth ${ctx.provider}" to update it.`).
 - Provider calls (`src/providers/router.ts`) retry 408/425/429/500/502/503/504 up to `MAX_ATTEMPTS = 3` with exponential backoff (`backoffFor`), honoring `Retry-After` (`retryAfterMs`); 401/403 map to an auth-failed `CliError`, 404 to a missing-model `CliError`, other 4xx are never retried. A hung request aborts via `AbortController` after `DEFAULT_TIMEOUT_MS` and is reported, not retried. `classifyStatus` is the single place that turns an HTTP status into "retry" or a specific `CliError`.
 - CLI-backed providers (`claude-code`, `codex-cli`, `gemini-cli`) are spawned via `runAsync` and pipe the prompt over stdin, not argv.
-- The vault (`src/core/vault.ts`) has four backends selected by `openVault()`: `KeychainVault` (macOS `security`), `SecretToolVault` (Linux `secret-tool`), `FileVault` (AES-256-GCM encrypted file, key wrapped by `DpapiProtector` on Windows via PowerShell/stdin, or left as hex via `PlainProtector`). A corrupted `FileVault` read throws a `CliError` hinting at `devpilot keys repair`, which calls `repairVault()` to back up and remove `vault.enc`/`.master`/`index.json`.
-- `devpilot generate`'s pipeline (`src/generate/pipeline.ts`) is fail-closed: `generateKind` retries an incomplete/malformed AI response once, and if it's still bad, writes nothing for that kind and adds it to `GenerateResult.failed` — never silently falls back to the static template mid-run. `isQuotaError` detects usage-limit/rate-limit messages and stops the run early (`aborted`).
-- `devpilot sync` compares a fresh `analyzeProject()` fingerprint against `.devpilot/manifest.json` (`src/generate/manifest.ts`'s `diffFingerprints`/`fileStates`) — drift, missing files, and hand-edited files (hash mismatch) are classified separately; hand edits are always preserved.
+- The vault (`src/core/vault.ts`) has four backends selected by `openVault()`: `KeychainVault` (macOS `security`), `SecretToolVault` (Linux `secret-tool`), `FileVault` (AES-256-GCM encrypted file, key wrapped by `DpapiProtector` on Windows via PowerShell/stdin, or left as hex via `PlainProtector`). A corrupted `FileVault` read throws a `CliError` hinting at `knowa keys repair`, which calls `repairVault()` to back up and remove `vault.enc`/`.master`/`index.json`.
+- `knowa generate`'s pipeline (`src/generate/pipeline.ts`) is fail-closed: `generateKind` retries an incomplete/malformed AI response once, and if it's still bad, writes nothing for that kind and adds it to `GenerateResult.failed` — never silently falls back to the static template mid-run. `isQuotaError` detects usage-limit/rate-limit messages and stops the run early (`aborted`).
+- `knowa sync` compares a fresh `analyzeProject()` fingerprint against `.knowa/manifest.json` (`src/generate/manifest.ts`'s `diffFingerprints`/`fileStates`) — drift, missing files, and hand-edited files (hash mismatch) are classified separately; hand edits are always preserved.
 - The interactive launcher (`src/launcher.ts`) runs each command in-process via `buildCli({ exitOverride: true }).parseAsync`, catching `CommanderError` so one failing command can't kill the menu loop; it is excluded from coverage thresholds (human/e2e-exercised).
 - Test seams exist for exactly this kind of reproduction without live network/subprocess calls: `setFetchForTests`/`setRunForTests`/`setRetryDelayForTests` in `src/providers/router.ts` (see `tests/router-network.test.ts` for the pattern with `vi.useFakeTimers()`).
 
