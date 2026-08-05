@@ -7,14 +7,11 @@ import { renderError } from './core/errors.js';
 /* ---------------------------------- banner ---------------------------------- */
 
 const LETTERS: Record<string, string[]> = {
-  D: ['██████╗ ', '██╔══██╗', '██║  ██║', '██║  ██║', '██████╔╝', '╚═════╝ '],
-  E: ['███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '███████╗', '╚══════╝'],
-  V: ['██╗   ██╗', '██║   ██║', '██║   ██║', '╚██╗ ██╔╝', ' ╚████╔╝ ', '  ╚═══╝  '],
-  P: ['██████╗ ', '██╔══██╗', '██████╔╝', '██╔═══╝ ', '██║     ', '╚═╝     '],
-  I: ['██╗', '██║', '██║', '██║', '██║', '╚═╝'],
-  L: ['██╗     ', '██║     ', '██║     ', '██║     ', '███████╗', '╚══════╝'],
+  K: ['██╗  ██╗', '██║ ██╔╝', '█████╔╝ ', '██╔═██╗ ', '██║  ██╗', '╚═╝  ╚═╝'],
+  N: ['███╗   ██╗', '████╗  ██║', '██╔██╗ ██║', '██║╚██╗██║', '██║ ╚████║', '╚═╝  ╚═══╝'],
   O: [' ██████╗ ', '██╔═══██╗', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '],
-  T: ['████████╗', '╚══██╔══╝', '   ██║   ', '   ██║   ', '   ██║   ', '   ╚═╝   '],
+  W: ['██╗    ██╗', '██║    ██║', '██║ █╗ ██║', '██║███╗██║', '╚███╔███╔╝', ' ╚══╝╚══╝ '],
+  A: [' █████╗ ', '██╔══██╗', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
 };
 
 function bannerRows(word: string): string[] {
@@ -27,12 +24,14 @@ function bannerRows(word: string): string[] {
 }
 
 export function showBanner(): void {
-  const wide = (process.stdout.columns ?? 80) >= 68;
+  // 45 columns of art plus the two-space indent — "KNOWA" is five letters where
+  // the old wordmark was eight, so the old 68-column gate hid art that fits.
+  const wide = (process.stdout.columns ?? 80) >= 52;
   console.log('');
   if (wide) {
-    for (const row of bannerRows('KNOWA')) console.log(`  ${pc.cyan(row)}`);
+    for (const row of bannerRows('KNOWA')) console.log(`  ${pc.green(row)}`);
   } else {
-    console.log(`  ${pc.cyan(pc.bold('✈ Knowa'))}`);
+    console.log(`  ${pc.green(pc.bold('Knowa'))}`);
   }
   console.log(
     `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
@@ -41,7 +40,7 @@ export function showBanner(): void {
 
 /** Static overview for non-interactive terminals (pipes, CI). */
 export function showWelcome(): void {
-  const row = (cmd: string, what: string) => `  ${pc.cyan(cmd.padEnd(28))} ${what}`;
+  const row = (cmd: string, what: string) => `  ${pc.green(cmd.padEnd(28))} ${what}`;
   console.log(`
 ${pc.bold(`Knowa ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
 
@@ -134,19 +133,19 @@ function menuPrompt(): Promise<string | null> {
       lines.push('');
       for (const [i, item] of items.entries()) {
         const active = i === selected;
-        const marker = active ? pc.cyan('❯') : ' ';
-        const label = active ? pc.cyan(pc.bold(item.label.padEnd(16))) : item.label.padEnd(16);
+        const marker = active ? pc.green('❯') : ' ';
+        const label = active ? pc.green(pc.bold(item.label.padEnd(16))) : item.label.padEnd(16);
         const cmd = item.command === QUIT ? '' : pc.dim(`knowa ${item.command}`.padEnd(24));
         lines.push(`  ${marker} ${label} ${cmd} ${pc.dim(item.description)}`);
       }
       lines.push('');
       if (buffer && items.length === 0) {
         lines.push(
-          `  ${pc.cyan('❯')} knowa ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
+          `  ${pc.green('❯')} knowa ${pc.bold(buffer)}${pc.green('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
         );
       } else if (buffer) {
         lines.push(
-          `  ${pc.dim('>')} knowa ${pc.bold(buffer)}${pc.cyan('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
+          `  ${pc.dim('>')} knowa ${pc.bold(buffer)}${pc.green('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
         );
       } else {
         lines.push(`  ${pc.dim('> start typing to filter or enter any command…')}`);
