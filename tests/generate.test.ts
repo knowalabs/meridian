@@ -9,9 +9,10 @@ import {
   parseFileBlocks,
   type ArtifactKind,
 } from '../src/generate/artifacts.js';
-import { buildDigest } from '../src/generate/digest.js';
+import { buildDigest, parseFileRequests, serveFileRequests } from '../src/generate/digest.js';
 import {
   concurrencyFor,
+  correctionFor,
   dependencyWaves,
   estimateGenerate,
   runGenerate,
@@ -23,6 +24,7 @@ import {
   type ProviderSpec,
 } from '../src/providers/router.js';
 import { openVault } from '../src/core/vault.js';
+import { setGitForTests } from '../src/scan/git.js';
 import { analyzeProject } from '../src/scan/analyzer.js';
 import { generateCommand } from '../src/commands/generate.js';
 import { configureLogger } from '../src/core/logger.js';
@@ -167,6 +169,53 @@ describe('buildDigest', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('buildDigest with history', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = makeProject();
+    fs.writeFileSync(
+      path.join(root, 'src/big.ts'),
+      `// ${'pad '.repeat(400)}\nexport const big = 1;\n`,
+    );
+    fs.writeFileSync(path.join(root, 'src/small.ts'), 'export const small = 1;\n');
+    setGitForTests((args) => {
+      const line = args.join(' ');
+      if (line.includes('--is-inside-work-tree')) return { ok: true, stdout: 'true' };
+      if (line.includes('log -1')) return { ok: true, stdout: '2026-08-04' };
+      if (line.includes('--abbrev-ref')) return { ok: true, stdout: 'main' };
+      // The small file is where the work is; the big one is settled.
+      if (line.includes('--name-only'))
+        return { ok: true, stdout: '\u0001Ada\nsrc/small.ts\n\u0001Ada\nsrc/small.ts' };
+      return { ok: true, stdout: '2026-08-04\tfeat: rework the scheduler' };
+    });
+  });
+  afterEach(() => {
+    setGitForTests(null);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('shows the AI what the project has actually been working on', () => {
+    const digest = buildDigest(root);
+    expect(digest.text).toContain('## Recent activity');
+    expect(digest.text).toContain('feat: rework the scheduler');
+    expect(digest.text).toContain('src/small.ts — 2 commits');
+    expect(digest.git?.contributors).toBe(1);
+  });
+
+  it('spends the excerpt budget on the files that change, not the biggest ones', () => {
+    const included = buildDigest(root).includedFiles;
+    expect(included.indexOf('src/small.ts')).toBeLessThan(included.indexOf('src/big.ts'));
+  });
+
+  it('says nothing about history when there is none', () => {
+    setGitForTests(() => ({ ok: false, stdout: '' }));
+    const digest = buildDigest(root);
+    expect(digest.git).toBeNull();
+    expect(digest.text).not.toContain('## Recent activity');
   });
 });
 
@@ -663,16 +712,21 @@ describe('static fallbacks', () => {
 
   it('shows the AI the skills it must delegate to, and forbids restating them', () => {
     const commands = ARTIFACT_KINDS.find((k) => k.id === 'commands')!;
-    expect(commands.dependsOn).toEqual(['skills']);
+    expect(commands.dependsOn).toEqual(['rules', 'skills']);
     const upstream = [
       {
         file: '.claude/skills/ship-widget/SKILL.md',
         content:
           '---\nname: ship-widget\ndescription: Use when shipping a widget.\n---\n\n# Ship\n',
       },
+      { file: '.devpilot/rules.md', content: '## General\n\n- Widgets ship on Fridays.\n' },
     ];
     const prompt = commands.prompt('digest', upstream);
     expect(prompt).toContain('ship-widget — Use when shipping a widget.');
+    // The rules go in whole; a skill's body must not, or the command would
+    // have everything it needs to restate the workflow it should delegate to.
+    expect(prompt).toContain('Widgets ship on Fridays.');
+    expect(prompt).not.toContain('# Ship');
     expect(prompt).toContain('Restating the skill');
     expect(prompt).toContain('is a failure');
     // With no skills to point at, the commands must stand on their own.
@@ -1194,6 +1248,17 @@ describe('dependencyWaves', () => {
     expect(skills).toBeGreaterThanOrEqual(0);
     expect(commands).toBeGreaterThan(skills);
   });
+
+  it('writes the rules before every kind that must agree with them', () => {
+    const waves = ids(dependencyWaves(ARTIFACT_KINDS));
+    const waveOf = (id: string): number => waves.findIndex((w) => w.includes(id));
+    const rules = waveOf('rules');
+    expect(rules).toBe(0);
+    // A kit whose docs, agents and skills each invent their own standard is a
+    // kit that contradicts itself; they all build on the rules instead.
+    for (const id of ['agents', 'skills', 'docs', 'prompts', 'commands'])
+      expect(waveOf(id), id).toBeGreaterThan(rules);
+  });
 });
 
 describe('concurrencyFor', () => {
@@ -1246,6 +1311,9 @@ const filesFor = (prompt: string): string => {
   if (prompt.includes('.devpilot/prompts/')) {
     return [1, 2, 3].map((n) => block(`.devpilot/prompts/p${n}.md`, `# Prompt ${n}`)).join('\n');
   }
+  if (prompt.includes('.claude/settings.json')) {
+    return block('.claude/settings.json', '{ "permissions": { "allow": [] } }');
+  }
   return block('.devpilot/rules.md', '## General\n\n- Be good.');
 };
 
@@ -1278,14 +1346,17 @@ describe('parallel kind generation', () => {
       if (isReviewPrompt(text)) return aiResponse('# Review');
       inFlight++;
       peak = Math.max(peak, inFlight);
-      await new Promise((r) => setTimeout(r, 10));
+      // Prompts answers last, so reporting order cannot be completion order.
+      await new Promise((r) => setTimeout(r, text.includes('.devpilot/prompts/') ? 30 : 5));
       inFlight--;
       return aiResponse(filesFor(text));
     });
 
+    // Two kinds that do not depend on each other, and whose dependencies are
+    // outside this run — those run as one wave, so the pool is what limits them.
     const result = await runGenerate({
       root,
-      kinds: ['rules', 'prompts'],
+      kinds: ['harness', 'prompts'],
       provider: 'anthropic',
       force: false,
       dryRun: false,
@@ -1295,10 +1366,11 @@ describe('parallel kind generation', () => {
 
     expect(peak).toBe(2);
     expect(result.failed).toEqual([]);
-    // Reporting order follows the requested kinds, not completion order.
+    // Reporting order follows the kit's own kind order, not completion order —
+    // prompts is slowest here, and still leads the report.
     const kinds = result.files.filter((f) => f.kind !== 'scan').map((f) => f.kind);
-    expect(kinds[0]).toBe('rules');
-    expect(kinds[kinds.length - 1]).toBe('prompts');
+    expect(kinds[0]).toBe('prompts');
+    expect(kinds[kinds.length - 1]).toBe('harness');
   });
 
   it('propagates rules to tool files even when rules finishes out of order', async () => {
@@ -1475,5 +1547,362 @@ describe('estimateGenerate', () => {
     // Ollama is only "available" when its binary is on PATH; either way the
     // estimate must not invent a dollar figure for a local model.
     expect(est.usdLow).toBeNull();
+  });
+});
+
+describe('file requests during the codebase review', () => {
+  let root: string;
+  let home: string;
+
+  beforeEach(() => {
+    // A file the digest never samples: not a key file, not a source extension.
+    root = makeProject({
+      'design-notes.md': '# Notes\n\nThe scheduler is deliberately single-threaded.\n',
+    });
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-req-'));
+    process.env.DEVPILOT_HOME = home;
+    process.env.DEVPILOT_VAULT = 'file';
+    setRetryDelayForTests(0);
+    openVault().set('anthropic', 'test-key');
+  });
+  afterEach(() => {
+    setFetchForTests(null);
+    setRetryDelayForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    delete process.env.DEVPILOT_VAULT;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  const run = () =>
+    runGenerate({
+      root,
+      kinds: ['prompts'],
+      provider: 'anthropic',
+      force: true,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+    });
+
+  it('serves the files the reviewer asks for and shows them the answer', async () => {
+    const reviewPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (!isReviewPrompt(text)) return aiResponse(filesFor(text));
+      reviewPrompts.push(text);
+      return reviewPrompts.length === 1
+        ? aiResponse('<<<REQUEST>>>\n- `design-notes.md`\n<<<END>>>')
+        : aiResponse('# Review\n\nIt is explained in design-notes.md.');
+    });
+
+    const result = await run();
+
+    expect(result.requestedFiles).toEqual(['design-notes.md']);
+    expect(reviewPrompts).toHaveLength(2);
+    // The offer is made, then the file is actually in front of the reviewer.
+    expect(reviewPrompts[0]).toContain('<<<REQUEST>>>');
+    expect(reviewPrompts[1]).toContain('deliberately single-threaded');
+    // The review it finally wrote is what lands in the kit, protocol stripped.
+    const review = fs.readFileSync(path.join(root, '.devpilot/docs/codebase-review.md'), 'utf8');
+    expect(review).toContain('It is explained in design-notes.md.');
+    expect(review).not.toContain('<<<REQUEST>>>');
+  });
+
+  it('passes the requested source to the artifact kinds, not just the review', async () => {
+    let kindPrompt = '';
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (!isReviewPrompt(text)) {
+        kindPrompt = text;
+        return aiResponse(filesFor(text));
+      }
+      return text.includes('deliberately single-threaded')
+        ? aiResponse('# Review')
+        : aiResponse('<<<REQUEST>>>\ndesign-notes.md\n<<<END>>>');
+    });
+
+    await run();
+    // A kind that cannot see the evidence the review was written from would
+    // have to take the review's word for it.
+    expect(kindPrompt).toContain('deliberately single-threaded');
+  });
+
+  it('refuses a path outside the project and says why', async () => {
+    const reviewPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (!isReviewPrompt(text)) return aiResponse(filesFor(text));
+      reviewPrompts.push(text);
+      return reviewPrompts.length === 1
+        ? aiResponse('<<<REQUEST>>>\n../../etc/passwd\nsrc/nope.ts\n<<<END>>>')
+        : aiResponse('# Review');
+    });
+
+    const result = await run();
+
+    expect(result.requestedFiles).toEqual([]);
+    expect(reviewPrompts[1]).toContain('outside the project');
+    expect(reviewPrompts[1]).toContain('does not exist');
+    expect(reviewPrompts[1]).not.toContain('root:');
+  });
+
+  it('treats a review that quotes the protocol as a review, not a request', async () => {
+    let reviewCalls = 0;
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (!isReviewPrompt(text)) return aiResponse(filesFor(text));
+      reviewCalls++;
+      // What a review of DevPilot itself looks like: it describes the request
+      // protocol because the project's own source implements it.
+      return aiResponse(
+        '# Review\n\n## Gotchas\n\nThe reviewer may ask for files:\n\n' +
+          '<<<REQUEST>>>\nsrc/a.ts\n<<<END>>>\n',
+      );
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['prompts'],
+      provider: 'anthropic',
+      force: true,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+    });
+
+    expect(reviewCalls).toBe(1);
+    expect(result.requestedFiles).toEqual([]);
+    const review = fs.readFileSync(path.join(root, '.devpilot/docs/codebase-review.md'), 'utf8');
+    expect(review).toContain('## Gotchas');
+  });
+
+  it('stops asking after the round limit', async () => {
+    let reviewCalls = 0;
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (!isReviewPrompt(text)) return aiResponse(filesFor(text));
+      reviewCalls++;
+      // A reviewer that never stops asking must not be able to loop the run.
+      return aiResponse('<<<REQUEST>>>\nsrc/index.ts\n<<<END>>>');
+    });
+
+    await run();
+
+    expect(reviewCalls).toBe(3);
+    expect(await run().then((r) => r.failed)).toEqual([]);
+  });
+
+  it('re-serves the requested files on a cache hit, without an AI call', async () => {
+    let reviewCalls = 0;
+    const kindPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (!isReviewPrompt(text)) {
+        kindPrompts.push(text);
+        return aiResponse(filesFor(text));
+      }
+      reviewCalls++;
+      return text.includes('deliberately single-threaded')
+        ? aiResponse('# Review')
+        : aiResponse('<<<REQUEST>>>\ndesign-notes.md\n<<<END>>>');
+    });
+
+    const cached = () =>
+      runGenerate({
+        root,
+        kinds: ['prompts'],
+        provider: 'anthropic',
+        force: true,
+        dryRun: false,
+        noAi: false,
+      });
+    await cached();
+    await cached();
+    const settled = await cached();
+
+    expect(settled.reviewFromCache).toBe(true);
+    expect(settled.requestedFiles).toEqual(['design-notes.md']);
+    // Served from disk on the cache hit: the kind still sees the evidence.
+    expect(kindPrompts[kindPrompts.length - 1]).toContain('deliberately single-threaded');
+    const before = reviewCalls;
+    await cached();
+    expect(reviewCalls).toBe(before);
+  });
+});
+
+describe('grounded retry', () => {
+  const kindOf = (over: Partial<ArtifactKind> = {}): ArtifactKind =>
+    ({ id: 'docs', minFiles: 2, requiredFiles: ['docs/architecture.md'], ...over }) as ArtifactKind;
+
+  it('tells the provider which required files were missing', () => {
+    const text = correctionFor(kindOf(), [{ file: 'docs/other.md', content: 'x' }], []);
+    expect(text).toContain('docs/architecture.md');
+    expect(text).toContain('this kind needs at least 2');
+    expect(text).toContain('PREVIOUS ATTEMPT WAS REJECTED');
+  });
+
+  it('repeats the validator’s own words for a contradicted claim', () => {
+    const text = correctionFor(
+      kindOf(),
+      [{ file: 'docs/architecture.md', content: 'x' }],
+      [
+        { file: 'docs/architecture.md', message: 'references `npm run nope`', severity: 'error' },
+        { file: 'docs/architecture.md', message: 'references `src/gone.ts`', severity: 'warning' },
+      ],
+    );
+    expect(text).toContain('references `npm run nope`');
+    expect(text).toContain('references `src/gone.ts` (fix or remove the reference)');
+  });
+
+  it('explains the protocol when nothing parsed', () => {
+    expect(correctionFor(kindOf(), [], [])).toContain('<<<FILE path>>>');
+  });
+
+  it('says nothing when there is nothing to correct', () => {
+    const files = [
+      { file: 'docs/architecture.md', content: 'x' },
+      { file: 'docs/conventions.md', content: 'y' },
+    ];
+    expect(correctionFor(kindOf(), files, [])).toBe('');
+  });
+});
+
+describe('grounded retry, end to end', () => {
+  let root: string;
+  let home: string;
+
+  beforeEach(() => {
+    root = makeProject();
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'devpilot-home-retry-'));
+    process.env.DEVPILOT_HOME = home;
+    process.env.DEVPILOT_VAULT = 'file';
+    setRetryDelayForTests(0);
+    openVault().set('anthropic', 'test-key');
+  });
+  afterEach(() => {
+    setFetchForTests(null);
+    setRetryDelayForTests(null);
+    delete process.env.DEVPILOT_HOME;
+    delete process.env.DEVPILOT_VAULT;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('retries with what the first answer got wrong, and keeps the fix', async () => {
+    const kindPrompts: string[] = [];
+    const block = (body: string): string =>
+      `<<<FILE .devpilot/prompts/p1.md>>>\n${body}\n<<<END>>>\n` +
+      `<<<FILE .devpilot/prompts/p2.md>>>\n# Two\n<<<END>>>\n` +
+      `<<<FILE .devpilot/prompts/p3.md>>>\n# Three\n<<<END>>>`;
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      kindPrompts.push(text);
+      // The first answer invents a script this project does not have.
+      return aiResponse(
+        kindPrompts.length === 1
+          ? block('Run `npm run deploy` first.')
+          : block('Run `npm run test`.'),
+      );
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['prompts'],
+      provider: 'anthropic',
+      force: true,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+    });
+
+    expect(kindPrompts).toHaveLength(2);
+    expect(kindPrompts[1]).toContain('this project has no "deploy" script');
+    expect(kindPrompts[1]).toContain('PREVIOUS ATTEMPT WAS REJECTED');
+    // The repaired answer is what lands, and it no longer carries the claim.
+    expect(result.issues).toEqual([]);
+    const written = fs.readFileSync(path.join(root, '.devpilot/prompts/p1.md'), 'utf8');
+    expect(written).toContain('npm run test');
+  });
+});
+
+describe('parseFileRequests', () => {
+  it('reads bare, bulleted and backticked paths alike', () => {
+    expect(
+      parseFileRequests('<<<REQUEST>>>\nsrc/a.ts\n- src/b.ts\n2. `src/c.ts`\n\n<<<END>>>'),
+    ).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+  });
+
+  it('ignores prose and returns nothing without a block', () => {
+    expect(parseFileRequests('# Review\n\nAll good.')).toEqual([]);
+    // A line with spaces is a sentence, not a path.
+    expect(parseFileRequests('<<<REQUEST>>>\nI would like to see more\n<<<END>>>')).toEqual([]);
+  });
+
+  it('de-duplicates and caps how much one round may ask for', () => {
+    const many = Array.from({ length: 30 }, (_, i) => `src/f${i}.ts`);
+    const asked = parseFileRequests(`<<<REQUEST>>>\n${[...many, ...many].join('\n')}\n<<<END>>>`);
+    expect(asked).toHaveLength(12);
+    expect(new Set(asked).size).toBe(12);
+  });
+});
+
+describe('serveFileRequests', () => {
+  let root: string;
+  beforeEach(() => {
+    root = makeProject({ 'design-notes.md': 'the rationale\n' });
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('serves a real file as a digest section', () => {
+    const served = serveFileRequests(root, ['design-notes.md'], 10_000);
+    expect(served.served).toEqual(['design-notes.md']);
+    expect(served.text).toContain('## File: design-notes.md');
+    expect(served.text).toContain('the rationale');
+  });
+
+  it('refuses to leave the project, whatever shape the path takes', () => {
+    fs.writeFileSync(path.join(path.dirname(root), 'outside.txt'), 'secret\n');
+    const served = serveFileRequests(
+      root,
+      ['../outside.txt', '/etc/passwd', 'C:\\Windows\\win.ini', './src/../../outside.txt'],
+      10_000,
+    );
+    expect(served.served).toEqual([]);
+    expect(served.text).not.toContain('secret');
+    for (const refusal of served.refused) expect(refusal.reason).toBe('outside the project');
+  });
+
+  it('refuses directories, missing files and ignored paths', () => {
+    fs.mkdirSync(path.join(root, 'node_modules', 'dep'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'node_modules/dep/index.js'), 'module.exports = 1;\n');
+    const served = serveFileRequests(
+      root,
+      ['src', 'src/gone.ts', 'node_modules/dep/index.js'],
+      1e4,
+    );
+    expect(served.served).toEqual([]);
+    expect(served.refused.map((r) => r.reason)).toEqual([
+      'is a directory, not a file',
+      'does not exist',
+      'is ignored by this project',
+    ]);
+  });
+
+  it('tells the AI what it could not have, so it does not ask twice', () => {
+    const served = serveFileRequests(root, ['src/gone.ts'], 10_000);
+    expect(served.text).toContain('do not ask for them again');
+    expect(served.text).toContain('src/gone.ts — does not exist');
+  });
+
+  it('stops serving once the round budget is spent', () => {
+    const big = 'x'.repeat(5_000) + '\n';
+    fs.writeFileSync(path.join(root, 'big-a.md'), big);
+    fs.writeFileSync(path.join(root, 'big-b.md'), big);
+    const served = serveFileRequests(root, ['big-a.md', 'big-b.md'], 4_000);
+    expect(served.served).toEqual(['big-a.md']);
+    expect(served.refused[0]!.reason).toBe('no budget left this round');
+    expect(served.text.length).toBeLessThan(6_000);
   });
 });

@@ -143,7 +143,10 @@ function estimateCommand(
         `({ "inputPerMTok": 3, "outputPerMTok": 15 }) to see a figure here.`,
     );
   }
-  log.dim('\n  Estimates only. A cached codebase review removes one call; retries add calls.');
+  log.dim(
+    '\n  Estimates only. A cached codebase review removes one call; retries, and files the ' +
+      'review asks to read (up to 2 rounds), add calls.',
+  );
   return 0;
 }
 
@@ -244,6 +247,14 @@ export async function generateCommand(
   const planned = result.files.filter((f) => f.action === 'planned');
   const skipped = result.files.filter((f) => f.action === 'skipped-exists');
   const rejected = result.files.filter((f) => f.action === 'rejected-path');
+
+  // Worth showing: it is the AI saying which files it judged load-bearing.
+  if (result.requestedFiles?.length) {
+    log.dim(
+      `  read on request: ${result.requestedFiles.slice(0, 6).join(', ')}` +
+        (result.requestedFiles.length > 6 ? `, +${result.requestedFiles.length - 6} more` : ''),
+    );
+  }
 
   for (const f of written) log.ok(`${f.file} ${pc.dim(`(${f.kind}, ${f.source})`)}`);
   for (const f of planned)

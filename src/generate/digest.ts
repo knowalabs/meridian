@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { analyzeProject, ProjectAnalysis, renderCodeMap } from '../scan/analyzer.js';
 import { renderWorkspaces } from '../scan/workspaces.js';
-import { createIgnore, IgnoreMatcher } from '../scan/ignore.js';
+import { createIgnore, IgnoreMatcher, ignoresPath } from '../scan/ignore.js';
+import { churnMap, collectGitSignal, GitSignal, renderGitSignal } from '../scan/git.js';
 
 /**
  * Project digest (Phase 5): a compact, deterministic text snapshot of the
@@ -16,6 +17,8 @@ export interface ProjectDigest {
   text: string;
   /** Files whose contents made it into the digest, in order. */
   includedFiles: string[];
+  /** Version-control signal, or null for a project without usable history. */
+  git: GitSignal | null;
 }
 
 /**
@@ -104,16 +107,21 @@ const isTestFile = (rel: string): boolean =>
 
 /**
  * Extra source files to show real code conventions. Spread round-robin across
- * top-level directories — largest first within each — so one big folder can't
- * crowd out the rest, and guarantee test files a seat: they document intended
- * behavior and the project's test style, which the generated artifacts must
- * describe.
+ * top-level directories — most-changed first within each, size breaking ties —
+ * so one big folder can't crowd out the rest, and guarantee test files a seat:
+ * they document intended behavior and the project's test style, which the
+ * generated artifacts must describe.
+ *
+ * Churn leads the ranking on purpose. Size says which file is biggest; only
+ * the history says which file the team is actually working in, and that is the
+ * one an assistant will be asked to change.
  */
 function sampleSources(
   analysis: ProjectAnalysis,
   root: string,
   max: number,
   ignore: IgnoreMatcher,
+  churn: Map<string, number>,
 ): string[] {
   const seen = new Set(KEY_FILES);
   const picks: { file: string; size: number }[] = [];
@@ -164,7 +172,8 @@ function sampleSources(
     else groups.set(key, [p]);
   }
   const lists = [...groups.values()];
-  for (const list of lists) list.sort((a, b) => b.size - a.size);
+  for (const list of lists)
+    list.sort((a, b) => (churn.get(b.file) ?? 0) - (churn.get(a.file) ?? 0) || b.size - a.size);
 
   const ordered: string[] = [];
   for (let round = 0; ordered.length < picks.length; round++) {
@@ -199,9 +208,14 @@ export function buildDigest(
   // sampled excerpts must agree on what belongs to the project.
   const ignore = createIgnore(root);
   const a = analysis ?? analyzeProject(root, ignore);
+  // History is read once and used twice: as a section the AI reads, and as the
+  // ranking that decides which files are worth the excerpt budget below.
+  const git = collectGitSignal(root, ignore);
+  const churn = churnMap(git);
   // The code map goes in ahead of file excerpts: every class/function in the
   // project stays visible to the AI even when file contents don't fit.
   const codeMapText = renderCodeMap(a.codeMap, Math.min(24_000, Math.floor(cap / 4)));
+  const gitText = renderGitSignal(git);
   const sections: string[] = [
     `# Project: ${a.name}`,
     `Languages: ${a.languages.map((l) => `${l.language} (${l.files} files)`).join(', ') || 'unknown'}`,
@@ -221,10 +235,13 @@ export function buildDigest(
         ]
       : []),
     `\n## Code map — every class, function and type per file\n\n${codeMapText || '(no symbols detected)'}`,
+    ...(gitText
+      ? [`\n## Recent activity — what this project is actually working on\n\n${gitText}`]
+      : []),
   ];
 
-  let budget = cap - codeMapText.length;
-  const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax, ignore)];
+  let budget = cap - codeMapText.length - gitText.length;
+  const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax, ignore, churn)];
   const includedFiles: string[] = [];
   for (const rel of files) {
     if (budget <= 0) break;
@@ -235,5 +252,121 @@ export function buildDigest(
     budget -= content.length;
   }
 
-  return { analysis: a, text: sections.join('\n'), includedFiles };
+  return { analysis: a, text: sections.join('\n'), includedFiles, git };
+}
+
+/* ------------------------- follow-up file requests ------------------------- */
+
+/**
+ * The digest is a fixed budget spent on files chosen by heuristic, so the one
+ * file that would settle a question about this project may simply not be in
+ * it. Rather than let the review pass guess, it may ask: the protocol below
+ * lets a response name the files it wants, and `serveFileRequests` reads them
+ * back under the same rules the digest itself obeys.
+ *
+ * Deliberately text-only, not tool-calling — every provider DevPilot supports
+ * goes through the same `ask(prompt)` string interface, including the keyless
+ * CLIs, and a protocol they all speak is worth more than one only the hosted
+ * APIs could use.
+ */
+
+export const REQUEST_SPEC = `<<<REQUEST>>>
+path/one.ts
+path/two.ts
+<<<END>>>`;
+
+/** Most files one request round may ask for; the rest are ignored. */
+const MAX_REQUESTED = 12;
+
+/** Paths a response asked to see, in order, de-duplicated. */
+export function parseFileRequests(response: string): string[] {
+  const block = /<<<REQUEST>>>\r?\n([\s\S]*?)\r?\n?<<<END>>>/.exec(response);
+  if (!block) return [];
+  const paths = block[1]!
+    .split('\n')
+    // Models list paths as bullets, numbers or backticked spans as readily as
+    // bare lines; all of them mean the same thing.
+    .map((line) =>
+      line
+        .replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '')
+        .replace(/`/g, '')
+        .trim(),
+    )
+    .filter((line) => line && !line.includes(' '));
+  return [...new Set(paths)].slice(0, MAX_REQUESTED);
+}
+
+export interface ServedFiles {
+  /** Rendered `## File:` sections, ready to append to the digest. */
+  text: string;
+  /** Paths actually served. */
+  served: string[];
+  /** Paths refused, with the reason — told to the AI so it does not re-ask. */
+  refused: { file: string; reason: string }[];
+}
+
+/**
+ * Read the requested files, subject to the same limits as the digest: inside
+ * the project, not ignored, not binary, capped per file and in total. A
+ * request is a hint from the AI, never an authority — a path that escapes the
+ * project root is refused the same way `isAllowedPath` refuses one on the way
+ * out.
+ */
+export function serveFileRequests(
+  root: string,
+  requested: string[],
+  budgetChars: number,
+  ignore: IgnoreMatcher = createIgnore(root),
+): ServedFiles {
+  const served: string[] = [];
+  const refused: { file: string; reason: string }[] = [];
+  const sections: string[] = [];
+  let budget = budgetChars;
+
+  for (const raw of requested) {
+    const rel = path.posix.normalize(raw.replace(/\\/g, '/').replace(/^\.\//, ''));
+    if (path.isAbsolute(raw) || /^[a-zA-Z]:[\\/]/.test(raw) || rel.startsWith('..')) {
+      refused.push({ file: raw, reason: 'outside the project' });
+      continue;
+    }
+    if (budget <= 0) {
+      refused.push({ file: raw, reason: 'no budget left this round' });
+      continue;
+    }
+    const full = path.join(root, rel);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(full);
+    } catch {
+      refused.push({ file: rel, reason: 'does not exist' });
+      continue;
+    }
+    if (stat.isDirectory()) {
+      refused.push({ file: rel, reason: 'is a directory, not a file' });
+      continue;
+    }
+    if (ignoresPath(ignore, rel)) {
+      refused.push({ file: rel, reason: 'is ignored by this project' });
+      continue;
+    }
+    const content = excerpt(full, Math.min(PER_FILE_CAP * 2, budget));
+    if (content === null) {
+      refused.push({ file: rel, reason: 'is not readable text' });
+      continue;
+    }
+    sections.push(`\n## File: ${rel}\n\n\`\`\`\n${content}\n\`\`\``);
+    served.push(rel);
+    budget -= content.length;
+  }
+
+  const notes = refused.length
+    ? `\n\nThese could not be served — do not ask for them again:\n` +
+      refused.map((r) => `- ${r.file} — ${r.reason}`).join('\n')
+    : '';
+  const text = served.length
+    ? `\n\n--- FILES YOU REQUESTED ---${sections.join('\n')}${notes}`
+    : refused.length
+      ? `\n\n--- FILES YOU REQUESTED ---${notes}`
+      : '';
+  return { text, served, refused };
 }

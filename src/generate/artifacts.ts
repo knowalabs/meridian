@@ -378,7 +378,44 @@ export function withWorkingAgreement(files: ArtifactFile[]): ArtifactFile[] {
   );
 }
 
-function commonPrompt(kindInstructions: string, digest: string): string {
+/** Chars of one upstream kit file carried into a dependent kind's prompt. */
+const UPSTREAM_FILE_CAP = 12_000;
+/** Chars of upstream context in total, so a prompt cannot be crowded out. */
+const UPSTREAM_TOTAL_CAP = 30_000;
+
+/**
+ * Kit files another kind already produced, rendered for the prompt of the kind
+ * that depends on them.
+ *
+ * Without this, every kind derives the project's rules independently from the
+ * digest and they drift: the docs describe one standard, the agents enforce
+ * another, and the rules file states a third. A kind that can read what the
+ * kit already says writes the next layer of it instead of a rival version.
+ */
+function upstreamSection(upstream: ArtifactFile[] | undefined): string {
+  if (!upstream?.length) return '';
+  const parts: string[] = [];
+  let budget = UPSTREAM_TOTAL_CAP;
+  for (const file of upstream) {
+    if (budget <= 0) break;
+    const cap = Math.min(UPSTREAM_FILE_CAP, budget);
+    const content =
+      file.content.length > cap ? file.content.slice(0, cap) + '\n… (truncated)' : file.content;
+    parts.push(`\n### ${file.file}\n\n${content}`);
+    budget -= content.length;
+  }
+  return `
+--- ALREADY GENERATED FOR THIS PROJECT ---
+These files are part of the same kit as the ones you are about to write, and
+they were written first. They are settled: build on them, do not restate them
+and do not contradict them. Where one of them already states a rule, cite it by
+path rather than writing your own version of it — a kit that says the same
+thing twice starts saying it differently the first time either copy changes.
+${parts.join('\n')}
+`;
+}
+
+function commonPrompt(kindInstructions: string, digest: string, upstream?: ArtifactFile[]): string {
   return `You are DevPilot, a tool that makes codebases AI-assistant-ready.
 First review the project digest below carefully — the layout, the real
 frameworks, scripts, dependencies, conventions and the actual source code
@@ -453,7 +490,7 @@ dependency you mention must appear in the digest — remove any that do not,
 and confirm you produced every file the instructions require.
 
 ${FORMAT_SPEC}
-
+${upstreamSection(upstream)}
 --- PROJECT DIGEST ---
 ${digest}`;
 }
@@ -593,7 +630,8 @@ ${
     allowedPaths: ['.claude/agents/'],
     minFiles: 5,
     requiredFiles: ['.claude/agents/code-modernizer.md'],
-    prompt: (digest) =>
+    dependsOn: ['rules'],
+    prompt: (digest, upstream) =>
       commonPrompt(
         `Generate 5–7 Claude Code subagent files under ".claude/agents/", each a
 specialist for THIS project — for example: a code reviewer whose checklist is
@@ -693,6 +731,7 @@ Rules that apply to every agent you generate:
 
 Make each agent 60–140 lines. A short, generic agent is a failure.`,
         digest,
+        upstream,
       ),
     fallback: (a) => {
       const dirs = topLevelDirs(a);
@@ -1186,7 +1225,8 @@ What is still below standard here, and what to do about it next.
       '.claude/skills/document/SKILL.md',
       '.claude/skills/refactor/SKILL.md',
     ],
-    prompt: (digest) =>
+    dependsOn: ['rules'],
+    prompt: (digest, upstream) =>
       commonPrompt(
         `Generate 6–10 Claude Code skills, each at
 ".claude/skills/<skill-name>/SKILL.md", capturing THIS project's actual
@@ -1300,6 +1340,7 @@ followed by a "# Title" line and these headings, in this order:
 
 25–70 lines each; every step actionable and grounded in the digest.`,
         digest,
+        upstream,
       ),
     fallback: (a) => {
       const dirs = topLevelDirs(a);
@@ -1842,9 +1883,13 @@ naming, state handling and navigation registration all follow it.`,
     description: 'Claude Code slash commands (.claude/commands/)',
     allowedPaths: ['.claude/commands/'],
     minFiles: 4,
-    dependsOn: ['skills'],
+    dependsOn: ['rules', 'skills'],
     prompt: (digest, upstream) => {
       const skills = skillIndex(upstream ?? []);
+      // Only the rules go in whole. A command delegates to a skill rather than
+      // restating it, so it needs the skills' names and descriptions — pasting
+      // their bodies here would invite exactly the duplication below forbids.
+      const rules = (upstream ?? []).filter((f) => f.file === '.devpilot/rules.md');
       const delegation = skills.length
         ? `This project's kit already contains these skills, each at
 ".claude/skills/<name>/SKILL.md":
@@ -1914,6 +1959,7 @@ command that can change files states whether it stops for approval first.
 Each command-only body is 10–30 lines and executable without the developer
 explaining anything further.`,
         digest,
+        rules,
       );
     },
     fallback: (a) => {
@@ -2098,7 +2144,8 @@ result of ${chain}, and anything left as a proposal.
     description: 'reusable prompt library (.devpilot/prompts/)',
     allowedPaths: ['.devpilot/prompts/'],
     minFiles: 3,
-    prompt: (digest) =>
+    dependsOn: ['rules'],
+    prompt: (digest, upstream) =>
       commonPrompt(
         `Generate 3–5 reusable prompt files under ".devpilot/prompts/" that a
 developer on this project will actually reach for — e.g. reviewing a PR in
@@ -2124,6 +2171,7 @@ as explicit instructions.
 
 40–90 lines each.`,
         digest,
+        upstream,
       ),
     fallback: (a) => {
       const checklist = verificationChecklist(a);
@@ -2319,7 +2367,8 @@ not, and any behavior the tests exposed as already broken.
       'docs/conventions.md',
       'docs/engineer-workflow.md',
     ],
-    prompt: (digest) =>
+    dependsOn: ['rules'],
+    prompt: (digest, upstream) =>
       commonPrompt(
         `Generate a professional engineering documentation suite under "docs/" —
 the documents a staff engineer would hand a new teammate on THIS project.
@@ -2384,6 +2433,7 @@ Standards every doc in the suite must meet:
 Each doc you write should be 40–120 lines and dense with THIS project's
 real paths, names and commands.`,
         digest,
+        upstream,
       ),
     fallback: (a) => {
       const scripts = workflowScripts(a);

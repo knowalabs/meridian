@@ -160,6 +160,24 @@ export interface IgnoreMatcher {
 export const NULL_IGNORE: IgnoreMatcher = { ignores: () => false };
 
 /**
+ * True when a path is excluded, itself or by any directory above it.
+ *
+ * `IgnoreMatcher.ignores` answers for one entry at a time, which is exactly
+ * right for a walk: a walk never descends into `node_modules`, so it never
+ * asks about a file inside it. Callers that arrive with a whole path and no
+ * walk behind it — the git history, a file an AI asked to read — have no such
+ * guarantee and must test the ancestors themselves. Doing it here keeps that
+ * a property of the ignore module rather than a rule each caller reinvents.
+ */
+export function ignoresPath(ignore: IgnoreMatcher, relPath: string): boolean {
+  const parts = relPath.split('/').filter(Boolean);
+  for (let depth = 1; depth < parts.length; depth++) {
+    if (ignore.ignores(parts.slice(0, depth).join('/'), true)) return true;
+  }
+  return ignore.ignores(relPath, false);
+}
+
+/**
  * Build the ignore matcher for a project root. `.gitignore` files are read
  * lazily per directory and cached, so a walk pays for each one exactly once.
  */

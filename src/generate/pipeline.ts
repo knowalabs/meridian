@@ -15,7 +15,13 @@ import { writeFileAtomic } from '../core/fsx.js';
 import { generateRules } from '../rules/generators.js';
 import { log } from '../core/logger.js';
 import { startSpinner } from '../core/spinner.js';
-import { buildDigest, digestBudgetFor } from './digest.js';
+import {
+  buildDigest,
+  digestBudgetFor,
+  parseFileRequests,
+  REQUEST_SPEC,
+  serveFileRequests,
+} from './digest.js';
 import {
   ARTIFACT_KINDS,
   ArtifactFile,
@@ -85,6 +91,11 @@ export interface GenerateResult {
   /** True when the codebase review was served from cache instead of the AI. */
   reviewFromCache?: boolean;
   /**
+   * Files the review pass asked to read beyond the digest — what the AI
+   * decided it needed to see, which is worth reporting.
+   */
+  requestedFiles?: string[];
+  /**
    * Claims in the generated content that the project contradicts — an invented
    * script, a dead path reference, a malformed agent header. Survivors of the
    * retry in `generateKind`, so the run reports what it kept.
@@ -144,10 +155,18 @@ export function dependencyWaves(kinds: ArtifactKind[]): ArtifactKind[][] {
 /**
  * Markdown a dependency kind has already written under `prefixes`. Bounded:
  * this reads the kit's own directories, which are small and shallow by
- * construction.
+ * construction. A prefix that names an exact file (`.devpilot/rules.md`) is
+ * read directly — a kind can depend on a single-file kind.
  */
 function readKitFiles(root: string, prefixes: string[]): ArtifactFile[] {
   const files: ArtifactFile[] = [];
+  const readOne = (rel: string): void => {
+    try {
+      files.push({ file: rel, content: fs.readFileSync(path.join(root, rel), 'utf8') });
+    } catch {
+      // Not generated yet — the dependent kind simply works without it.
+    }
+  };
   const walk = (dir: string, depth: number): void => {
     if (depth > 3 || files.length >= 100) return;
     let entries: fs.Dirent[];
@@ -175,6 +194,7 @@ function readKitFiles(root: string, prefixes: string[]): ArtifactFile[] {
   };
   for (const prefix of prefixes) {
     if (prefix.endsWith('/')) walk(path.join(root, prefix), 0);
+    else readOne(prefix);
   }
   return files;
 }
@@ -273,6 +293,151 @@ Output markdown only.
 --- PROJECT DIGEST ---
 `;
 
+/**
+ * The digest is a budget spent by heuristic, so it can miss the one file that
+ * settles a question. Before writing, the reviewer may ask for what it is
+ * missing — grounded on real source beats a confident guess, and a guess in
+ * the review propagates into every artifact generated from it.
+ */
+const REQUEST_OFFER = `
+Before you write the review you may ask to read files the digest does not
+contain — the Code map lists files whose contents were not excerpted, and the
+Recent activity section names the files under active development. If reading
+one would change what you write, ask for it instead of guessing.
+
+To ask, respond with ONLY this block and nothing else:
+
+${REQUEST_SPEC}
+
+Ask for at most 12 paths, exactly as they appear in the digest, and only for
+files that would genuinely change the review — the load-bearing modules, the
+ones the history shows are changing, the tests that pin real behavior. You may
+ask twice; after that, write the review from what you have. If you have enough
+already, do not ask at all — just write the review.
+`;
+
+/** Appended once the reviewer has used up its rounds. */
+const NO_MORE_REQUESTS = `
+You have already received the files you asked for. Do not request more —
+write the full review now, from everything above.
+`;
+
+/** Request rounds allowed, so a reading pass can never loop up a bill. */
+const MAX_REVIEW_ROUNDS = 2;
+/** Chars of requested source served per round. */
+const REQUEST_BUDGET_CHARS = 40_000;
+
+/** A leading/trailing markdown fence some providers wrap whole answers in. */
+function unfence(text: string): string {
+  const fenced = /^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/.exec(text.trim());
+  return (fenced ? fenced[1]! : text).trim();
+}
+
+/**
+ * The reading pass: the provider studies the project, asks for anything the
+ * digest left out, and writes the review that grounds every artifact kind.
+ * Returns the review plus the extra source it was written from, so the kinds
+ * see exactly the evidence the review was based on.
+ */
+async function readCodebase(
+  provider: ProviderSpec,
+  apiKey: string,
+  root: string,
+  digestText: string,
+  onRequest: (paths: string[], refused: number) => void,
+): Promise<{ review: string; extra: string; requested: string[] }> {
+  let extra = '';
+  const requested: string[] = [];
+  for (let round = 0; ; round++) {
+    const last = round >= MAX_REVIEW_ROUNDS;
+    const prompt =
+      REVIEW_PROMPT.replace(
+        '--- PROJECT DIGEST ---',
+        `${last ? NO_MORE_REQUESTS : REQUEST_OFFER}\n--- PROJECT DIGEST ---`,
+      ) +
+      digestText +
+      extra;
+    const response = await provider.ask(prompt, apiKey);
+    // A request is the whole answer or it is not a request. The review is
+    // specified as a sequence of `##` sections, so a response carrying them is
+    // a review that quoted the protocol — which is exactly what happens when a
+    // project whose own source describes this protocol gets a kit generated.
+    const quoted = /^#{1,3} \S/m.test(response);
+    const asks = last || quoted ? [] : parseFileRequests(response);
+    if (asks.length === 0) {
+      // A final answer that still carries a request block would otherwise put
+      // the protocol itself into the review file.
+      return {
+        review: unfence(response.replace(/<<<REQUEST>>>[\s\S]*?<<<END>>>/g, '').trim()),
+        extra,
+        requested,
+      };
+    }
+    const served = serveFileRequests(root, asks, REQUEST_BUDGET_CHARS);
+    onRequest(served.served, served.refused.length);
+    extra += served.text;
+    requested.push(...served.served);
+  }
+}
+
+/**
+ * What to tell a provider so its second attempt fixes the first.
+ *
+ * The retry used to re-send the identical prompt and hope for a better roll,
+ * even though the validator knew precisely what was wrong — an invented
+ * script, a dead path, a missing file. Saying so turns the retry into a
+ * repair: the model is told what was rejected and why, in the project's own
+ * terms, and what it must not do again.
+ */
+export function correctionFor(
+  kind: ArtifactKind,
+  previous: ArtifactFile[],
+  issues: ArtifactIssue[],
+): string {
+  const problems: string[] = [];
+  if (previous.length === 0) {
+    problems.push(
+      'You returned no file blocks at all. Every file must be wrapped in the ' +
+        '<<<FILE path>>> … <<<END>>> markers exactly as specified above.',
+    );
+  } else {
+    const names = new Set(previous.map((f) => f.file));
+    const missing = (kind.requiredFiles ?? []).filter((f) => !names.has(f));
+    if (missing.length) problems.push(`These required files were missing: ${missing.join(', ')}.`);
+    if (previous.length < (kind.minFiles ?? 1))
+      problems.push(
+        `You returned ${previous.length} file${previous.length === 1 ? '' : 's'}; ` +
+          `this kind needs at least ${kind.minFiles}.`,
+      );
+    for (const issue of issues.filter((i) => i.severity === 'error'))
+      problems.push(`${issue.file}: ${issue.message}.`);
+    for (const issue of issues.filter((i) => i.severity === 'warning'))
+      problems.push(`${issue.file}: ${issue.message} (fix or remove the reference).`);
+  }
+  if (problems.length === 0) return '';
+
+  return `
+
+--- YOUR PREVIOUS ATTEMPT WAS REJECTED ---
+You already answered this request. The answer was checked against the real
+project and rejected for the reasons below. Every one of them is a fact about
+this project, not an opinion — do not argue with them, correct them.
+
+${problems.map((p) => `- ${p}`).join('\n')}
+
+Now produce the COMPLETE set of files again — not a patch, not a diff, not an
+explanation. Keep everything that was right; change only what is listed above.
+
+While you rewrite:
+- Every script, path, command and dependency you name must appear in the
+  project digest. If you cannot point to it there, delete the sentence rather
+  than rephrase it — a claim this project contradicts is worse than saying
+  nothing, because the next assistant reads it as authority.
+- A practice this project has not adopted yet may only appear as an explicit
+  adoption step ("Adopt X", "Add X"), never as something it already does.
+- Respond with file blocks and nothing else. Do not acknowledge this message.`;
+}
+
 async function generateKind(
   kind: ArtifactKind,
   digest: string,
@@ -310,9 +475,14 @@ async function generateKind(
   // A second answer with the same faults is kept: the issues are reported, and
   // a re-run fills in what is missing since existing files are skipped.
   let lastIssues: ArtifactIssue[] = [];
+  let lastFiles: ArtifactFile[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await provider.ask(kind.prompt(digest, upstream), apiKey);
+      // The second attempt is a repair, not a re-roll: it carries what the
+      // first attempt got wrong, so the model fixes it instead of guessing
+      // again from the same prompt.
+      const correction = attempt === 0 ? '' : correctionFor(kind, lastFiles, lastIssues);
+      const response = await provider.ask(kind.prompt(digest, upstream) + correction, apiKey);
       const files = parseFileBlocks(response);
       const issues = files.length
         ? validateArtifacts(kind, files, analysis, root, planned)
@@ -326,6 +496,7 @@ async function generateKind(
         return { files: finalize(files), source: 'ai', issues };
       }
       lastIssues = issues;
+      lastFiles = files;
       const reason =
         files.length === 0
           ? 'no file blocks'
@@ -409,6 +580,13 @@ export interface GenerateEstimate {
 const ASSUMED_OUTPUT_TOKENS = { review: 3_000, kind: 5_000 };
 /** Rough chars-per-token, adequate for a pre-run order-of-magnitude figure. */
 const CHARS_PER_TOKEN = 4;
+/**
+ * Chars a dependent kind carries from each kind it builds on. The real figure
+ * is whatever that kind wrote, which cannot be known before the run — this is
+ * a mid-sized rules or skill file, and it is counted so the estimate does not
+ * quietly omit a cost the run will pay.
+ */
+const ASSUMED_UPSTREAM_CHARS = 12_000;
 
 /**
  * What a `devpilot generate` run would cost, without making a single AI call.
@@ -427,10 +605,12 @@ export function estimateGenerate(opts: GenerateOptions): GenerateEstimate {
   const reviewInput = (REVIEW_PROMPT.length + digest.text.length) / CHARS_PER_TOKEN;
   // Every kind prompt carries the digest *and* the review it grounds on.
   const groundedDigest = digest.text.length + ASSUMED_OUTPUT_TOKENS.review * CHARS_PER_TOKEN;
-  const kindInput = kinds.reduce(
-    (sum, kind) => sum + (kind.prompt('').length + groundedDigest) / CHARS_PER_TOKEN,
-    0,
-  );
+  const kindInput = kinds.reduce((sum, kind) => {
+    // A dependency read back from disk costs the same as one this run wrote,
+    // so every declared dependency counts whether or not it is in this run.
+    const upstream = (kind.dependsOn ?? []).length * ASSUMED_UPSTREAM_CHARS;
+    return sum + (kind.prompt('').length + groundedDigest + upstream) / CHARS_PER_TOKEN;
+  }, 0);
   const inputTokens = Math.round(reviewInput + kindInput);
   const outputTokens = ASSUMED_OUTPUT_TOKENS.review + ASSUMED_OUTPUT_TOKENS.kind * kinds.length;
 
@@ -556,13 +736,28 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
         : `${provider.name} is reading the codebase (${Math.max(1, Math.round(digest.text.length / 1000))}k chars)…`,
     );
     try {
-      let review = cached ?? (await provider.ask(REVIEW_PROMPT + digest.text, apiKey)).trim();
-      const fenced = /^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/.exec(review);
-      if (fenced) review = fenced[1]!.trim();
+      // A cache hit re-serves the files the cached review asked for: the review
+      // was written knowing them, so the kinds that build on it must see them
+      // too. Reading them back costs a few file reads, not an AI call.
+      const pass = cached
+        ? {
+            review: cached.review,
+            extra: serveFileRequests(opts.root, cached.requested, REQUEST_BUDGET_CHARS).text,
+            requested: cached.requested,
+          }
+        : await readCodebase(provider, apiKey, opts.root, digest.text, (served, refused) => {
+            const asked = served.length + refused;
+            spin.update(
+              `${provider.name} asked to read ${asked} more file${asked === 1 ? '' : 's'}` +
+                `${served.length ? ` — ${served.slice(0, 3).join(', ')}${served.length > 3 ? ', …' : ''}` : ''}…`,
+            );
+          });
+      const review = pass.review;
       if (review) {
-        if (!cached) writeCachedReview(cacheKey, review);
+        if (!cached) writeCachedReview(cacheKey, { review, requested: pass.requested });
         result.reviewFromCache = Boolean(cached);
-        context = `${digest.text}\n\n--- YOUR CODEBASE REVIEW (you wrote this after reading the project) ---\n${review}`;
+        result.requestedFiles = pass.requested;
+        context = `${digest.text}${pass.extra}\n\n--- YOUR CODEBASE REVIEW (you wrote this after reading the project) ---\n${review}`;
         result.files.push(
           ...write(
             'scan',
@@ -573,10 +768,13 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
           ),
         );
       }
+      const asked = pass.requested.length
+        ? ` (asked for ${pass.requested.length} more file${pass.requested.length === 1 ? '' : 's'})`
+        : '';
       spin.succeed(
         cached
-          ? 'Codebase unchanged since the last review — reused it (no AI call)'
-          : 'AI read the codebase → .devpilot/docs/codebase-review.md',
+          ? `Codebase unchanged since the last review — reused it (no AI call)${asked}`
+          : `AI read the codebase${asked} → .devpilot/docs/codebase-review.md`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

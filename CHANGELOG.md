@@ -1,5 +1,23 @@
 # @sonalsithara/devpilot
 
+## 0.19.0
+
+### Minor Changes
+
+- The reading pass can now ask for the files it is missing, and the kit is written from one standard instead of six.
+
+  Four things decided how good a generated kit was, and all four were leaving quality on the table.
+
+  **The reviewer could not ask for anything.** The digest is a fixed budget spent on files chosen by heuristic, so the one file that would settle a question about a project simply might not be in it — and the review pass, which grounds every artifact generated afterwards, had to guess. It can now ask: it may respond with a `<<<REQUEST>>>` block naming up to 12 paths, twice, and `devpilot generate` serves them under the same rules the digest itself obeys — inside the project, not ignored, not binary, capped per round. Deliberately a text protocol rather than tool-calling, so the keyless CLIs (Claude Code, Codex, Gemini CLI) speak it as fluently as the hosted APIs. The files it asked for are shown to the artifact kinds too, not just the reviewer, and they are recorded in the review cache so a cache hit re-serves them from disk without an AI call.
+
+  **The retry was blind.** A response that invented a script, pointed at a dead path or came back incomplete was rejected — and then re-asked with the identical prompt, even though the validator knew exactly what was wrong. The retry now carries the findings in the project's own terms ("this project has no `deploy` script"), asks for the complete set of files again, and states the rule the second attempt must hold to: name nothing the digest cannot back up, and write an unadopted practice as an adoption step rather than a fact.
+
+  **Nothing knew what the project had actually been working on.** Static analysis answers what is in a repository; only the history answers what is live. The digest now carries a `## Recent activity` section — commits and contributors in the last 180 days, the most-changed files, the areas the work is happening in — and, more importantly, ranks the source it excerpts by churn rather than by file size. A settled 2,000-line module no longer crowds out the file the team has touched fifteen times this quarter, and the review's "Trajectory" section finally has evidence behind it instead of inference. Projects without git, or without commits, are unaffected: the signal is simply absent.
+
+  **Every kind invented its own standard.** Only `commands` built on another kind's output; `agents`, `skills`, `docs` and `prompts` each derived the project's rules independently from the digest, which is how a kit ends up with docs describing one convention and agents enforcing another. They now depend on `rules`, receive the generated `.devpilot/rules.md` in their prompt, and are told to cite it rather than restate it. `commands` gets the rules as well — and still only the skill index, never the skill bodies, so a command keeps delegating to a workflow instead of quietly growing a second copy of it.
+
+  Also fixed: `ignoresPath` in `src/scan/ignore.ts`, so a whole path is tested against the ignore rules of every directory above it. `IgnoreMatcher.ignores` answers for one entry at a time, which is right for a walk that never descends into `node_modules` — but the git history and a file an AI asked to read arrive with no walk behind them, and `node_modules/dep/index.js` would have been served on request.
+
 ## 0.18.0
 
 ### Minor Changes
