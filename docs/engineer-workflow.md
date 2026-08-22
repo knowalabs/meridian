@@ -21,19 +21,27 @@ Day-one setup, the real npm scripts, the exact ordered verification CI runs, and
 | `npm run test:coverage` | `vitest run --coverage`                                                         | Coverage-gated run — 70% lines / 60% branches over `src/**/*.ts`, excluding `src/launcher.ts` and `src/index.ts` (`vitest.config.ts`).                                      |
 | `npm run test:e2e`      | `pretest:e2e` (`npm run build`) then `vitest run --config vitest.e2e.config.ts` | Spawns the built `dist/index.js` binary per test (`tests/e2e/helpers.ts`'s `runCli`); only run for changes touching `generate`, `cli.ts`, or anything exercised end-to-end. |
 
-## Verification — exact ordered commands before work is done
+## Verification — two loops, not one
 
-Mirrors `.github/workflows/ci.yml`'s `test` job step order exactly, so a green local run predicts a green CI run:
+**While working**, after each change — the fast loop:
 
 1. `npm run lint`
-2. `npx prettier --check .`
+2. `npm run build`
+3. `npm test`
+
+**When the change is done**, before opening a PR — the full chain, mirroring `.github/workflows/ci.yml`'s `test` job step order so a green local run predicts a green CI run:
+
+1. `npm run lint`
+2. `npx prettier --check .` (`npm run format` to fix)
 3. `npm run build`
 4. `npm run test:coverage`
-5. `npm run test:e2e` — only when the change touches `generate`, `cli.ts`, or another end-to-end-exercised path (this step rebuilds via `pretest:e2e` first, so a stale `dist/` is never tested against).
+5. `npm run test:e2e` — only when the change touches `generate`, `cli.ts`, or another end-to-end-exercised path (this step rebuilds via `pretest:e2e` first, so a stale `dist/` is never tested against, and you can skip step 3 when you go straight to it).
+
+As of 0.20.0 the full chain runs in roughly 15s on a warm `node_modules` (prettier ~2s, lint ~2s, build <1s, coverage ~6s, e2e ~4s), so the split is about signal rather than speed: while iterating, `npm test` tells you what you need in ~6s; coverage and e2e answer questions that only matter once the change is finished.
 
 ## CI
 
-`.github/workflows/ci.yml`'s `test` job runs on every push to `main` and every pull request, across a 3×3 matrix (`ubuntu-latest`/`macos-latest`/`windows-latest` × Node `18`/`20`/`22`), each doing `npm ci` then the five steps above (minus the e2e conditionality — CI always runs it).
+`.github/workflows/ci.yml`'s `test` job runs on every push to `main` and every pull request, across a 3×3 matrix (`ubuntu-latest`/`macos-latest`/`windows-latest` × Node `18`/`20`/`22`), each doing `npm ci` then the five steps of the full chain above (minus the e2e conditionality — CI always runs it).
 
 ## Release / publish
 
