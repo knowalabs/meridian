@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { run, runLive, versionOf, which } from '../core/exec.js';
 import type { DoctorReport, ToolPlugin } from '../core/plugin.js';
 import { PluginRegistry } from '../core/plugin.js';
@@ -218,4 +219,39 @@ export function buildRegistry(): PluginRegistry {
   const registry = new PluginRegistry();
   for (const spec of TOOL_SPECS) registry.register(makePlugin(spec));
   return registry;
+}
+
+/**
+ * AI tools this project should get an instruction file for: those installed on
+ * this machine, plus any whose config the project already carries (so a repo
+ * cloned onto a machine without the tool keeps the file it already had).
+ *
+ * The ids returned match `RULE_TARGETS` in `src/rules/generators.ts` — that
+ * coupling is why this lives here, next to the detection it reuses, rather
+ * than being reimplemented there.
+ *
+ * `copilot` has no CLI to detect, so it is reported only when the project
+ * already carries its instruction file.
+ */
+let detectOverride: ((root: string) => string[]) | null = null;
+
+/** Test seam: pin tool detection so a run does not depend on the host machine. */
+export function setToolDetectionForTests(impl: ((root: string) => string[]) | null): void {
+  detectOverride = impl;
+}
+
+export function detectedAiTools(root: string): string[] {
+  if (detectOverride) return detectOverride(root);
+  const has = (...rel: string[]): boolean => rel.some((r) => fs.existsSync(path.join(root, r)));
+  const installed = (id: string): boolean => {
+    const spec = TOOL_SPECS.find((t) => t.id === id);
+    return spec ? detect(spec).installed : false;
+  };
+  const found: string[] = [];
+  if (installed('claude') || has('CLAUDE.md', '.claude')) found.push('claude');
+  if (installed('cursor') || has('.cursor')) found.push('cursor');
+  if (installed('codex') || has('AGENTS.md')) found.push('codex');
+  if (installed('gemini') || has('GEMINI.md')) found.push('gemini');
+  if (has(path.join('.github', 'copilot-instructions.md'))) found.push('copilot');
+  return found;
 }

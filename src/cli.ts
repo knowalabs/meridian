@@ -150,10 +150,18 @@ Examples:
     .option('-m, --model <model>', 'model to use, overriding the provider default')
     .option('--concurrency <n>', 'artifact kinds to generate at once (default: per provider)')
     .option('--no-cache', 'ignore the cached codebase review and read the project again')
+    .option(
+      '--tools <ids>',
+      'comma-separated tools to write instruction files for, or "all" (default: detected)',
+    )
+    .option(
+      '--rigor <level>',
+      'working-agreement strictness: light, standard or strict (default: standard)',
+    )
     .option('--no-ai', 'use static templates even if an AI provider is configured')
     .addHelpText(
       'after',
-      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nOpt-in kinds (only when named): ci — a GitHub Action running "knowa sync --check"\nExamples:\n  $ knowa generate                   generate everything\n  $ knowa generate agents commands   only subagents and slash commands\n  $ knowa generate ci                add the CI kit-freshness check\n  $ knowa generate --estimate        what it would cost, before spending\n  $ knowa generate --dry-run         preview without writing',
+      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nRigour: light (read-before-write + no silent doc edits), standard (default), strict (full agreement)\nTools: claude, cursor, codex, copilot, gemini (default: the ones detected for this project)\nOpt-in kinds (only when named): ci — a GitHub Action running "knowa sync --check"\nExamples:\n  $ knowa generate                   generate everything\n  $ knowa generate agents commands   only subagents and slash commands\n  $ knowa generate ci                add the CI kit-freshness check\n  $ knowa generate --estimate        what it would cost, before spending\n  $ knowa generate --dry-run         preview without writing\n  $ knowa generate --rigor light     a kit that gets out of the way\n  $ knowa generate --tools claude    only write CLAUDE.md',
     )
     .action(
       async (
@@ -165,6 +173,8 @@ Examples:
           ai?: boolean;
           estimate?: boolean;
           concurrency?: string;
+          rigor?: string;
+          tools?: string;
           cache?: boolean;
           model?: string;
         },

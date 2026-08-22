@@ -44,7 +44,7 @@ export interface ArtifactKind {
    * invariants a kind must carry no matter what a provider returned. Runs
    * after validation, so it must only add content the project can back up.
    */
-  finalize?(files: ArtifactFile[], analysis: ProjectAnalysis): ArtifactFile[];
+  finalize?(files: ArtifactFile[], analysis: ProjectAnalysis, rigor: Rigor): ArtifactFile[];
 }
 
 /** The frontmatter block of a markdown artifact, or null when it has none. */
@@ -254,6 +254,117 @@ function raisingTheBar(a: ProjectAnalysis): string[] {
 }
 
 /**
+ * How much process the generated working agreement imposes.
+ *
+ * The agreement trades speed for rigour on purpose, but a throwaway prototype
+ * and a payments backend do not want the same trade. `light` keeps only the
+ * two rules whose absence causes damage that is expensive to undo — reading
+ * before writing, and never editing documentation silently. `standard` adds
+ * architectural discipline and bug reporting. `strict` is the full agreement,
+ * unchanged, for codebases where a wrong change costs more than a slow one.
+ */
+export type Rigor = 'light' | 'standard' | 'strict';
+
+export const RIGOR_LEVELS: Rigor[] = ['light', 'standard', 'strict'];
+
+/** Applied when `--rigor` is not given, and to kits generated before it existed. */
+export const DEFAULT_RIGOR: Rigor = 'standard';
+
+export function isRigor(value: string): value is Rigor {
+  return (RIGOR_LEVELS as string[]).includes(value);
+}
+
+const WORKING_AGREEMENT_LIGHT = `## Working agreement — non-negotiable
+
+### 1. Read before you write
+
+- Before your first edit in a session, read \`.knowa/rules.md\` plus every file
+  you are about to change. Say which ones you read.
+- Before adding anything, search for an existing implementation of the same
+  concern and extend it rather than adding a second way to do the same job.
+- When a doc and the code disagree, the code is the evidence: follow the code
+  and report the stale doc — do not quietly "fix" either one.
+
+### 2. Never touch documentation silently
+
+- Never rewrite, reorganize or regenerate \`docs/\`, \`README.md\`, \`CLAUDE.md\`,
+  \`AGENTS.md\`, \`GEMINI.md\` or anything under \`.knowa/\` as a side effect of a
+  code change. Edit a doc only when the change you were asked for makes it
+  factually wrong, and then edit the smallest section that is wrong.
+- Announce every documentation edit: list each file and what changed in the
+  summary of your work.
+- \`CLAUDE.md\`, \`AGENTS.md\`, \`GEMINI.md\`, \`.cursor/rules/knowa.mdc\` and
+  \`.github/copilot-instructions.md\` are generated from \`.knowa/rules.md\`.
+  Edit \`.knowa/rules.md\` and run \`knowa sync\` to propagate it; a hand-edit
+  to a mirror is overwritten on the next run, and
+  \`knowa generate rules --force\` regenerates \`.knowa/rules.md\` itself and
+  would discard your edit.
+`;
+
+const WORKING_AGREEMENT_STANDARD = `## Working agreement — non-negotiable
+
+These rules outrank convenience and your own judgement about what the code
+"obviously" needs. Breaking one is a defect even when the code works.
+
+### 1. Read before you write
+
+- Before your first edit in a session, read \`.knowa/rules.md\` plus every file
+  you are about to change. Say which ones you read. Reach for
+  \`docs/architecture.md\` and \`docs/conventions.md\` when the change crosses a
+  module boundary or introduces a pattern — not as a fixed preamble to
+  every task.
+- Before adding anything, search for an existing implementation of the same
+  concern and extend it. A second way to do something already done here is a
+  defect, not a feature.
+- When a doc and the code disagree, the code is the evidence: follow the code
+  and report the stale doc — do not quietly "fix" either one.
+- Do not start implementing while a requirement is ambiguous. Ask, or state the
+  assumption you are proceeding on before writing code.
+
+### 2. Follow the architecture — do not invent your own
+
+- Put every new file in the module that already owns that concern per
+  \`docs/architecture.md\`. If nothing owns it, say so and get approval before
+  creating a new module or top-level directory.
+- Match the file you are editing: its error handling, naming, imports, logging,
+  state management and test style. Code that reads differently from what
+  surrounds it is wrong even when it passes.
+- Where the surrounding code is below the bar this kit sets, write the new code
+  to the standard, keep it self-consistent, and name in your summary the local
+  habit you deliberately did not copy.
+- Never add a dependency, framework, abstraction layer or configuration format
+  without explicit approval. Use what the project already has.
+- Never re-architect, rename, reformat or "clean up" anything outside the scope
+  you were asked to change. Propose unrelated improvements; do not perform them.
+
+### 3. Never touch documentation silently
+
+- Never rewrite, reorganize or regenerate \`docs/\`, \`README.md\`, \`CLAUDE.md\`,
+  \`AGENTS.md\`, \`GEMINI.md\` or anything under \`.knowa/\` as a side effect of a
+  code change. Edit a doc only when the change you were asked for makes it
+  factually wrong, and then edit the smallest section that is wrong.
+- Announce every documentation edit: list each file and what changed in the
+  summary of your work.
+- \`CLAUDE.md\`, \`AGENTS.md\`, \`GEMINI.md\`, \`.cursor/rules/knowa.mdc\` and
+  \`.github/copilot-instructions.md\` are generated from \`.knowa/rules.md\`.
+  Edit \`.knowa/rules.md\` and run \`knowa sync\` to propagate it; a hand-edit
+  to a mirror is overwritten on the next run, and
+  \`knowa generate rules --force\` regenerates \`.knowa/rules.md\` itself and
+  would discard your edit.
+
+### 4. Report a bug before you fix it
+
+- When you find a defect the task did not ask you to fix, report it in the
+  summary of your work: \`file:line\`, what breaks, and the smallest correct
+  fix. Never fix it silently inside an unrelated change, and never leave it
+  unmentioned because it was out of scope.
+- If it blocks the task you were given, say so and give the options rather than
+  inventing a workaround around a known defect.
+- A behavior change is never bundled into a refactor: once approved, fix it as
+  its own change, with a test that fails before the fix and passes after.
+`;
+
+/**
  * The three failure modes a generated kit cannot leave to a provider's
  * discretion: an assistant that implements before reading the kit, one that
  * invents its own structure beside the project's, and one that rewrites
@@ -312,8 +423,10 @@ code "obviously" needs. Breaking one is a defect even when the code works.
   summary of your work. A doc edit the user discovers afterwards is a defect.
 - \`CLAUDE.md\`, \`AGENTS.md\`, \`GEMINI.md\`, \`.cursor/rules/knowa.mdc\` and
   \`.github/copilot-instructions.md\` are generated from \`.knowa/rules.md\`.
-  Edit \`.knowa/rules.md\` and re-run \`knowa generate rules --force\`;
-  a hand-edit to a mirror is overwritten on the next run.
+  Edit \`.knowa/rules.md\` and run \`knowa sync\` to propagate it; a hand-edit
+  to a mirror is overwritten on the next run, and
+  \`knowa generate rules --force\` regenerates \`.knowa/rules.md\` itself and
+  would discard your edit.
 
 ### 4. Improve old code without changing what it does
 
@@ -370,10 +483,21 @@ const DOC_WRITE_RULES = [
  * over content that already carries the section leaves it alone, so a user's
  * own edits below it survive.
  */
-export function withWorkingAgreement(files: ArtifactFile[]): ArtifactFile[] {
+/** The agreement text for a rigour level. `strict` is the full agreement. */
+export function workingAgreementFor(rigor: Rigor = DEFAULT_RIGOR): string {
+  if (rigor === 'light') return WORKING_AGREEMENT_LIGHT;
+  if (rigor === 'standard') return WORKING_AGREEMENT_STANDARD;
+  return WORKING_AGREEMENT;
+}
+
+export function withWorkingAgreement(
+  files: ArtifactFile[],
+  _analysis?: ProjectAnalysis,
+  rigor: Rigor = DEFAULT_RIGOR,
+): ArtifactFile[] {
   return files.map((f) =>
     f.file === '.knowa/rules.md' && !f.content.includes('## Working agreement')
-      ? { ...f, content: `${WORKING_AGREEMENT}\n${f.content.replace(/^\s+/, '')}` }
+      ? { ...f, content: `${workingAgreementFor(rigor)}\n${f.content.replace(/^\s+/, '')}` }
       : f,
   );
 }
@@ -507,16 +631,35 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
     prompt: (digest) =>
       commonPrompt(
         `Generate exactly one file: ".knowa/rules.md" — the canonical coding
-rules for AI assistants working in this repository. Structure it as:
+rules for AI assistants working in this repository.
 
-## General — how to approach changes in this codebase
-## Architecture — what each top-level directory/module is for and the
-   boundaries an AI must respect (derive from the layout and source excerpts)
+This file is loaded into the assistant's context on EVERY request in this
+project, so every line costs tokens on every turn, forever. Write only rules
+that change what an assistant DOES. Reference material — module catalogues,
+dependency inventories, standards backlogs — belongs in the generated "docs/"
+suite, not here. Where you would explain something, point at the file that
+already explains it instead.
+
+Structure it as:
+
+## General — how to approach changes in this codebase, and the files an
+   assistant must read before touching each area
+## Architecture — the boundaries an assistant must respect, written as
+   imperatives: which module owns which concern (one line each), which
+   crossings need approval, and the invariants a change must not break. Do NOT
+   write a module-by-module reference catalogue — "docs/architecture.md"
+   carries that, and restating it here both drifts from it and costs tokens on
+   every turn. Prefer the handful of boundaries that are easiest to violate by
+   accident over exhaustive coverage.
 ## Code Style — the project's real idioms: naming, error handling, imports,
   formatting tools, patterns visible in the source excerpts
 ## Testing — which test frameworks/configs exist, where tests live, what a
   change must include, exact commands to run
-## Verification — the exact ordered commands to run before work is done
+## Verification — the commands to run before work is done. When the project's
+   full chain is slower or noisier than a quick check, split it: a fast loop to
+   run after each edit while iterating, and the full chain in CI's order to run
+   once when the change is finished — and say which is the default. If the
+   project has only one meaningful chain, give one list and say so.
 ## Legacy code — the parts of this codebase that sit below the standard set
    above (name the files/modules from your review), the target pattern each
    should move to, and the rules for working in them: new code meets the
@@ -525,11 +668,14 @@ rules for AI assistants working in this repository. Structure it as:
    reported to the developer before it is fixed. If nothing is below the
    standard, say so in one line instead of inventing legacy.
 ## Safety — secrets, destructive operations, files never to touch
-## Raising the bar — the standards this project should adopt next to reach
-   enterprise quality, taken from the maturity gaps and trajectory in your
-   codebase review. Each is an imperative with its concrete first step, and
-   each is clearly an adoption step — never disguised as something the
-   project already has.
+## Further reading — the generated "docs/" files worth opening, one line each
+   on when to open them, marked explicitly as consult-on-demand rather than
+   read-every-change. Omit this section entirely if the project has no "docs/"
+   suite. Do NOT put the standards backlog here or anywhere in this file: the
+   maturity gaps and adoption steps from your codebase review belong in the
+   docs suite ("engineering-standards.md", "tech-debt.md"), because they are
+   never actionable for a single change and would otherwise be re-read on
+   every request.
 
 A fixed "## Working agreement" section — read the kit before editing, stay
 inside the existing architecture and patterns, never touch documentation
@@ -543,8 +689,9 @@ files that sit below the standard; in "Safety", name this project's own
 documentation and generated files by path, so "never edit docs silently"
 points at real paths.
 
-Every rule is an imperative one-liner an AI can follow. Aim for 60–140 lines
-of genuinely project-specific rules.`,
+Every rule is an imperative one-liner an AI can follow. Aim for 50–90 lines of
+genuinely project-specific rules. If you run longer, you are describing rather
+than instructing — cut the description and keep the imperative.`,
         digest,
       ),
     fallback: (a) => {
@@ -567,6 +714,8 @@ of genuinely project-specific rules.`,
 
 - Stack: ${stack(a)}.
 ${dirs.map((d) => `- \`${d}/\` — keep changes scoped here when working on this area; do not create new top-level directories without need.`).join('\n') || '- Single-directory project — keep the flat layout.'}
+- The full module map lives in \`docs/architecture.md\` — read it there rather
+  than restating it here.
 
 ## Code Style
 
@@ -609,14 +758,13 @@ ${checklist.length ? `Run, in order, before considering any work done:\n\n${chec
 - Ask before running destructive commands (deletes, force-pushes, migrations).
 - Never edit generated files by hand (\`dist/\`, coverage output, lockfiles except via the package manager).
 
-## Raising the bar
+## Further reading — consult on demand, not every change
 
-${
-  raisingTheBar(a)
-    .map((g) => `- ${g}`)
-    .join('\n') ||
-  '- Tooling baseline is solid — keep tests, lint, formatting and CI green as the project grows.'
-}
+- \`docs/architecture.md\` — the module map, data flow and invariants.
+- \`docs/conventions.md\` — the rationale behind the code style above.
+- \`docs/engineering-standards.md\` and \`docs/tech-debt.md\` — the standards
+  this project should adopt next, and the debt behind them. Read when picking
+  up work, not as a per-change checklist.
 `,
         },
       ];
@@ -628,12 +776,14 @@ ${
     name: 'Subagents',
     description: 'Claude Code subagents (.claude/agents/)',
     allowedPaths: ['.claude/agents/'],
-    minFiles: 5,
+    // Every subagent's description is resident in the assistant's system prompt
+    // for the whole session, so the kit asks for the few that earn that cost.
+    minFiles: 3,
     requiredFiles: ['.claude/agents/code-modernizer.md'],
     dependsOn: ['rules'],
     prompt: (digest, upstream) =>
       commonPrompt(
-        `Generate 5–7 Claude Code subagent files under ".claude/agents/", each a
+        `Generate 3–5 Claude Code subagent files under ".claude/agents/", each a
 specialist for THIS project — for example: a code reviewer whose checklist is
 built from the project's real conventions and bug-prone areas visible in the
 code; a test runner/fixer that knows the exact test commands and layout; a
@@ -1218,7 +1368,8 @@ What is still below standard here, and what to do about it next.
     name: 'Skills',
     description: 'Claude Code skills (.claude/skills/)',
     allowedPaths: ['.claude/skills/'],
-    minFiles: 6,
+    // Skill descriptions are resident too — see the note on `agents`.
+    minFiles: 4,
     requiredFiles: [
       '.claude/skills/commit/SKILL.md',
       '.claude/skills/handle-errors/SKILL.md',
@@ -1228,7 +1379,7 @@ What is still below standard here, and what to do about it next.
     dependsOn: ['rules'],
     prompt: (digest, upstream) =>
       commonPrompt(
-        `Generate 6–10 Claude Code skills, each at
+        `Generate 4–7 Claude Code skills, each at
 ".claude/skills/<skill-name>/SKILL.md", capturing THIS project's actual
 repeatable workflows. Derive the set from the codebase itself — its
 architecture, layers and everyday engineering tasks — and name each skill
@@ -1882,7 +2033,8 @@ naming, state handling and navigation registration all follow it.`,
     name: 'Slash commands',
     description: 'Claude Code slash commands (.claude/commands/)',
     allowedPaths: ['.claude/commands/'],
-    minFiles: 4,
+    // Command descriptions are resident too — see the note on `agents`.
+    minFiles: 3,
     dependsOn: ['rules', 'skills'],
     prompt: (digest, upstream) => {
       const skills = skillIndex(upstream ?? []);
@@ -1912,7 +2064,7 @@ Produce, in this order:
    what it reports, running the full verification chain in order, reviewing
    the current diff read-only, and cleaning up only what the current session
    changed. None of these may reuse a skill's name.`
-        : `Generate 5–7 command files covering this project's real one-shot actions:
+        : `Generate 3–5 command files covering this project's real one-shot actions:
 running its actual scripts and fixing what they report, running the full
 verification chain, reviewing the current diff read-only, and cleaning up
 what the current session changed.`;

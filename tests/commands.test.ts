@@ -141,7 +141,7 @@ describe('mcp commands', () => {
 describe('generate command (one-shot AI kit)', () => {
   it('reviews the codebase and writes scaffold, context, rules and kit in one run', async () => {
     fs.writeFileSync(path.join(project, 'main.ts'), 'export const a = 1;\n');
-    expect(await generateCommand([], { ai: false }, project)).toBe(0);
+    expect(await generateCommand([], { ai: false, tools: 'all' }, project)).toBe(0);
     for (const f of [
       '.knowa/project.json',
       '.knowa/context.md',
@@ -158,7 +158,7 @@ describe('generate command (one-shot AI kit)', () => {
       expect(fs.existsSync(path.join(project, f)), f).toBe(true);
     }
     // Re-running refreshes derived context but keeps user-editable files.
-    expect(await generateCommand([], { ai: false }, project)).toBe(0);
+    expect(await generateCommand([], { ai: false, tools: 'all' }, project)).toBe(0);
   });
 });
 

@@ -4,12 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ARTIFACT_KINDS,
+  DEFAULT_RIGOR,
   isAllowedPath,
+  isRigor,
   kindsById,
   parseFileBlocks,
+  RIGOR_LEVELS,
+  workingAgreementFor,
   type ArtifactKind,
 } from '../src/generate/artifacts.js';
 import { buildDigest, parseFileRequests, serveFileRequests } from '../src/generate/digest.js';
+import { residentCost } from '../src/generate/manifest.js';
 import {
   concurrencyFor,
   correctionFor,
@@ -241,27 +246,56 @@ describe('static fallbacks', () => {
       expect(prompt).toContain('maturity gaps and trajectory');
       expect(prompt).toContain('Code map');
     }
-    const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
-    expect(rules.prompt('digest')).toContain('Raising the bar');
+    const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!;
+    expect(docs.prompt('digest')).toContain('Maturity & gaps');
   });
 
-  it('rules fallback lists adoption steps for tooling the project lacks', () => {
+  it('keeps the standards backlog out of the per-request rules file', () => {
+    // .knowa/rules.md is loaded on every request; the adoption backlog is
+    // never actionable for a single change, so it lives in docs/ instead.
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-bare-'));
     try {
-      // No scripts, lint, formatter or CI → every gap is reported.
       const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      expect(rules.prompt('digest')).not.toContain('## Raising the bar');
       const content = rules.fallback(analyzeProject(bare))[0]!.content;
-      expect(content).toContain('## Raising the bar');
-      expect(content).toContain('automated test suite');
-      expect(content).toContain('CI pipeline');
-      expect(content).toContain('linter');
-      expect(content).toContain('auto-formatter');
+      expect(content).not.toContain('## Raising the bar');
+      expect(content).not.toContain('Adopt an automated test suite');
+      expect(content).toContain('docs/engineering-standards.md');
     } finally {
       fs.rmSync(bare, { recursive: true, force: true });
     }
   });
 
-  it('rules fallback praises a solid baseline instead of inventing gaps', () => {
+  it('rules point at docs/architecture.md instead of restating the module map', () => {
+    const root = makeProject();
+    try {
+      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      expect(rules.fallback(analyzeProject(root))[0]!.content).toContain('docs/architecture.md');
+      expect(rules.prompt('digest')).toContain('module-by-module reference catalogue');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('docs fallback lists adoption steps for tooling the project lacks', () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-bare-'));
+    try {
+      // No scripts, lint, formatter or CI → every gap is reported.
+      const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!;
+      const standards = docs
+        .fallback(analyzeProject(bare))
+        .find((f) => f.file === 'docs/engineering-standards.md')!;
+      expect(standards.content).toContain('## Adoption steps');
+      expect(standards.content).toContain('automated test suite');
+      expect(standards.content).toContain('CI pipeline');
+      expect(standards.content).toContain('linter');
+      expect(standards.content).toContain('auto-formatter');
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it('docs fallback praises a solid baseline instead of inventing gaps', () => {
     const root = makeProject();
     try {
       fs.writeFileSync(
@@ -272,12 +306,138 @@ describe('static fallbacks', () => {
         }),
       );
       fs.mkdirSync(path.join(root, '.github'));
-      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
-      const content = rules.fallback(analyzeProject(root))[0]!.content;
-      expect(content).toContain('Tooling baseline is solid');
-      expect(content).not.toContain('Adopt an automated test suite');
+      const docs = ARTIFACT_KINDS.find((k) => k.id === 'docs')!;
+      const standards = docs
+        .fallback(analyzeProject(root))
+        .find((f) => f.file === 'docs/engineering-standards.md')!;
+      expect(standards.content).toContain('tooling baseline is solid');
+      expect(standards.content).not.toContain('Adopt an automated test suite');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  describe('rigour levels', () => {
+    const rulesKind = () => ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+
+    it('every level keeps the two rules whose absence is expensive to undo', () => {
+      for (const level of RIGOR_LEVELS) {
+        const text = workingAgreementFor(level);
+        expect(text.startsWith('## Working agreement')).toBe(true);
+        // Read before you write, and never edit docs silently — the floor.
+        expect(text).toContain('Say which ones you read');
+        expect(text).toContain('as a side effect of');
+        // The mirrors are always overwritten, so every level must say so.
+        expect(text).toContain('knowa generate rules --force');
+      }
+    });
+
+    it('costs strictly more process as the level rises', () => {
+      const [light, standard, strict] = RIGOR_LEVELS.map((l) => workingAgreementFor(l));
+      expect(light!.length).toBeLessThan(standard!.length);
+      expect(standard!.length).toBeLessThan(strict!.length);
+    });
+
+    it('light drops the per-task doc preamble and the mid-task stop', () => {
+      const light = workingAgreementFor('light');
+      // The two directives that cost a round-trip or extra reads every task.
+      expect(light).not.toContain('docs/architecture.md');
+      expect(light).not.toContain("wait for the developer's decision");
+      expect(light).not.toContain('characterization tests');
+    });
+
+    it('standard keeps architecture and bug reporting without the hard stop', () => {
+      const standard = workingAgreementFor('standard');
+      expect(standard).toContain('Follow the architecture');
+      expect(standard).toContain('Report a bug before you fix it');
+      // Reported in the summary, not a stop-and-wait mid-task.
+      expect(standard).not.toContain("wait for the developer's decision");
+      expect(standard).toContain('not as a fixed preamble');
+    });
+
+    it('strict is the full agreement, unchanged', () => {
+      const strict = workingAgreementFor('strict');
+      for (const section of [
+        'Read before you write',
+        'Follow the architecture — do not invent your own',
+        'Never touch documentation silently',
+        'Improve old code without changing what it does',
+        'Report a bug before you fix it',
+      ]) {
+        expect(strict).toContain(section);
+      }
+      expect(strict).toContain("wait for the developer's decision");
+    });
+
+    it('defaults to standard and applies the level through finalize', () => {
+      const root = makeProject();
+      try {
+        const analysis = analyzeProject(root);
+        const kind = rulesKind();
+        const defaulted = kind.finalize!(kind.fallback(analysis), analysis, DEFAULT_RIGOR);
+        expect(DEFAULT_RIGOR).toBe('standard');
+        expect(defaulted[0]!.content).toContain('Follow the architecture');
+        expect(defaulted[0]!.content).not.toContain('characterization tests');
+
+        const light = kind.finalize!(kind.fallback(analysis), analysis, 'light');
+        expect(light[0]!.content).not.toContain('Follow the architecture');
+
+        const strict = kind.finalize!(kind.fallback(analysis), analysis, 'strict');
+        expect(strict[0]!.content).toContain('characterization tests');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('accepts only the three known levels', () => {
+      expect(RIGOR_LEVELS).toEqual(['light', 'standard', 'strict']);
+      for (const level of RIGOR_LEVELS) expect(isRigor(level)).toBe(true);
+      for (const bad of ['', 'LIGHT', 'medium', 'strictest']) expect(isRigor(bad)).toBe(false);
+    });
+  });
+
+  it('measures what a kit costs on every request, not just to generate', () => {
+    const root = makeProject();
+    try {
+      fs.mkdirSync(path.join(root, '.claude', 'agents'), { recursive: true });
+      fs.mkdirSync(path.join(root, '.claude', 'skills', 'verify'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'x'.repeat(400));
+      fs.writeFileSync(
+        path.join(root, '.claude', 'agents', 'a.md'),
+        `---\nname: a\ndescription: ${'y'.repeat(40)}\n---\nbody ${'z'.repeat(9000)}`,
+      );
+      fs.writeFileSync(
+        path.join(root, '.claude', 'skills', 'verify', 'SKILL.md'),
+        `---\nname: verify\ndescription: ${'y'.repeat(80)}\n---\nbody`,
+      );
+      const cost = residentCost(root);
+      expect(cost.rules).toBe(100);
+      // Only the description is resident — a 9k-char agent body is not.
+      expect(cost.agents).toBe(10);
+      expect(cost.skills).toBe(20);
+      expect(cost.total).toBe(cost.rules + cost.agents + cost.skills + cost.commands);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports zero resident cost for a project with no kit', () => {
+    const root = makeProject();
+    try {
+      expect(residentCost(root).total).toBe(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the always-resident kinds small enough to earn their context', () => {
+    // agents/skills/commands descriptions sit in the system prompt all session.
+    const floors: Record<string, number> = { agents: 3, skills: 4, commands: 3 };
+    for (const [id, max] of Object.entries(floors)) {
+      const kind = ARTIFACT_KINDS.find((k) => k.id === id)!;
+      expect(kind.minFiles).toBe(max);
+      // The prompt must ask for a count the validator will actually accept.
+      expect(kind.prompt('digest')).toMatch(new RegExp(`Generate ${max}[–-]`));
     }
   });
 
@@ -286,8 +446,14 @@ describe('static fallbacks', () => {
     try {
       const analysis = analyzeProject(root);
       const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
-      const [statik] = rules.finalize!(rules.fallback(analysis), analysis);
-      expect(statik!.content.startsWith('## Working agreement')).toBe(true);
+      // Every level leads with the agreement, whatever produced the file.
+      for (const level of RIGOR_LEVELS) {
+        const [file] = rules.finalize!(rules.fallback(analysis), analysis, level);
+        expect(file!.content.startsWith('## Working agreement')).toBe(true);
+      }
+
+      // The full five-section agreement is what `strict` buys.
+      const [statik] = rules.finalize!(rules.fallback(analysis), analysis, 'strict');
       for (const clause of [
         '1. Read before you write',
         '2. Follow the architecture',
@@ -301,12 +467,13 @@ describe('static fallbacks', () => {
       const [ai] = rules.finalize!(
         [{ file: '.knowa/rules.md', content: '## General\n\n- Ship fast.\n' }],
         analysis,
+        DEFAULT_RIGOR,
       );
       expect(ai!.content).toContain('## Working agreement');
       expect(ai!.content).toContain('- Ship fast.');
 
       // Idempotent: rerunning over finalized content does not stack sections.
-      expect(rules.finalize!([ai!], analysis)[0]!.content).toBe(ai!.content);
+      expect(rules.finalize!([ai!], analysis, DEFAULT_RIGOR)[0]!.content).toBe(ai!.content);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -343,7 +510,7 @@ describe('static fallbacks', () => {
     try {
       const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
       const analysis = analyzeProject(root);
-      const [file] = rules.finalize!(rules.fallback(analysis), analysis);
+      const [file] = rules.finalize!(rules.fallback(analysis), analysis, DEFAULT_RIGOR);
       expect(file!.content).toContain('## Legacy code');
       // New code meets the standard, restructuring is safe, bugs are reported.
       expect(file!.content).toContain('New code meets the standard in this file');

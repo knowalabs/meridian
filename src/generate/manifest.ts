@@ -4,6 +4,7 @@ import path from 'node:path';
 import { ProjectAnalysis } from '../scan/analyzer.js';
 import { writeFileAtomic } from '../core/fsx.js';
 import { topLevelDirs } from './artifacts.js';
+import type { Rigor } from './artifacts.js';
 
 /**
  * Kit manifest (.knowa/manifest.json): what `knowa generate` knew about
@@ -32,6 +33,12 @@ export interface KitManifest {
   knowa: string;
   generatedAt: string;
   provider: string | null;
+  /**
+   * Working-agreement rigour the kit was generated at. Absent on manifests
+   * written before `--rigor` existed; `knowa sync` treats that as the default
+   * rather than re-deciding, so a refresh never changes a kit's rigour.
+   */
+  rigor?: Rigor;
   fingerprint: KitFingerprint;
   /**
    * Per generated file, the content signature recorded when it was written
@@ -164,4 +171,59 @@ export function fileStates(root: string, manifest: KitManifest): FileStates {
     );
   }
   return states;
+}
+
+/** Rough token count for a piece of generated content (~4 chars per token). */
+function tokensOf(content: string): number {
+  return Math.round(content.length / 4);
+}
+
+/** What a generated kit costs an assistant on every single request. */
+export interface ResidentCost {
+  /** The rules file the assistant loads in full each turn. */
+  rules: number;
+  /** Frontmatter descriptions that stay in the system prompt all session. */
+  agents: number;
+  skills: number;
+  commands: number;
+  total: number;
+}
+
+/**
+ * The kit's standing context cost, as opposed to what it cost to generate.
+ *
+ * `--estimate` answers "what will this run charge me"; nothing answered "what
+ * will the result charge me on every request afterwards", which is the number
+ * that decides whether a kit is worth its rigour. Descriptions are counted
+ * rather than whole files because that is what a tool keeps resident: an
+ * agent or skill body is only read when it is invoked.
+ */
+export function residentCost(root: string): ResidentCost {
+  const readIf = (rel: string): string => {
+    try {
+      return fs.readFileSync(path.join(root, rel), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+  const descriptions = (dir: string, leaf?: string): number => {
+    let total = 0;
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(path.join(root, dir));
+    } catch {
+      return 0;
+    }
+    for (const entry of entries) {
+      const rel = leaf ? path.join(dir, entry, leaf) : path.join(dir, entry);
+      const match = /^description:\s*(.+)$/m.exec(readIf(rel));
+      if (match) total += tokensOf(match[1]!);
+    }
+    return total;
+  };
+  const rules = tokensOf(readIf('CLAUDE.md') || readIf(path.join('.knowa', 'rules.md')));
+  const agents = descriptions(path.join('.claude', 'agents'));
+  const skills = descriptions(path.join('.claude', 'skills'), 'SKILL.md');
+  const commands = descriptions(path.join('.claude', 'commands'));
+  return { rules, agents, skills, commands, total: rules + agents + skills + commands };
 }

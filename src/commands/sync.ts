@@ -1,6 +1,6 @@
 import pc from 'picocolors';
 import { analyzeProject } from '../scan/analyzer.js';
-import { pickProvider, runGenerate } from '../generate/pipeline.js';
+import { mirrorTools, pickProvider, runGenerate } from '../generate/pipeline.js';
 import { setRuntimeModel } from '../providers/router.js';
 import {
   diffFingerprints,
@@ -10,6 +10,10 @@ import {
   readManifest,
 } from '../generate/manifest.js';
 import { jsonMode, log } from '../core/logger.js';
+import { generateRules, staleMirrors } from '../rules/generators.js';
+
+/** The canonical rules file, as recorded in the manifest. */
+const RULES_FILE = '.knowa/rules.md';
 
 /**
  * `knowa sync` — keep the generated AI kit alive after `generate`:
@@ -57,18 +61,44 @@ export async function syncCommand(
   const analysis = analyzeProject(cwd);
   const drift = diffFingerprints(manifest.fingerprint, fingerprintOf(analysis));
   const states = fileStates(cwd, manifest);
+  // A hand-edited .knowa/rules.md whose tool files still carry the old text is
+  // the kit's own documented workflow half-applied: propagate it here, because
+  // regenerating the rules kind would overwrite the edit instead of spreading it.
+  //
+  // Gated on the canonical file being the edited one. A hand-edit to a mirror
+  // is a different situation the kit already covers — it is overwritten on the
+  // next generate — and must not start failing `--check`.
+  const rulesEdited = states.edited.some((f) => f.replace(/\\/g, '/') === RULES_FILE);
+  const mirrors = rulesEdited ? staleMirrors(cwd, analysis.name, mirrorTools({ root: cwd })) : [];
   const stale = drift.length > 0 || states.missing.length > 0;
 
   if (jsonMode() && opts.check) {
-    log.json({ inSync: !stale, drift, ...states });
-    return stale ? 1 : 0;
+    log.json({ inSync: !stale && !mirrors.length, drift, staleMirrors: mirrors, ...states });
+    return stale || mirrors.length ? 1 : 0;
   }
 
   for (const d of drift) log.info(`${pc.yellow('△')} ${d}`);
+  for (const f of mirrors) log.info(`${pc.yellow('△')} out of date with .knowa/rules.md: ${f}`);
   for (const f of states.missing) log.info(`${pc.yellow('△')} generated file deleted: ${f}`);
   for (const f of states.edited) log.dim(`  hand-edited, will be preserved: ${f}`);
 
+  // Mirrors are re-rendered from the rules file itself — no AI call, no
+  // regeneration, so a hand-edited rules.md survives and reaches every tool.
+  if (mirrors.length && !opts.check) {
+    for (const g of generateRules(cwd, analysis.name, mirrorTools({ root: cwd })))
+      log.ok(`${g.file} ${pc.dim('(rules propagated)')}`);
+  }
+
   if (!stale) {
+    if (mirrors.length) {
+      if (opts.check) {
+        log.fail(
+          `${mirrors.length} tool file(s) no longer match .knowa/rules.md. Run ${pc.bold('knowa sync')}.`,
+        );
+        return 1;
+      }
+      return 0;
+    }
     log.ok(
       `Kit is in sync with the codebase (${Object.keys(manifest.files).length} tracked files` +
         `${states.edited.length ? `, ${states.edited.length} hand-edited` : ''}).`,
@@ -105,6 +135,8 @@ export async function syncCommand(
 
   log.info(opts.dryRun ? 'Planning kit refresh (dry run)…' : 'Refreshing the AI kit…');
   const result = await runGenerate({
+    // Keep the kit at the rigour it was generated with, not today's default.
+    rigor: manifest.rigor,
     root: cwd,
     kinds: [],
     provider: opts.provider,

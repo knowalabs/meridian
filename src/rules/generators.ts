@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectDir } from '../core/paths.js';
+import { signatureOf } from '../generate/manifest.js';
 
 /**
  * Rules generator (Phase 2): render one canonical rule set into the
@@ -107,9 +108,46 @@ export interface GeneratedFile {
   file: string;
 }
 
+/**
+ * Mirror files whose content no longer renders from the current
+ * `.knowa/rules.md`.
+ *
+ * The kit tells users to edit `.knowa/rules.md` and re-run, but nothing
+ * detected the window in between: a hand-edited rules file whose mirrors still
+ * carry the previous text. `knowa sync` uses this to close it.
+ *
+ * Comparison is on the manifest's cosmetic-insensitive signature, so a repo
+ * that runs a markdown formatter over its tool files does not read as
+ * permanently stale.
+ */
+export function staleMirrors(root: string, projectName: string, only?: string[]): string[] {
+  const file = path.join(projectDir(root), 'rules.md');
+  if (!fs.existsSync(file)) return [];
+  const rules = fs.readFileSync(file, 'utf8').trim();
+  const stale: string[] = [];
+  for (const target of targetsFor(only)) {
+    const out = path.join(root, target.file);
+    // A mirror this project never had is not stale — it was never claimed.
+    if (!fs.existsSync(out)) continue;
+    try {
+      if (
+        signatureOf(fs.readFileSync(out, 'utf8')) !== signatureOf(target.render(rules, projectName))
+      )
+        stale.push(target.file);
+    } catch {
+      // Unreadable mirror: leave it alone rather than guess.
+    }
+  }
+  return stale;
+}
+
+function targetsFor(only?: string[]): RuleTarget[] {
+  return only?.length ? RULE_TARGETS.filter((t) => only.includes(t.id)) : RULE_TARGETS;
+}
+
 export function generateRules(root: string, projectName: string, only?: string[]): GeneratedFile[] {
   const rules = loadRules(root);
-  const targets = only?.length ? RULE_TARGETS.filter((t) => only.includes(t.id)) : RULE_TARGETS;
+  const targets = targetsFor(only);
   const written: GeneratedFile[] = [];
   for (const target of targets) {
     const out = path.join(root, target.file);
