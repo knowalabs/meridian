@@ -32,14 +32,14 @@ If a test's expectation conflicts with current `src/` behavior, treat the source
 
 ## Method
 
-1. Run `npm run test:coverage` first — it is the one command that reports both failures and threshold breaches in one pass.
+1. Run `npm test` (`vitest run`) first — it reports the failures without paying for coverage instrumentation. Save `npm run test:coverage` for step 8, once the failure is actually fixed.
 2. Read the failing test file in full, not just the failing `it()` block, to recover its `beforeEach`/`afterEach` setup.
 3. Confirm sandboxing: any test touching `core/vault.ts`, `core/config.ts`, or `generate/pipeline.ts` must set `process.env.KNOWA_HOME` to a temp dir (`fs.mkdtempSync`) and, for vault tests, `process.env.KNOWA_VAULT = 'file'`, with `afterEach` cleanup via `fs.rmSync(..., { recursive: true, force: true })` — a missing sandbox is itself the bug, not a flake.
 4. For a failure in `tests/router-network.test.ts` or `tests/ask-stream.test.ts`, check the test uses `setFetchForTests`/`setRunForTests` and, for retry/backoff assertions, `vi.useFakeTimers()` + `await vi.advanceTimersByTimeAsync(...)` — never add a real network call or a real `setTimeout` delay to make an assertion pass.
 5. For a failure touching `src/generate/artifacts.ts` or `src/generate/pipeline.ts`, extend the existing `describe('isAllowedPath')` / `describe('parseFileBlocks')` / `describe('static fallbacks')` blocks in `tests/generate.test.ts` rather than writing a standalone script — every `ArtifactKind` must still produce files inside its own `allowedPaths`.
 6. If coverage dropped below threshold, find the specific uncovered branch (`vitest run --coverage` prints per-file percentages) and add a targeted test case — never restructure code purely to inflate a number.
 7. Only run `npm run test:e2e` when the change touches `src/generate/*`, `src/cli.ts`, or anything exercised end-to-end (it rebuilds via `pretest:e2e` first, so it is slower — don't run it for an unrelated unit fix).
-8. Re-run `npm run test:coverage` after any fix to confirm both the specific failure and the aggregate thresholds are green.
+8. Re-run `npm test` after each fix attempt while iterating. Once it is green, run `npm run test:coverage` **once** to confirm the aggregate thresholds still hold — that is the only run that needs instrumentation.
 
 ## Checklist
 
@@ -100,3 +100,4 @@ git diff
 - Never add a real network call or a real `setTimeout` delay to a test.
 - Never touch the real OS keychain or the developer's real `~/.knowa` directory.
 - Never run `npm run test:e2e` without first checking the change actually touches `generate`, `cli.ts`, or another e2e-exercised path — it rebuilds the whole project.
+- Never iterate on a failing test with `npm run test:coverage` — use `npm test` (or `npm test -- <file>`) while fixing, and run coverage once at the end.

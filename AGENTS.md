@@ -2,82 +2,80 @@
 
 # @sonalsithara/knowa — Instructions for Codex
 
-## General — how to approach changes in this codebase
+## Working agreement
 
-- This is `@sonalsithara/knowa`, a Node.js/TypeScript CLI (`knowa`) that makes other codebases AI-assistant-ready. Keep "the target project" (what `knowa generate` scans, e.g. `src/scan/analyzer.ts`'s subject) strictly separate from "this repo" (Knowa's own source) — never conflate the two.
-- Read `src/generate/pipeline.ts`'s `runGenerate` before touching anything in the `generate` flow. It is the flagship path: `src/scan/analyzer.ts` (`analyzeProject`) → `src/generate/digest.ts` (`buildDigest`) → `src/providers/router.ts` (`route`/`pickProvider`) → `src/generate/artifacts.ts` (`ARTIFACT_KINDS`, `parseFileBlocks`, `isAllowedPath`) → `src/core/fsx.ts` (`writeFileAtomic`) → `src/rules/generators.ts` (`generateRules`) → `src/generate/manifest.ts` (`writeManifest`).
-- Commands in `src/commands/*.ts` stay thin: parse/validate input, call into `core`/`generate`/`providers`/`scan`, return a number. See `src/commands/generate.ts`'s `generateCommand` and `src/commands/doctor.ts`'s `doctorCommand` — neither contains business logic beyond option validation and formatting.
-- Never call `process.exit()` in a command or in code reachable from `src/launcher.ts`. Every Commander action in `src/cli.ts` is wired as `.action(async (...) => done(await xCommand(...)))`, where `done()` sets `process.exitCode` — `runInteractive`/`runCommandLine` in `src/launcher.ts` runs commands in-process, and a raw exit would kill the whole TUI session after one action.
-- `src/index.ts` imports `./core/colorflag.js` first, before `renderError`/`buildCli`/`runInteractive`. It mutates `NO_COLOR` state before `picocolors` — used almost everywhere else — reads it at load time. Never reorder that import or insert another import above it.
-- When adding a new `ArtifactKind` to `src/generate/artifacts.ts`'s `ARTIFACT_KINDS`, supply both `prompt(digest)` and `fallback(analysis)`. The `describe('static fallbacks')` block in `tests/generate.test.ts` asserts every kind's fallback output stays inside its own `allowedPaths`.
-- AI generation in `generateKind` (`src/generate/pipeline.ts`) is fail-closed: a failed or incomplete-after-retry AI response writes nothing for that kind and marks it `failed` — never silently substitute the static fallback mid-run. Preserve this if you touch `generateKind` or `runGenerate`.
-- Prefer using the packaged skills for structural work in this repo: `add-artifact-kind` for a new generated artifact kind, `add-ai-provider` for a new provider, `debug-generate` for pipeline failures, `review-diff` before opening a PR, and `verify`/`release-knowa` for the verification and release flows below.
+- This is `@sonalsithara/knowa`, a Node/TypeScript CLI (`knowa`) that makes _other_ codebases AI-assistant-ready. Keep "the target project" (what `knowa generate` scans) strictly separate from "this repo" (Knowa's own source) — never conflate the two.
+- Read the files you are about to change before your first edit. For anything in the `generate` flow, read `runGenerate` in `src/generate/pipeline.ts` first — it is the flagship path.
+- Put new code in the module that already owns the concern. `docs/architecture.md` is the authority on module boundaries, the `generate` control/data flow, and the invariants a change must not break — read it rather than guessing.
+- Get approval before adding a module, dependency, or layer.
+- Never rewrite or regenerate documentation as a side effect of a code change. Edit only what the change made wrong, and name every doc file you touched in your summary.
 
-## Architecture — module boundaries
+## Architecture — the rules easiest to break by accident
 
-- `src/index.ts` — process entry point only: Node-version gate (rejects `< 18`), global `uncaughtException`/`unhandledRejection`/`SIGINT` handlers, dispatch to `src/launcher.ts` (bare `knowa` in a TTY) or `src/cli.ts` (`buildCli().parseAsync`). No command logic here.
-- `src/cli.ts` — builds the Commander program (`buildCli`), registers every subcommand (`doctor`, `install`/`uninstall`, `auth`/`keys`, `generate`, `sync`, `mcp`, `ask`, `router`, `update`, `login`) and global flags (`--verbose`, `-q/--quiet`, `--json`, `--no-color`) via `addGlobalFlags`. New subcommands are registered here, never ad hoc elsewhere.
-- `src/launcher.ts` — the interactive TUI (`runInteractive`, `menuPrompt`, `tokenize`, `showBanner`/`showWelcome`). Excluded from coverage thresholds in `vitest.config.ts` on purpose (exercised by humans/e2e, not unit tests) — do not treat low coverage here as a regression.
-- `src/commands/*.ts` — one file per command group (`doctor.ts`, `install.ts`, `auth.ts`, `generate.ts`, `sync.ts`, `mcp.ts`, `ask.ts`, `update.ts`). Thin adapters over `core`/`generate`/`providers`/`scan` only.
-- `src/core/` — cross-cutting infra: `errors.ts` (`CliError`, `renderError`, `EXIT`), `logger.ts` (`log`, `configureLogger`, `jsonMode`), `config.ts` (`loadConfig`/`saveConfig`/`RouterConfig`), `vault.ts` (multi-backend secret storage — `KeychainVault`, `SecretToolVault`, `FileVault`, `DpapiProtector`, `PlainProtector`), `fsx.ts` (`writeFileAtomic`, `backupFile`, `readJsonFile`), `paths.ts` (`knowaHome`, `ensureHome`), `exec.ts` (`run`/`runAsync`/`which`), `spinner.ts`, `pkg.ts` (`VERSION`), `prompt.ts`, `validate.ts`, `colorflag.ts`. Platform-specific logic is isolated per backend class (`vault.ts`'s `KeychainVault`/`SecretToolVault`/`DpapiProtector`/`PlainProtector`), not scattered as inline `if (platform === …)` checks elsewhere.
-- `src/scan/analyzer.ts` — static analysis of the _target_ project (`analyzeProject`, `extractFileSymbols`, `renderContextMarkdown`, `renderArchitectureMarkdown`). Read-only; must never write files.
-- `src/scan/ignore.ts` — the single ignore-matching authority (`createIgnore`), shared by the analyzer's walk, the layout tree, and digest sampling. Never add a second, parallel ignore list.
-- `src/scan/workspaces.ts` — monorepo detection (`detectWorkspaces`) for npm/yarn/pnpm/Lerna/Cargo/`go.work`, feeding `ProjectAnalysis.workspaces`.
-- `src/generate/` — the AI-kit pipeline: `digest.ts` (`buildDigest`, `digestBudgetFor`), `artifacts.ts` (`ARTIFACT_KINDS`, `isAllowedPath`, `parseFileBlocks`, `FORMAT_SPEC`, `commonPrompt`), `pipeline.ts` (`runGenerate`, `generateKind`, `pickProvider`, `estimateGenerate`, `concurrencyFor`), `manifest.ts` (`KitManifest`, `fingerprintOf`, `diffFingerprints`, `fileStates` — powers `knowa sync`), `cache.ts` (codebase-review caching keyed by project/provider/model/digest). Any AI-suggested file path must be validated through `isAllowedPath` before writing — never bypass it.
-- `src/rules/generators.ts` — mirrors `.knowa/rules.md` into every AI tool's native config file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, etc.) via `generateRules`/`RULE_TARGETS`. Changes to rules content flow from here, not the other way around.
-- `src/providers/router.ts` — `PROVIDERS: ProviderSpec[]`, `route()`, `modelFor()`, shared HTTP `post()`/`postStream()` with timeout/retry/backoff (`classifyStatus`, `RETRYABLE_STATUS`). New providers go in `PROVIDERS` with `cost`/`speed`/`quality`/`contextTokens` set relative to existing entries — use the `add-ai-provider` skill.
-- `src/mcp/` (`registry.ts` — `MCP_REGISTRY`, `searchMcp`; `configure.ts` — `addServer`/`removeServer`/`listInstalled`) + `src/commands/mcp.ts` — the MCP server marketplace across all detected tools.
-- `src/plugins/tools.ts` — per-tool install/detect/doctor logic (`TOOL_SPECS`, `buildRegistry`) used by `install`/`doctor`/`uninstall`.
-- Never write generated output (`.knowa/`, `CLAUDE.md`, `AGENTS.md`, etc.) from anywhere except the `generate` pipeline and `src/rules/generators.ts` — every other module stays read-only with respect to the target project's files. This applies to Knowa's own root-level generated files too (see Safety).
+Full module map, `knowa generate` flow, and invariants: `docs/architecture.md`. The ones worth carrying in your head:
 
-## Code Style
+- Commands in `src/commands/*.ts` stay thin — parse/validate input, call into `core`/`generate`/`providers`/`scan`, return an exit code. No business logic.
+- Never call `process.exit()` in a command or in code reachable from `src/launcher.ts`. Every Commander action is wired as `.action(async (...) => done(await xCommand(...)))`, where `done()` sets `process.exitCode`; a raw exit would kill the whole in-process TUI session after one action.
+- `src/index.ts` imports `./core/colorflag.js` first. It mutates `NO_COLOR` state before `picocolors` reads it at load time. Never reorder that import or insert another above it.
+- A new `ArtifactKind` in `src/generate/artifacts.ts` needs both `prompt(digest)` and `fallback(analysis)` — `describe('static fallbacks')` in `tests/generate.test.ts` asserts every fallback stays inside its own `allowedPaths`.
+- `generateKind` is fail-closed: a failed or incomplete-after-retry AI response writes nothing for that kind and marks it `failed`. Never substitute the static fallback mid-run.
+- `createIgnore` (`src/scan/ignore.ts`) is the single ignore-matching authority, shared by the analyzer walk, layout tree, and digest sampling. Never add a second, parallel ignore list.
+- `src/scan/` is read-only with respect to the target project. Only `src/generate/` and `src/rules/generators.ts` write generated output.
 
-- Strict TypeScript, ESM only (`"type": "module"` in `package.json`; `tsconfig.json` sets `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`). `noUncheckedIndexedAccess` means every indexed access types as possibly-`undefined` — this codebase leans on non-null assertions after a proven-safe access (e.g. `match[1]!` after a regex match in `src/scan/analyzer.ts`'s `extractFileSymbols`) rather than optional chaining everywhere; match that idiom, don't invent a different one.
-- Relative imports use explicit `.js` extensions even though the source is `.ts` (NodeNext resolution) — e.g. `import './core/colorflag.js'` in `src/index.ts`.
-- No `any` (`@typescript-eslint/no-explicit-any` is `error` on `src/**` per `eslint.config.js`), no implicit fallthrough, no unchecked index access.
-- Throw `CliError` (`src/core/errors.ts`) for all user-facing failures, never a raw `Error`. Always attach an actionable `hint` — see `classifyStatus` in `src/providers/router.ts` (`hint: 'Run "knowa auth ${ctx.provider}"...'`) and `FileVault.readAll`'s catch block in `src/core/vault.ts`.
-- No floating or misused promises (`@typescript-eslint/no-floating-promises`/`no-misused-promises` are `error` on `src/**`) — always `await` or explicitly `void` a promise.
-- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` test seam — see `setFetchForTests`/`setRunForTests`/`setRetryDelayForTests` in `src/providers/router.ts`. Follow this pattern instead of introducing a mocking library.
-- File writes that must be atomic or permissioned go through `writeFileAtomic` (`src/core/fsx.ts`); secrets/sensitive files use `mode: 0o600` explicitly — see `indexWrite` and `FileVault.masterKey`/`writeAll` in `src/core/vault.ts`.
-- Secrets avoid `argv` when possible — `KeychainVault.set` tries `security -i` (stdin) before falling back to argv; `SecretToolVault.set` always uses stdin (`src/core/vault.ts`).
-- Naming: PascalCase for types/interfaces (`ProviderSpec`, `ArtifactKind`, `GenerateResult`), camelCase for functions/variables, `UPPER_SNAKE_CASE` for module-level constants (`PROVIDERS`, `ARTIFACT_KINDS`, `FORMAT_SPEC`, `DEFAULT_TIMEOUT_MS`, `MCP_REGISTRY`, `TOOL_SPECS`, `RULE_TARGETS`).
-- Format with Prettier (`npm run format`; CI runs `npx prettier --check .`) — do not hand-format or fight the formatter.
+## Code style
+
+- Strict TypeScript, ESM only. Relative imports carry explicit `.js` extensions (NodeNext) even though the source is `.ts` — e.g. `import './core/colorflag.js'`.
+- `noUncheckedIndexedAccess` is on: this codebase leans on non-null assertions after a proven-safe access (e.g. `match[1]!` in `extractFileSymbols`) rather than optional chaining everywhere. Match that idiom; don't invent a different one.
+- No `any` on `src/**`; no floating or misused promises — `await` or explicitly `void`.
+- Throw `CliError` (`src/core/errors.ts`) for every user-facing failure, never a raw `Error`, and always attach an actionable `hint` — see `classifyStatus` in `src/providers/router.ts`.
+- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` seam — `setFetchForTests`, `setRunForTests`, `setRetryDelayForTests`. Follow this instead of adding a mocking library.
+- Atomic or permissioned writes go through `writeFileAtomic` (`src/core/fsx.ts`); secret and sensitive files pass `mode: 0o600` explicitly.
+- Secrets avoid `argv` — `KeychainVault.set` prefers `security -i` (stdin) before falling back; `SecretToolVault.set` always uses stdin.
+- Naming: PascalCase for types, camelCase for functions/variables, `UPPER_SNAKE_CASE` for module constants (`PROVIDERS`, `ARTIFACT_KINDS`, `RULE_TARGETS`).
+- Prettier owns formatting (`npm run format`) — don't hand-format or fight it.
 
 ## Testing
 
-- Framework: Vitest. Unit/integration tests live in `tests/*.test.ts`, one file per module area (`analyzer`, `commands`, `config`, `doctor`, `errors`, `fsx`, `generate`, `ignore`, `launcher`, `mcp`, `platform`, `plugins`, `prompt`, `router`, `router-network`, `rules`, `sync`, `update-ask`, `vault`, `vault-backends`, `workspaces`).
-- E2E tests live in `tests/e2e/` (`workflows.test.ts`, `helpers.ts`), run via `vitest.e2e.config.ts` and require a build first (`pretest:e2e` runs `npm run build`).
-- Any change to `src/generate/artifacts.ts` must keep the `isAllowedPath`/`parseFileBlocks` invariants covered — extend the existing `describe('isAllowedPath')` and `describe('parseFileBlocks')` blocks in `tests/generate.test.ts` rather than writing ad hoc scripts.
-- Any change to `src/providers/router.ts` network/retry/timeout behavior must use `setFetchForTests`/`setRunForTests` plus `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync` — see `tests/router-network.test.ts` and `tests/ask-stream.test.ts`. Never add real network calls or real `setTimeout` delays to tests.
-- Sandbox filesystem/vault state via `process.env.KNOWA_HOME` (temp dir) and `process.env.KNOWA_VAULT = 'file'`, cleaned up in `afterEach` with `fs.rmSync(..., { recursive: true, force: true })` — see `tests/doctor.test.ts` and `tests/commands.test.ts`. Never touch the real OS keychain or the developer's real `~/.knowa`.
-- Coverage thresholds (`vitest.config.ts`): 70% lines, 60% branches, over `src/**/*.ts` excluding `src/launcher.ts` and `src/index.ts`. A new module must not drag branch/line coverage below these thresholds.
-- Commands: `npm test` (`vitest run`), `npm run test:watch` (`vitest`), `npm run test:coverage` (`vitest run --coverage`), `npm run test:e2e` (`pretest:e2e` builds first via `npm run build`, then `vitest run --config vitest.e2e.config.ts`).
-- Use the `knowa-test-runner` agent to run the suite and diagnose failures without breaking coverage thresholds or test isolation, and the `debug-generate` skill for a failing `generate` run specifically.
+- Vitest. Unit/integration in `tests/*.test.ts`, one file per module area; e2e in `tests/e2e/`, run via `vitest.e2e.config.ts` (`pretest:e2e` builds first).
+- Sandbox all filesystem/vault state via `process.env.KNOWA_HOME` (temp dir) and `process.env.KNOWA_VAULT = 'file'`, cleaned up in `afterEach` with `fs.rmSync(..., { recursive: true, force: true })`. Never touch the real OS keychain or the developer's real `~/.knowa`.
+- Router network/retry/timeout tests use `setFetchForTests`/`setRunForTests` plus `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync` — never a real network call or a real `setTimeout` delay.
+- Changes to `src/generate/artifacts.ts` must keep `isAllowedPath`/`parseFileBlocks` covered — extend the existing `describe` blocks in `tests/generate.test.ts` rather than writing ad hoc scripts.
+- Coverage gate (`vitest.config.ts`): 70% lines, 60% branches over `src/**/*.ts`, excluding `src/launcher.ts` and `src/index.ts`.
 
-## Verification — exact ordered commands before work is done
+## Verification — two loops, not one
 
-1. `npm run format` (or `npx prettier --check .` to check without writing)
-2. `npm run lint` (`eslint src tests`)
-3. `npm run build` (`tsc -p tsconfig.build.json`)
-4. `npm run test:coverage` (`vitest run --coverage`)
-5. `npm run test:e2e` (only if the change touches `generate`, `cli.ts`, or anything exercised end-to-end — this rebuilds via `pretest:e2e` first)
+**While working**, after each change:
 
-This mirrors `.github/workflows/ci.yml`'s job order exactly (`lint` → `prettier --check` → `build` → `test:coverage` → `test:e2e`) — run it in this order locally so a green local run predicts a green CI run. The packaged `verify` skill runs this exact loop and fixes failures.
+1. `npm run lint`
+2. `npm run build`
+3. `npm test`
+
+**When the change is done / before a PR** — the CI-equivalent chain, matching `.github/workflows/ci.yml` (lint → `prettier --check .` → build → test:coverage → test:e2e):
+
+1. `npx prettier --check .` (or `npm run format` to fix)
+2. `npm run lint`
+3. `npm run build`
+4. `npm run test:coverage` — confirm nothing dropped below 70%/60%
+5. `npm run test:e2e` — only when the change touches `src/generate/**`, `src/cli.ts`, or another end-to-end path. It runs `pretest:e2e` (a full `tsc`) itself, so skip step 3 if you go straight to it.
+
+The full chain takes roughly 15s end to end, so this split is about signal, not speed: `npm test` answers "did I break something" in ~6s, while coverage and e2e answer questions that only matter once the change is finished. Run the fast loop while iterating and the full chain once. When a step fails, fix the root cause — never bypass a check to make it pass.
+
+A green local run predicts, but doesn't guarantee, a green CI run: CI also runs a 3×3 matrix (ubuntu/macos/windows × Node 18/20/22).
 
 ## Safety
 
-- Never commit or write real API keys, tokens, or vault contents to disk outside `src/core/vault.ts`'s backends. `keys/index.json` under `knowaHome()` (`indexWrite` in `src/core/vault.ts`) stores only account names, never secret values — do not add secret material to it.
-- Never bypass `isAllowedPath` (`src/generate/artifacts.ts`) for any AI-suggested or dynamically constructed file path — it is the only guard against an adversarial or malformed AI response writing outside the project (blocks absolute paths, Windows drive letters, `..` traversal).
-- Never add a raw `process.exit()` call anywhere in `src/commands/*` or code reachable from `src/launcher.ts`.
-- Treat `.knowa/` and root-level generated files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `README_AI.md`) in _this_ repo's own working tree as dogfooded `knowa generate` output, not hand-authored source — do not hand-edit generated sections; change `src/rules/generators.ts` or `src/generate/artifacts.ts` instead.
-- Do not touch `.github/workflows/ci.yml`'s publish gating (the tag-vs-`package.json`-version check, `refs/tags/v*` trigger) without explicit confirmation — it is the only thing preventing an accidental `npm publish`.
-- Never run `npm publish`, push git tags matching `v*`, or modify `NPM_TOKEN`/CI secrets from an assistant session. Use the `release-knowa`/`release` skill to prepare (not execute) a release.
-- Windows vault code (`DpapiProtector` in `src/core/vault.ts`) shells out to PowerShell with base64 over stdin — never change it to pass secrets as PowerShell command-line arguments.
-- Do not delete or bypass the legacy plain-hex fallback in `DpapiProtector.unprotect` — it exists for backward compatibility with keys stored before the `dpapi:` prefix was introduced; removing it would break existing users' stored keys.
+- Never commit or write real API keys, tokens, or vault contents to disk outside `src/core/vault.ts`'s backends. `keys/index.json` under `knowaHome()` stores only account names, never secret values.
+- Never bypass `isAllowedPath` (`src/generate/artifacts.ts`) for any AI-suggested or dynamically constructed file path — it is the only guard against a malformed or adversarial AI response writing outside the project (blocks absolute paths, Windows drive letters, `..` traversal).
+- Never add a raw `process.exit()` anywhere in `src/commands/*` or code reachable from `src/launcher.ts`.
+- Treat `.knowa/` and the root-level generated files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/knowa.mdc`, `.github/copilot-instructions.md`, `README_AI.md`) as `knowa generate` output, not hand-authored source. To change the rules, edit `.knowa/rules.md` and re-run the mirror (`generateRules` in `src/rules/generators.ts`) — the five mirrored copies are overwritten wholesale. To change generated artifact or doc content, change `src/generate/artifacts.ts`.
+- Do not touch `.github/workflows/ci.yml`'s publish gating (the tag-vs-`package.json`-version check, the `refs/tags/v*` trigger) without explicit confirmation — it is the only thing preventing an accidental `npm publish`.
+- Never run `npm publish`, push git tags matching `v*`, or modify `NPM_TOKEN`/CI secrets from an assistant session. Use the `release-knowa` skill to prepare (not execute) a release.
+- Windows vault code (`DpapiProtector` in `src/core/vault.ts`) shells out to PowerShell with base64 over stdin — never change it to pass secrets as command-line arguments.
+- Do not delete the legacy plain-hex fallback in `DpapiProtector.unprotect` — it exists for keys stored before the `dpapi:` prefix, and removing it would break existing users' stored keys.
 
-## Raising the bar — standards to adopt next
+## Further reading — consult on demand, not every change
 
-- Adopt a `SECURITY.md` and a `CODEOWNERS` file at the repo root. `src/generate/digest.ts` already reads `SECURITY.md`/`CODEOWNERS` _from target projects_ it scans, and `raisingTheBar()` in `src/generate/artifacts.ts` flags their absence as a gap in generated projects — this repo's own layout has neither under `.github/` (only `ci.yml` and `copilot-instructions.md`) nor at the root. First step: add a minimal `SECURITY.md` describing how to report a vulnerability, and a `CODEOWNERS` naming the maintainer for `src/`, `src/core/vault.ts`, and `.github/workflows/`.
-- Adopt automated dependency scanning. No Dependabot or Renovate config exists in the digest's file listing, so dependency hygiene (including transitive vulnerabilities in `commander`, `picocolors`, and the dev toolchain) is entirely manual today. First step: add `.github/dependabot.yml` with a weekly `npm` update schedule.
-- Give `src/launcher.ts`'s interactive TUI a real test seam instead of relying solely on human/e2e exercise. It is deliberately excluded from `vitest.config.ts` coverage thresholds, but its ~300 lines of state machine (`menuPrompt`'s keypress handling, `tokenize`, raw-mode terminal control) carry no unit-test safety net today. First step: extract the pure logic already separable from terminal I/O — `tokenize` and `visibleItems`-style menu filtering — into unit-testable functions, the same way `runCommandLine` already isolates Commander dispatch from rendering.
-- Turn `knowa login` from a stub into a tracked feature boundary. `loginCommand` in `src/commands/update.ts` and the README both mark Cloud Sync as "on the roadmap, not available yet" — a registered CLI command with no working implementation. First step: when Cloud Sync design starts, gate any new authenticated-account state behind the same `Vault`/`core/config.ts` boundaries used for provider keys today, so local-only assumptions in `src/core/paths.ts`/`knowaHome()` don't have to be unwound later.
+- `docs/architecture.md` — module boundaries, `generate` control/data flow, invariants.
+- `docs/conventions.md` — the fuller rationale behind the code style above.
+- `docs/tech-debt.md` and `docs/engineering-standards.md` — the standards backlog (`SECURITY.md`, `CODEOWNERS`, Dependabot, a `src/launcher.ts` test seam, the `knowa login` stub). Read when picking up work, not as a per-change checklist.
+- `.knowa/context.md` and `.knowa/docs/onboarding.md` — orientation for a new contributor.

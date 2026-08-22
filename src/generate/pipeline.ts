@@ -13,6 +13,7 @@ import {
 import { openVault } from '../core/vault.js';
 import { writeFileAtomic } from '../core/fsx.js';
 import { generateRules } from '../rules/generators.js';
+import { detectedAiTools } from '../plugins/tools.js';
 import { log } from '../core/logger.js';
 import { startSpinner } from '../core/spinner.js';
 import {
@@ -28,6 +29,8 @@ import {
   ArtifactKind,
   isAllowedPath,
   kindsById,
+  DEFAULT_RIGOR,
+  type Rigor,
   parseFileBlocks,
 } from './artifacts.js';
 import { fingerprintOf, readManifest, signatureOf, writeManifest } from './manifest.js';
@@ -66,6 +69,19 @@ export interface GenerateOptions {
   concurrency?: number;
   /** Ignore (and refresh) the cached codebase review for this digest. */
   noCache?: boolean;
+  /**
+   * Rule-mirror tool ids (`claude`, `cursor`, `codex`, `copilot`, `gemini`).
+   * Empty/undefined = the tools detected for this project, falling back to
+   * every target when none is detected — a container or CI box has no editors
+   * installed and must still produce a complete kit.
+   */
+  tools?: string[];
+  /**
+   * How much process the generated working agreement imposes. Defaults to
+   * `standard`; `knowa sync` reads the level back off the manifest so a
+   * refresh never quietly re-rigs a kit the user generated as `light`.
+   */
+  rigor?: Rigor;
 }
 
 export interface FileResult {
@@ -438,6 +454,19 @@ While you rewrite:
 - Respond with file blocks and nothing else. Do not acknowledge this message.`;
 }
 
+/**
+ * Which tools' instruction files this run mirrors the rules into.
+ *
+ * An explicit `--tools` list wins. Otherwise the project's detected tools,
+ * and if nothing is detected, every target — a kit that silently shipped no
+ * instruction file at all would be worse than one with a spare.
+ */
+export function mirrorTools(opts: Pick<GenerateOptions, 'root' | 'tools'>): string[] | undefined {
+  if (opts.tools?.length) return opts.tools.includes('all') ? undefined : opts.tools;
+  const detected = detectedAiTools(opts.root);
+  return detected.length ? detected : undefined;
+}
+
 async function generateKind(
   kind: ArtifactKind,
   digest: string,
@@ -447,6 +476,7 @@ async function generateKind(
   root: string,
   planned: string[],
   upstream: ArtifactFile[],
+  rigor: Rigor,
 ): Promise<{
   files: ArtifactFile[];
   source: 'ai' | 'static';
@@ -456,7 +486,7 @@ async function generateKind(
   // A kind's invariants hold for every source: what a provider returned is
   // finalized exactly like the static template it replaced.
   const finalize = (files: ArtifactFile[]): ArtifactFile[] =>
-    kind.finalize ? kind.finalize(files, analysis) : files;
+    kind.finalize ? kind.finalize(files, analysis, rigor) : files;
 
   if (!provider) return { files: finalize(kind.fallback(analysis)), source: 'static' };
 
@@ -643,6 +673,7 @@ export function estimateGenerate(opts: GenerateOptions): GenerateEstimate {
 }
 
 export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult> {
+  const rigor = opts.rigor ?? DEFAULT_RIGOR;
   const kinds = kindsById(opts.kinds);
   // Pick the provider first: the digest budget scales with its context
   // window, so a large-context provider gets to see far more of the project.
@@ -835,6 +866,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       opts.root,
       plannedPaths,
       upstreamFor(kind, opts.root, produced),
+      rigor,
     );
     progress?.update(
       `Generating ${kinds.length} artifact kinds — ${++completed}/${kinds.length} done…`,
@@ -889,7 +921,9 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
 
   // Fresh rules should reach every tool's instruction file.
   if (!opts.dryRun && result.files.some((f) => f.kind === 'rules' && f.action === 'written')) {
-    result.propagated = generateRules(opts.root, analysis.name).map((g) => g.file);
+    result.propagated = generateRules(opts.root, analysis.name, mirrorTools(opts)).map(
+      (g) => g.file,
+    );
     for (const file of result.propagated) {
       try {
         writtenSignatures.set(
@@ -914,6 +948,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       knowa: VERSION,
       generatedAt: new Date().toISOString(),
       provider: result.provider,
+      rigor,
       fingerprint: fingerprintOf(analyzeProject(opts.root)),
       files: { ...(prior?.files ?? {}), ...Object.fromEntries(writtenSignatures) },
     });

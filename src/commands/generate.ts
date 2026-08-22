@@ -1,6 +1,8 @@
 import pc from 'picocolors';
-import { ARTIFACT_KINDS } from '../generate/artifacts.js';
+import { ARTIFACT_KINDS, isRigor, RIGOR_LEVELS, type Rigor } from '../generate/artifacts.js';
 import { estimateGenerate, pickProvider, runGenerate } from '../generate/pipeline.js';
+import { residentCost } from '../generate/manifest.js';
+import { RULE_TARGETS } from '../rules/generators.js';
 import {
   availableProviders,
   hasModelChoice,
@@ -167,6 +169,8 @@ export async function generateCommand(
     cache?: boolean;
     estimate?: boolean;
     model?: string;
+    rigor?: string;
+    tools?: string;
   },
   cwd: string = process.cwd(),
 ): Promise<number> {
@@ -174,6 +178,23 @@ export async function generateCommand(
   const unknown = kinds.filter((k) => !known.includes(k));
   if (unknown.length) {
     log.fail(`Unknown artifact kind(s): ${unknown.join(', ')}. Known: ${known.join(', ')}`);
+    return 1;
+  }
+
+  if (opts.rigor !== undefined && !isRigor(opts.rigor)) {
+    log.fail(`--rigor must be one of ${RIGOR_LEVELS.join(', ')} (got "${opts.rigor}").`);
+    return 1;
+  }
+  const rigor: Rigor | undefined = opts.rigor;
+
+  const tools = opts.tools
+    ?.split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const knownTools = [...RULE_TARGETS.map((t) => t.id), 'all'];
+  const badTools = tools?.filter((t) => !knownTools.includes(t)) ?? [];
+  if (badTools.length) {
+    log.fail(`Unknown --tools value(s): ${badTools.join(', ')}. Known: ${knownTools.join(', ')}`);
     return 1;
   }
 
@@ -228,6 +249,8 @@ export async function generateCommand(
 
   log.info(opts.dryRun ? 'Planning AI kit (dry run)…' : 'Generating AI kit…');
   const result = await runGenerate({
+    rigor,
+    tools,
     root: cwd,
     kinds,
     provider: opts.provider,
@@ -262,6 +285,21 @@ export async function generateCommand(
   for (const f of result.propagated) log.ok(`${f} ${pc.dim('(rules propagated)')}`);
   for (const f of skipped) log.dim(`  kept existing ${f.file} (use --force to overwrite)`);
   for (const f of rejected) log.warn(`rejected unsafe path from provider: ${f.file}`);
+
+  // What the kit will cost on every request from here on — the number that
+  // decides whether its rigour is worth carrying, and the one nothing reported.
+  if (written.length && !opts.dryRun) {
+    const cost = residentCost(cwd);
+    if (cost.total > 0) {
+      log.dim(
+        `\n  Kit resident cost: ~${cost.total} tokens/request ` +
+          `(rules ${cost.rules} · agents ${cost.agents} · skills ${cost.skills} · commands ${cost.commands})`,
+      );
+      log.dim(
+        `  Lower it with ${pc.bold('--rigor light')}, raise it with ${pc.bold('--rigor strict')}.`,
+      );
+    }
+  }
 
   // Claims the project contradicts survived a retry, so they are on disk now.
   // Reporting them beats silence: an invented script reads as authority to the

@@ -84,13 +84,13 @@ path is dead for another year.
 
 ### Numbers to hit
 
-| Metric | Target by Oct 3 |
-| --- | --- |
-| npm weekly downloads | 250 |
-| GitHub stars | 400 |
-| Repos with `sync --check` in CI (telemetry) | 25 |
-| Team interviews completed | 10 |
-| Teams saying "yes, I'd pay for the org version" | 3 |
+| Metric                                          | Target by Oct 3 |
+| ----------------------------------------------- | --------------- |
+| npm weekly downloads                            | 250             |
+| GitHub stars                                    | 400             |
+| Repos with `sync --check` in CI (telemetry)     | 25              |
+| Team interviews completed                       | 10              |
+| Teams saying "yes, I'd pay for the org version" | 3               |
 
 **Kill criteria — be honest here.** If by Oct 3 fewer than 3 teams say drift is a real
 pain worth paying for, **do not build the cloud layer**. Pivot instead to whichever
@@ -122,12 +122,12 @@ editing, Slack/Jira integrations, a marketplace.
 
 MIT code cannot be clawed back. Draw the line once, at **single-repo vs. org scope**:
 
-| Free forever (MIT, this repo) | Paid (private service + `@knowa/cloud` client) |
-| --- | --- |
-| `doctor`, `install`, `auth`, `keys`, `mcp`, `ask`, `router`, `update` | Org base rules → inherited into N repos |
-| `generate` + `sync` for one repo, unlimited | Cross-repo drift dashboard |
-| Local vault, local `manifest.json`, CI gate | Shared/versioned team kits |
-| Every artifact kind, every provider | SSO, audit log, policy enforcement, self-hosted |
+| Free forever (MIT, this repo)                                         | Paid (private service + `@knowa/cloud` client)  |
+| --------------------------------------------------------------------- | ----------------------------------------------- |
+| `doctor`, `install`, `auth`, `keys`, `mcp`, `ask`, `router`, `update` | Org base rules → inherited into N repos         |
+| `generate` + `sync` for one repo, unlimited                           | Cross-repo drift dashboard                      |
+| Local vault, local `manifest.json`, CI gate                           | Shared/versioned team kits                      |
+| Every artifact kind, every provider                                   | SSO, audit log, policy enforcement, self-hosted |
 
 The free CLI stays genuinely unrestricted — no repo caps, no artifact caps, no nag.
 It is the funnel, and crippling it kills distribution to save revenue you don't have yet.
@@ -139,10 +139,10 @@ this ships.
 
 ### Pricing
 
-| Tier | Price | For |
-| --- | --- | --- |
-| Free | $0 | Individuals, OSS, single repo. Unlimited. |
-| Team | $19/dev/month | Org rules, drift dashboard, up to 50 repos |
+| Tier       | Price                  | For                                         |
+| ---------- | ---------------------- | ------------------------------------------- |
+| Free       | $0                     | Individuals, OSS, single repo. Unlimited.   |
+| Team       | $19/dev/month          | Org rules, drift dashboard, up to 50 repos  |
 | Enterprise | Custom (start $15k/yr) | SSO, audit, policy enforcement, self-hosted |
 
 Seat-based, because drift pain scales with headcount. Annual only for Enterprise.
@@ -173,7 +173,7 @@ SSO/SCIM, self-hosted deployment, SOC 2 (start the process here, not earlier).
 
 Fastest path to a first real dollar, and every engagement is a paid customer interview.
 
-- **"AI-readiness audit"** for 20–100 engineer orgs: 1–2 weeks, delivered *using*
+- **"AI-readiness audit"** for 20–100 engineer orgs: 1–2 weeks, delivered _using_
   Knowa, priced $8–15k. Deliverable is their kit + a standards doc + a rollout plan.
 - Two or three of these fund six months of building, and each one tells you exactly
   what Phase 2 should contain.
