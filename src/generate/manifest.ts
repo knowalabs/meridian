@@ -7,14 +7,14 @@ import { topLevelDirs } from './artifacts.js';
 import type { Rigor } from './artifacts.js';
 
 /**
- * Kit manifest (.knowa/manifest.json): what `knowa generate` knew about
+ * Kit manifest (.meridian/manifest.json): what `meridian generate` knew about
  * the project when it wrote the kit, and a hash of every file it wrote.
- * `knowa sync` compares this against a fresh analysis to detect drift
+ * `meridian sync` compares this against a fresh analysis to detect drift
  * (the codebase outgrew the kit) and against the files on disk to detect
  * user edits (which sync must preserve, never overwrite).
  */
 
-export const MANIFEST_FILE = '.knowa/manifest.json';
+export const MANIFEST_FILE = '.meridian/manifest.json';
 
 /** The comparable facts of an analysis — cheap to diff, stable to serialize. */
 export interface KitFingerprint {
@@ -29,13 +29,13 @@ export interface KitFingerprint {
 }
 
 export interface KitManifest {
-  /** Knowa version that wrote the kit. */
-  knowa: string;
+  /** Meridian version that wrote the kit. */
+  meridian: string;
   generatedAt: string;
   provider: string | null;
   /**
    * Working-agreement rigour the kit was generated at. Absent on manifests
-   * written before `--rigor` existed; `knowa sync` treats that as the default
+   * written before `--rigor` existed; `meridian sync` treats that as the default
    * rather than re-deciding, so a refresh never changes a kit's rigour.
    */
   rigor?: Rigor;
@@ -75,7 +75,7 @@ const cosmetic = (content: string): string =>
  * `generate` writes it — Prettier alone rewrites emphasis markers, list
  * bullets, table padding and blank lines. Hashing raw bytes made every kit
  * file read as hand-edited the first time that happened, which silently froze
- * `knowa sync` out of ever refreshing them again.
+ * `meridian sync` out of ever refreshing them again.
  *
  * The trade-off is deliberate: an edit that changes nothing but formatting is
  * not preserved by sync. An edit that changes a word is.
@@ -221,7 +221,7 @@ export function residentCost(root: string): ResidentCost {
     }
     return total;
   };
-  const rules = tokensOf(readIf('CLAUDE.md') || readIf(path.join('.knowa', 'rules.md')));
+  const rules = tokensOf(readIf('CLAUDE.md') || readIf(path.join('.meridian', 'rules.md')));
   const agents = descriptions(path.join('.claude', 'agents'));
   const skills = descriptions(path.join('.claude', 'skills'), 'SKILL.md');
   const commands = descriptions(path.join('.claude', 'commands'));

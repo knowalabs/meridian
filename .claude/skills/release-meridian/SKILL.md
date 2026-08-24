@@ -1,13 +1,13 @@
 ---
-name: release-knowa
-description: Use when preparing a new Knowa release — version bump, CHANGELOG entry, and a tag matching the CI publish gate.
+name: release-meridian
+description: Use when preparing a new Meridian release — version bump, CHANGELOG entry, and a tag matching the CI publish gate.
 ---
 
-# Release Knowa
+# Release Meridian
 
 ## When to use
 
-Cutting a new version of `@sonalsithara/knowa` for npm publish. This is a destructive/hard-to-reverse workflow — every step below stops for explicit user approval before acting, per `CLAUDE.md`'s safety rules.
+Cutting a new version of `@sonalsithara/meridian` for npm publish. This is a destructive/hard-to-reverse workflow — every step below stops for explicit user approval before acting, per `CLAUDE.md`'s safety rules.
 
 ## Before you start
 

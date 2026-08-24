@@ -17,7 +17,7 @@ import { CliError } from '../core/errors.js';
 const STDIN_FIRST_BYTE_MS = 250;
 
 /**
- * Piped input becomes context for the question, so `cat error.log | knowa
+ * Piped input becomes context for the question, so `cat error.log | meridian
  * ask "what failed?"` works. Returns '' when stdin is a terminal, empty, or
  * an idle stream: a pipe that is open but silent (a CI runner, a background
  * job) must never leave the command hanging forever waiting for EOF.
@@ -62,7 +62,7 @@ export async function askCommand(
   const question = promptParts.join(' ').trim();
   const piped = await readPipedInput();
   if (!question && !piped) {
-    log.fail('Usage: knowa ask "<your question>"   (or pipe input: cat file | knowa ask …)');
+    log.fail('Usage: meridian ask "<your question>"   (or pipe input: cat file | meridian ask …)');
     return 1;
   }
   const prompt = piped
@@ -72,7 +72,7 @@ export async function askCommand(
   const available = availableProviders();
   if (available.length === 0) {
     log.fail(
-      `No providers configured. Add a key with ${pc.bold('knowa auth')} (or install Ollama).`,
+      `No providers configured. Add a key with ${pc.bold('meridian auth')} (or install Ollama).`,
     );
     return 1;
   }
@@ -94,12 +94,14 @@ export async function askCommand(
   const { provider, reason } = decision;
   if (opts.model) setRuntimeModel(provider.id, opts.model);
   // Routing info is a diagnostic — log.dim sends it to stderr so that
-  // `knowa ask "…" | tool` pipes only the answer.
+  // `meridian ask "…" | tool` pipes only the answer.
   log.dim(`→ routed to ${provider.name} [${modelFor(provider)}] (${reason})`);
 
   const key = provider.needsKey ? openVault().get(provider.id) : '';
   if (provider.needsKey && !key) {
-    log.fail(`Key for ${provider.id} disappeared from the vault. Re-run ${pc.bold('knowa auth')}.`);
+    log.fail(
+      `Key for ${provider.id} disappeared from the vault. Re-run ${pc.bold('meridian auth')}.`,
+    );
     return 1;
   }
 
@@ -147,7 +149,7 @@ export function routerConfigCommand(opts: {
     const [provider, model] = opts.model;
     if (!provider || !PROVIDERS.some((p) => p.id === provider)) {
       log.fail(
-        `--model needs a provider first: knowa router --model <provider> <model>. ` +
+        `--model needs a provider first: meridian router --model <provider> <model>. ` +
           `Supported: ${PROVIDERS.map((p) => p.id).join(', ')}`,
       );
       return 1;

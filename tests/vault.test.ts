@@ -9,14 +9,14 @@ describe('encrypted file vault', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-vault-'));
-    process.env.KNOWA_HOME = tmp;
-    process.env.KNOWA_VAULT = 'file';
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-vault-'));
+    process.env.MERIDIAN_HOME = tmp;
+    process.env.MERIDIAN_VAULT = 'file';
   });
 
   afterEach(() => {
-    delete process.env.KNOWA_HOME;
-    delete process.env.KNOWA_VAULT;
+    delete process.env.MERIDIAN_HOME;
+    delete process.env.MERIDIAN_VAULT;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -63,7 +63,7 @@ describe('encrypted file vault', () => {
     try {
       vault.get('openai');
     } catch (err) {
-      expect((err as CliError).hint).toContain('knowa keys repair');
+      expect((err as CliError).hint).toContain('meridian keys repair');
     }
   });
 

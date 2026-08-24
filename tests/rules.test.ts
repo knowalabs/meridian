@@ -10,7 +10,7 @@ describe('rules generator', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-rules-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-rules-'));
   });
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -19,7 +19,7 @@ describe('rules generator', () => {
   it('creates default rules.md on first load', () => {
     const rules = loadRules(tmp);
     expect(rules).toContain('Never commit secrets');
-    expect(fs.existsSync(path.join(tmp, '.knowa', 'rules.md'))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, '.meridian', 'rules.md'))).toBe(true);
   });
 
   it('generates a file for every supported tool', () => {
@@ -28,13 +28,13 @@ describe('rules generator', () => {
     expect(fs.existsSync(path.join(tmp, 'CLAUDE.md'))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'AGENTS.md'))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'GEMINI.md'))).toBe(true);
-    expect(fs.existsSync(path.join(tmp, '.cursor', 'rules', 'knowa.mdc'))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, '.cursor', 'rules', 'meridian.mdc'))).toBe(true);
     expect(fs.existsSync(path.join(tmp, '.github', 'copilot-instructions.md'))).toBe(true);
   });
 
-  it('propagates custom rules from .knowa/rules.md', () => {
-    fs.mkdirSync(path.join(tmp, '.knowa'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, '.knowa', 'rules.md'), '- Always use tabs\n');
+  it('propagates custom rules from .meridian/rules.md', () => {
+    fs.mkdirSync(path.join(tmp, '.meridian'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.meridian', 'rules.md'), '- Always use tabs\n');
     generateRules(tmp, 'my-app');
     const claude = fs.readFileSync(path.join(tmp, 'CLAUDE.md'), 'utf8');
     expect(claude).toContain('Always use tabs');
@@ -52,7 +52,7 @@ describe('rules generator', () => {
 describe('staleMirrors', () => {
   let root: string;
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-mirror-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-mirror-'));
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -61,15 +61,15 @@ describe('staleMirrors', () => {
     expect(staleMirrors(root, 'demo')).toEqual([]);
   });
 
-  it('reports every mirror once .knowa/rules.md is hand-edited', () => {
+  it('reports every mirror once .meridian/rules.md is hand-edited', () => {
     generateRules(root, 'demo');
-    fs.appendFileSync(path.join(root, '.knowa', 'rules.md'), '\n- Never use tabs.\n');
+    fs.appendFileSync(path.join(root, '.meridian', 'rules.md'), '\n- Never use tabs.\n');
     expect(staleMirrors(root, 'demo')).toEqual(RULE_TARGETS.map((t) => t.file));
   });
 
   it('re-mirroring clears it and carries the edit into every tool file', () => {
     generateRules(root, 'demo');
-    fs.appendFileSync(path.join(root, '.knowa', 'rules.md'), '\n- Never use tabs.\n');
+    fs.appendFileSync(path.join(root, '.meridian', 'rules.md'), '\n- Never use tabs.\n');
     generateRules(root, 'demo');
     expect(staleMirrors(root, 'demo')).toEqual([]);
     for (const target of RULE_TARGETS) {
@@ -98,7 +98,7 @@ describe('staleMirrors', () => {
 describe('detectedAiTools', () => {
   let root: string;
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-detect-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-detect-'));
   });
   afterEach(() => {
     setToolDetectionForTests(null);

@@ -14,7 +14,7 @@ import {
 const R = '';
 
 function makeRepo(files: string[]): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-git-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-git-'));
   for (const file of files) {
     fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
     fs.writeFileSync(path.join(root, file), 'x\n');
@@ -141,7 +141,7 @@ describe('collectGitSignal without a stub', () => {
   it('does not spawn git for a directory no repository covers', () => {
     // The real runner is in play here: a temp directory outside any repository
     // must be answered from the filesystem, not from a process.
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-nogit-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-nogit-'));
     try {
       expect(collectGitSignal(root)).toBeNull();
     } finally {

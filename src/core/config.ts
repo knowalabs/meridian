@@ -11,13 +11,13 @@ export interface RouterConfig {
   /** Per-provider model overrides, e.g. { anthropic: "claude-opus-4-8" }. */
   models?: Record<string, string>;
   /**
-   * Per-model USD price per million tokens, used by `knowa generate
-   * --estimate`. Keyed by model id; overrides Knowa's built-in table.
+   * Per-model USD price per million tokens, used by `meridian generate
+   * --estimate`. Keyed by model id; overrides Meridian's built-in table.
    */
   pricing?: Record<string, { inputPerMTok: number; outputPerMTok: number }>;
 }
 
-export interface KnowaConfig {
+export interface MeridianConfig {
   version: number;
   telemetry: boolean;
   router: RouterConfig;
@@ -25,20 +25,20 @@ export interface KnowaConfig {
   providers: string[];
 }
 
-const DEFAULT_CONFIG: KnowaConfig = {
+const DEFAULT_CONFIG: MeridianConfig = {
   version: 1,
   telemetry: false,
   router: { optimize: 'quality' },
   providers: [],
 };
 
-function defaults(): KnowaConfig {
+function defaults(): MeridianConfig {
   // Deep copy — callers mutate the returned config, and a shared nested
   // `router` object would leak state between loads.
   return { ...DEFAULT_CONFIG, router: { ...DEFAULT_CONFIG.router }, providers: [] };
 }
 
-export function loadConfig(): KnowaConfig {
+export function loadConfig(): MeridianConfig {
   const file = globalConfigPath();
   const result = readJsonFile<unknown>(file);
   if (!result.ok) {
@@ -54,7 +54,7 @@ export function loadConfig(): KnowaConfig {
   return coerceConfig(result.value, defaults());
 }
 
-export function saveConfig(config: KnowaConfig): void {
+export function saveConfig(config: MeridianConfig): void {
   ensureHome();
   writeFileAtomic(globalConfigPath(), JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
 }

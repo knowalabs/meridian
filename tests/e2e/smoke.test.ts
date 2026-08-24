@@ -24,7 +24,7 @@ describe('e2e: smoke', () => {
     const res = await runCli([], sandbox);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('Get started');
-    expect(res.stdout).toContain('knowa doctor');
+    expect(res.stdout).toContain('meridian doctor');
   });
 
   it('unknown commands fail with a suggestion', async () => {
@@ -37,10 +37,10 @@ describe('e2e: smoke', () => {
     // The host machine may have Claude Code or Ollama installed — disable
     // CLI-backed providers so this test sees a truly bare environment.
     const res = await runCli(['ask', 'hello'], sandbox, {
-      env: { KNOWA_DISABLE_PROVIDERS: 'claude-code,codex-cli,gemini-cli,ollama' },
+      env: { MERIDIAN_DISABLE_PROVIDERS: 'claude-code,codex-cli,gemini-cli,ollama' },
     });
     expect(res.code).toBe(1);
-    expect(res.stderr).toContain('knowa auth');
+    expect(res.stderr).toContain('meridian auth');
   });
 });
 
@@ -60,13 +60,13 @@ describe('e2e: doctor', () => {
   it('reports environment, providers, vault and kit in one document', async () => {
     const res = await runCli(['doctor', '--json'], sandbox, { cwd: sandbox.project });
     const doc = JSON.parse(res.stdout) as {
-      knowa: string;
+      meridian: string;
       environment: { label: string; level: string }[];
       providers: { id: string; ready: boolean }[];
       vault: { backend: string | null };
       kit: { present: boolean };
     };
-    expect(doc.knowa).toMatch(/^\d+\.\d+\.\d+/);
+    expect(doc.meridian).toMatch(/^\d+\.\d+\.\d+/);
     expect(doc.environment.map((c) => c.label)).toContain('Node.js');
     expect(doc.providers.map((p) => p.id)).toContain('anthropic');
     expect(doc.vault.backend).toBeTruthy();

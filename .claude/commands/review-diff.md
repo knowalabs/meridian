@@ -1,5 +1,5 @@
 ---
-description: Review the working diff against Knowa's module boundaries and conventions
+description: Review the working diff against Meridian's module boundaries and conventions
 argument-hint: [base-ref]
 allowed-tools: Read, Grep, Glob, Bash
 ---
@@ -7,7 +7,7 @@ allowed-tools: Read, Grep, Glob, Bash
 ## Context
 
 - `git diff` (staged + unstaged against `HEAD`) when `$ARGUMENTS` is empty, or `git diff $ARGUMENTS` when a base ref/path is given
-- `.knowa/rules.md` and `CLAUDE.md` — canonical rules for this repo
+- `.meridian/rules.md` and `CLAUDE.md` — canonical rules for this repo
 - `src/cli.ts`'s `done(code)` pattern, `src/generate/artifacts.ts`'s `isAllowedPath`, `src/providers/router.ts`'s `CliError` + `hint` pattern
 
 ## Task

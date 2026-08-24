@@ -26,7 +26,7 @@ import { setToolDetectionForTests } from '../src/plugins/tools.js';
 import { authCommand } from '../src/commands/auth.js';
 
 function makeProject(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-sync-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-sync-'));
   fs.writeFileSync(
     path.join(root, 'package.json'),
     JSON.stringify({
@@ -68,15 +68,15 @@ describe('kit manifest', () => {
     expect(manifest.provider).toBeNull();
     expect(manifest.fingerprint.scripts['test']).toBe('vitest run');
     // Written artifacts and propagated tool files are both tracked.
-    expect(manifest.files['.knowa/rules.md']).toBeDefined();
+    expect(manifest.files['.meridian/rules.md']).toBeDefined();
     expect(manifest.files['CLAUDE.md']).toBeDefined();
-    const rules = fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8');
-    expect(manifest.files['.knowa/rules.md']).toBe(signatureOf(rules));
+    const rules = fs.readFileSync(path.join(root, '.meridian/rules.md'), 'utf8');
+    expect(manifest.files['.meridian/rules.md']).toBe(signatureOf(rules));
   });
 
   it('survives the project formatter rewriting the kit after generation', async () => {
     await generateKit(root);
-    const file = path.join(root, '.knowa/rules.md');
+    const file = path.join(root, '.meridian/rules.md');
     const original = fs.readFileSync(file, 'utf8');
     // What Prettier does to generated markdown: emphasis markers, list
     // bullets, table padding and blank lines — none of it changes the content.
@@ -88,29 +88,29 @@ describe('kit manifest', () => {
         .replace(/\*([^*\n]+)\*/g, '_$1_'),
     );
     const states = fileStates(root, readManifest(root)!);
-    expect(states.clean).toContain('.knowa/rules.md');
-    expect(states.edited).not.toContain('.knowa/rules.md');
+    expect(states.clean).toContain('.meridian/rules.md');
+    expect(states.edited).not.toContain('.meridian/rules.md');
   });
 
   it('still sees a real edit through the formatter tolerance', async () => {
     await generateKit(root);
-    const file = path.join(root, '.knowa/rules.md');
+    const file = path.join(root, '.meridian/rules.md');
     fs.appendFileSync(file, '\n- Never touch the vendor directory.\n');
-    expect(fileStates(root, readManifest(root)!).edited).toContain('.knowa/rules.md');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.meridian/rules.md');
   });
 
   it('reads a legacy manifest that recorded raw content hashes', async () => {
     await generateKit(root);
     const manifest = readManifest(root)!;
-    const rules = fs.readFileSync(path.join(root, '.knowa/rules.md'), 'utf8');
+    const rules = fs.readFileSync(path.join(root, '.meridian/rules.md'), 'utf8');
     // Kits generated before signatures existed stored a bare sha256.
     fs.writeFileSync(
-      path.join(root, '.knowa/manifest.json'),
-      JSON.stringify({ ...manifest, files: { '.knowa/rules.md': hashContent(rules) } }),
+      path.join(root, '.meridian/manifest.json'),
+      JSON.stringify({ ...manifest, files: { '.meridian/rules.md': hashContent(rules) } }),
     );
-    expect(fileStates(root, readManifest(root)!).clean).toContain('.knowa/rules.md');
-    fs.appendFileSync(path.join(root, '.knowa/rules.md'), '\nedited\n');
-    expect(fileStates(root, readManifest(root)!).edited).toContain('.knowa/rules.md');
+    expect(fileStates(root, readManifest(root)!).clean).toContain('.meridian/rules.md');
+    fs.appendFileSync(path.join(root, '.meridian/rules.md'), '\nedited\n');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.meridian/rules.md');
   });
 
   it('is not written by a dry run', async () => {
@@ -120,10 +120,10 @@ describe('kit manifest', () => {
 
   it('classifies files as clean, edited or missing', async () => {
     await generateKit(root);
-    fs.appendFileSync(path.join(root, '.knowa/rules.md'), '\n- my own rule\n');
+    fs.appendFileSync(path.join(root, '.meridian/rules.md'), '\n- my own rule\n');
     fs.rmSync(path.join(root, '.claude/commands/verify.md'));
     const states = fileStates(root, readManifest(root)!);
-    expect(states.edited).toContain('.knowa/rules.md');
+    expect(states.edited).toContain('.meridian/rules.md');
     expect(states.missing).toContain('.claude/commands/verify.md');
     expect(states.clean).toContain('.claude/skills/commit/SKILL.md');
   });
@@ -190,7 +190,7 @@ describe('syncCommand', () => {
 
   it('refreshes stale files, regenerates deleted ones and preserves hand edits', async () => {
     await generateKit(root);
-    const rulesPath = path.join(root, '.knowa/rules.md');
+    const rulesPath = path.join(root, '.meridian/rules.md');
     const edited = fs.readFileSync(rulesPath, 'utf8') + '\n- my own rule\n';
     fs.writeFileSync(rulesPath, edited);
     fs.rmSync(path.join(root, '.claude/commands/verify.md'));
@@ -208,9 +208,9 @@ describe('syncCommand', () => {
 
   it('does nothing when the kit is already in sync', async () => {
     await generateKit(root);
-    const before = fs.statSync(path.join(root, '.knowa/rules.md')).mtimeMs;
+    const before = fs.statSync(path.join(root, '.meridian/rules.md')).mtimeMs;
     expect(await syncCommand({ ai: false }, root)).toBe(0);
-    expect(fs.statSync(path.join(root, '.knowa/rules.md')).mtimeMs).toBe(before);
+    expect(fs.statSync(path.join(root, '.meridian/rules.md')).mtimeMs).toBe(before);
   });
 });
 
@@ -231,13 +231,13 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
   const lastJson = <T>(): T => JSON.parse(String(logSpy.mock.calls.at(-1)![0])) as T;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-synco-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-synco-'));
     root = makeProject();
-    process.env.KNOWA_HOME = path.join(tmp, 'home');
-    process.env.KNOWA_VAULT = 'file';
+    process.env.MERIDIAN_HOME = path.join(tmp, 'home');
+    process.env.MERIDIAN_VAULT = 'file';
     // Provider availability otherwise depends on which AI CLIs the developer
     // happens to have on PATH, which would make these assertions machine-local.
-    process.env.KNOWA_DISABLE_PROVIDERS = PROVIDERS.map((p) => p.id).join(',');
+    process.env.MERIDIAN_DISABLE_PROVIDERS = PROVIDERS.map((p) => p.id).join(',');
     // Otherwise which mirrors exist depends on the AI CLIs the developer has
     // installed, and the assertions below become machine-local.
     setToolDetectionForTests(() => RULE_TARGETS.map((t) => t.id));
@@ -252,9 +252,9 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
     setRetryDelayForTests(null);
     setRuntimeModel(null);
     setFetchForTests(null);
-    delete process.env.KNOWA_HOME;
-    delete process.env.KNOWA_VAULT;
-    delete process.env.KNOWA_DISABLE_PROVIDERS;
+    delete process.env.MERIDIAN_HOME;
+    delete process.env.MERIDIAN_VAULT;
+    delete process.env.MERIDIAN_DISABLE_PROVIDERS;
     vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -312,7 +312,7 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
 
     it('reports stale mirrors separately from codebase drift', async () => {
       await generateKit(root);
-      fs.appendFileSync(path.join(root, '.knowa/rules.md'), '\n- my own rule\n');
+      fs.appendFileSync(path.join(root, '.meridian/rules.md'), '\n- my own rule\n');
       configureLogger({ json: true });
       expect(await syncCommand({ check: true }, root)).toBe(1);
       const doc = lastJson<{ inSync: boolean; drift: string[]; staleMirrors: string[] }>();
@@ -324,13 +324,13 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
   });
 
   describe('rules propagation', () => {
-    const rulesPath = (): string => path.join(root, '.knowa/rules.md');
+    const rulesPath = (): string => path.join(root, '.meridian/rules.md');
 
     it('--check fails when the mirrors no longer match an edited rules file', async () => {
       await generateKit(root);
       fs.appendFileSync(rulesPath(), '\n- my own rule\n');
       expect(await syncCommand({ check: true }, root)).toBe(1);
-      expect(output()).toContain('no longer match .knowa/rules.md');
+      expect(output()).toContain('no longer match .meridian/rules.md');
       // --check never writes: the mirrors are still stale afterwards.
       expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).not.toContain('my own rule');
     });
@@ -360,12 +360,12 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
 
   it('regenerates a deleted rules file and re-mirrors it to every tool', async () => {
     await generateKit(root);
-    fs.rmSync(path.join(root, '.knowa/rules.md'));
+    fs.rmSync(path.join(root, '.meridian/rules.md'));
     for (const target of RULE_TARGETS) fs.rmSync(path.join(root, target.file));
 
     expect(await syncCommand({ ai: false }, root)).toBe(0);
 
-    expect(fs.existsSync(path.join(root, '.knowa/rules.md'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.meridian/rules.md'))).toBe(true);
     for (const target of RULE_TARGETS) {
       expect(fs.existsSync(path.join(root, target.file)), target.file).toBe(true);
     }
@@ -377,14 +377,14 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
       await generateKit(root);
       addScript(root, 'format', 'prettier -w .');
       expect(await syncCommand({ provider: 'openai' }, root)).toBe(1);
-      expect(output()).toContain('knowa auth openai');
+      expect(output()).toContain('meridian auth openai');
     });
 
     it('points at the offline path when none is configured', async () => {
       await generateKit(root);
       addScript(root, 'format', 'prettier -w .');
       expect(await syncCommand({}, root)).toBe(1);
-      expect(output()).toContain('knowa sync --no-ai');
+      expect(output()).toContain('meridian sync --no-ai');
     });
   });
 
@@ -409,8 +409,8 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
   describe('a refresh the provider could not finish', () => {
     /** Make one keyed provider usable, then decide what its HTTP calls do. */
     async function withProvider(respond: () => Promise<Response>): Promise<void> {
-      delete process.env.KNOWA_DISABLE_PROVIDERS;
-      process.env.KNOWA_DISABLE_PROVIDERS = PROVIDERS.filter((p) => p.id !== 'openai')
+      delete process.env.MERIDIAN_DISABLE_PROVIDERS;
+      process.env.MERIDIAN_DISABLE_PROVIDERS = PROVIDERS.filter((p) => p.id !== 'openai')
         .map((p) => p.id)
         .join(',');
       await authCommand('openai', 'sk-unit-test', { verify: false });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { knowaHome, ensureHome } from '../core/paths.js';
+import { meridianHome, ensureHome } from '../core/paths.js';
 import { backupFile, readJsonFile, writeFileAtomic } from '../core/fsx.js';
 import { looksLikeMcpConfig } from '../core/validate.js';
 import type { McpServerSpec } from './registry.js';
@@ -134,10 +134,10 @@ export function removeServer(id: string, projectRoot: string): McpWriteReport {
   return report;
 }
 
-/* Track installed servers in ~/.knowa/mcp/installed.json */
+/* Track installed servers in ~/.meridian/mcp/installed.json */
 
 function installedPath(): string {
-  return path.join(knowaHome(), 'mcp', 'installed.json');
+  return path.join(meridianHome(), 'mcp', 'installed.json');
 }
 
 export function listInstalled(): string[] {

@@ -11,7 +11,7 @@ const kind = (id: string) => ARTIFACT_KINDS.find((k) => k.id === id)!;
 const agent = (body: string) => [{ file: '.claude/agents/reviewer.md', content: body }];
 
 function makeProject(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-validate-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-validate-'));
   fs.writeFileSync(
     path.join(root, 'package.json'),
     JSON.stringify({ name: 'demo', scripts: { test: 'vitest run', lint: 'eslint src' } }),
@@ -61,7 +61,7 @@ describe('validateArtifacts', () => {
   });
 
   it('says nothing about scripts when the project declares none', () => {
-    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-noscripts-'));
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-noscripts-'));
     try {
       const files = agent(`${header}\nRun \`npm run build\`.\n`);
       expect(validateArtifacts(kind('agents'), files, analyzeProject(bare), bare)).toEqual([]);
@@ -73,7 +73,7 @@ describe('validateArtifacts', () => {
   it('flags a path reference that does not exist, but not a kit path or a glob', () => {
     const files = agent(
       `${header}\nRead \`src/missing.ts\`, \`src/index.ts\`, \`docs/architecture.md\`, ` +
-        `\`src/**/*.ts\` and @.knowa/rules.md\n`,
+        `\`src/**/*.ts\` and @.meridian/rules.md\n`,
     );
     const issues = validateArtifacts(kind('agents'), files, analysis, root);
     expect(issues).toHaveLength(1);

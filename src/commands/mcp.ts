@@ -26,14 +26,14 @@ export function mcpSearchCommand(query?: string): number {
     const mark = installed.has(s.id) ? pc.green(' (installed)') : '';
     log.info(`  ${pc.bold(s.id.padEnd(12))} ${s.description}${mark}`);
   }
-  log.info(`\nInstall with ${pc.bold('knowa mcp install <id>')}`);
+  log.info(`\nInstall with ${pc.bold('meridian mcp install <id>')}`);
   return 0;
 }
 
 export function mcpInstallCommand(id: string, cwd: string = process.cwd()): number {
   const spec = getMcp(id);
   if (!spec) {
-    log.fail(`Unknown MCP server "${id}". Try ${pc.bold('knowa mcp search')}`);
+    log.fail(`Unknown MCP server "${id}". Try ${pc.bold('meridian mcp search')}`);
     return 1;
   }
   const report = addServer(spec, cwd);
@@ -88,7 +88,7 @@ export function mcpListCommand(): number {
     return 0;
   }
   if (installed.length === 0) {
-    log.info(`No MCP servers installed. Browse with ${pc.bold('knowa mcp search')}`);
+    log.info(`No MCP servers installed. Browse with ${pc.bold('meridian mcp search')}`);
     return 0;
   }
   log.title('Installed MCP servers:\n');

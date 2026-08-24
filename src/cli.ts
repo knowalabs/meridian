@@ -38,8 +38,8 @@ interface GlobalFlags {
 
 /**
  * Register the global output flags on a command. They live on every leaf
- * command (not just the program) so `knowa doctor --json` works as well
- * as `knowa --json doctor`.
+ * command (not just the program) so `meridian doctor --json` works as well
+ * as `meridian --json doctor`.
  */
 function addGlobalFlags(cmd: Command): void {
   cmd
@@ -63,23 +63,23 @@ export function buildCli(options: CliOptions = {}): Command {
   if (options.exitOverride) program.exitOverride();
 
   program
-    .name('knowa')
+    .name('meridian')
     .description('One command to set up every AI coding tool on any machine.')
-    .version(VERSION, '-v, --version', 'show the installed Knowa version')
+    .version(VERSION, '-v, --version', 'show the installed Meridian version')
     .showSuggestionAfterError(true)
-    .showHelpAfterError(pc.dim('(run knowa --help for a list of commands)'))
+    .showHelpAfterError(pc.dim('(run meridian --help for a list of commands)'))
     .addHelpText(
       'after',
       `
 Examples:
-  $ knowa                            open the interactive menu
-  $ knowa doctor                     check which AI tools are installed
-  $ knowa install claude             install & configure Claude Code
-  $ knowa install                    pick a tool from an interactive list
-  $ knowa auth anthropic             store your Anthropic API key securely
-  $ knowa generate                   make this project AI-ready in one shot
-  $ knowa mcp search github          find MCP servers
-  $ knowa ask "explain this repo"    ask AI (auto-picks the best provider)`,
+  $ meridian                            open the interactive menu
+  $ meridian doctor                     check which AI tools are installed
+  $ meridian install claude             install & configure Claude Code
+  $ meridian install                    pick a tool from an interactive list
+  $ meridian auth anthropic             store your Anthropic API key securely
+  $ meridian generate                   make this project AI-ready in one shot
+  $ meridian mcp search github          find MCP servers
+  $ meridian ask "explain this repo"    ask AI (auto-picks the best provider)`,
     );
 
   program
@@ -89,7 +89,7 @@ Examples:
     .option('--online', 'also verify each stored API key against its provider (costs no tokens)')
     .addHelpText(
       'after',
-      '\nOffline and read-only by default. Always exits 0 — parse --json to gate a script,\nor use "knowa sync --check", which is built to fail a build.',
+      '\nOffline and read-only by default. Always exits 0 — parse --json to gate a script,\nor use "meridian sync --check", which is built to fail a build.',
     )
     .action(async (opts: { online?: boolean }) => done(await doctorCommand(opts)));
 
@@ -99,13 +99,13 @@ Examples:
     .description('Install and configure a tool ("all" for everything; omit for a picker)')
     .addHelpText(
       'after',
-      '\nExamples:\n  $ knowa install claude\n  $ knowa install all\n  $ knowa install            (interactive picker)',
+      '\nExamples:\n  $ meridian install claude\n  $ meridian install all\n  $ meridian install            (interactive picker)',
     )
     .action(async (tool?: string) => done(await installCommand(tool)));
 
   program
     .command('uninstall [tool]')
-    .description('Uninstall a tool managed by Knowa (omit for a picker)')
+    .description('Uninstall a tool managed by Meridian (omit for a picker)')
     .action(async (tool?: string) => done(await uninstallCommand(tool)));
 
   program
@@ -161,7 +161,7 @@ Examples:
     .option('--no-ai', 'use static templates even if an AI provider is configured')
     .addHelpText(
       'after',
-      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nRigour: light (read-before-write + no silent doc edits), standard (default), strict (full agreement)\nTools: claude, cursor, codex, copilot, gemini (default: the ones detected for this project)\nOpt-in kinds (only when named): ci — a GitHub Action running "knowa sync --check"\nExamples:\n  $ knowa generate                   generate everything\n  $ knowa generate agents commands   only subagents and slash commands\n  $ knowa generate ci                add the CI kit-freshness check\n  $ knowa generate --estimate        what it would cost, before spending\n  $ knowa generate --dry-run         preview without writing\n  $ knowa generate --rigor light     a kit that gets out of the way\n  $ knowa generate --tools claude    only write CLAUDE.md',
+      '\nKinds: rules, agents, skills, commands, prompts, docs, harness (default: all)\nRigour: light (read-before-write + no silent doc edits), standard (default), strict (full agreement)\nTools: claude, cursor, codex, copilot, gemini (default: the ones detected for this project)\nOpt-in kinds (only when named): ci — a GitHub Action running "meridian sync --check"\nExamples:\n  $ meridian generate                   generate everything\n  $ meridian generate agents commands   only subagents and slash commands\n  $ meridian generate ci                add the CI kit-freshness check\n  $ meridian generate --estimate        what it would cost, before spending\n  $ meridian generate --dry-run         preview without writing\n  $ meridian generate --rigor light     a kit that gets out of the way\n  $ meridian generate --tools claude    only write CLAUDE.md',
     )
     .action(
       async (
@@ -193,7 +193,7 @@ Examples:
     .option('--no-ai', 'refresh from static templates instead of AI')
     .addHelpText(
       'after',
-      '\nHand-edited generated files are always preserved.\nExamples:\n  $ knowa sync                       refresh whatever is stale\n  $ knowa sync --check               CI gate: fail when the kit is stale',
+      '\nHand-edited generated files are always preserved.\nExamples:\n  $ meridian sync                       refresh whatever is stale\n  $ meridian sync --check               CI gate: fail when the kit is stale',
     )
     .action(
       async (opts: {
@@ -235,7 +235,7 @@ Examples:
     .option('-m, --model <model>', 'model to use for this question')
     .addHelpText(
       'after',
-      '\nThe answer streams as it arrives on a terminal, and is buffered when piped.\nPiped input becomes context:\n  $ cat error.log | knowa ask "what failed here?"',
+      '\nThe answer streams as it arrives on a terminal, and is buffered when piped.\nPiped input becomes context:\n  $ cat error.log | meridian ask "what failed here?"',
     )
     .action(async (prompt: string[], opts: { provider?: string; model?: string }) =>
       done(await askCommand(prompt ?? [], opts)),
@@ -252,7 +252,7 @@ Examples:
     )
     .addHelpText(
       'after',
-      '\n"knowa generate" asks which model to use the first time it runs against a\nprovider and remembers the answer — this is how you change it afterwards.\nExamples:\n  $ knowa router --model anthropic claude-opus-5\n  $ knowa router --model anthropic          restore the default model\n  $ knowa router --prefer ollama            always route to a local model',
+      '\n"meridian generate" asks which model to use the first time it runs against a\nprovider and remembers the answer — this is how you change it afterwards.\nExamples:\n  $ meridian router --model anthropic claude-opus-5\n  $ meridian router --model anthropic          restore the default model\n  $ meridian router --prefer ollama            always route to a local model',
     )
     .action((opts: { prefer?: string; optimize?: string; model?: string[] }) =>
       done(routerConfigCommand(opts)),
@@ -260,7 +260,7 @@ Examples:
 
   program
     .command('update')
-    .description('Update the Knowa CLI and installed tools')
+    .description('Update the Meridian CLI and installed tools')
     .option('--self', 'only update the CLI')
     .option('--tools', 'only update installed tools')
     .action(async (opts: { self?: boolean; tools?: boolean }) => done(await updateCommand(opts)));

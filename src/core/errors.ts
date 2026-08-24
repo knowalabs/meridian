@@ -11,7 +11,7 @@ export const EXIT = {
 
 export interface CliErrorOptions {
   exitCode?: number;
-  /** Actionable next step shown under the error, e.g. "run knowa auth anthropic". */
+  /** Actionable next step shown under the error, e.g. "run meridian auth anthropic". */
   hint?: string;
   cause?: unknown;
 }
@@ -61,7 +61,9 @@ export function renderError(err: unknown, opts: { verbose?: boolean } = {}): num
     console.error(pc.dim(err.stack));
     for (const cause of causeChain(err)) console.error(pc.dim(`caused by: ${cause}`));
   } else {
-    console.error(pc.dim('  This looks like a bug in Knowa. Re-run with --verbose for details.'));
+    console.error(
+      pc.dim('  This looks like a bug in Meridian. Re-run with --verbose for details.'),
+    );
   }
   return EXIT.ERROR;
 }

@@ -10,7 +10,7 @@ import path from 'node:path';
  * counts as part of the project.
  *
  * Three layers, in order:
- *  1. always-ignored directories (VCS/dependency/output dirs, plus Knowa's
+ *  1. always-ignored directories (VCS/dependency/output dirs, plus Meridian's
  *     own output) — cheap and unconditional;
  *  2. ecosystem build output, gated on the marker file that proves the
  *     ecosystem is present (`target/` only in a Cargo project, `vendor/` only
@@ -33,7 +33,7 @@ export const ALWAYS_IGNORED_DIRS: ReadonlySet<string> = new Set([
   '.venv',
   'venv',
   '__pycache__',
-  '.knowa',
+  '.meridian',
 ]);
 
 /**

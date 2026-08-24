@@ -1,6 +1,6 @@
 ---
-name: knowa-refactor-guide
-description: Use when planning a refactor that moves code across Knowa's module boundaries (core/scan/generate/providers/rules/commands/plugins/mcp), to produce a boundary-respecting, file-by-file plan before any edit is made.
+name: meridian-refactor-guide
+description: Use when planning a refactor that moves code across Meridian's module boundaries (core/scan/generate/providers/rules/commands/plugins/mcp), to produce a boundary-respecting, file-by-file plan before any edit is made.
 model: opus
 tools:
   - Read
@@ -36,7 +36,7 @@ If `docs/architecture.md` describes a boundary that the current `src/` layout no
 2. Read the target module's stated responsibility from `CLAUDE.md`'s Architecture section (e.g. "`src/core/` — cross-cutting infra... Platform-specific logic belongs here, isolated per backend class") and confirm the moved code actually belongs there, not just that it compiles there.
 3. Check for boundary violations already present or newly introduced: `src/scan/analyzer.ts` performing a write, business logic inside a `src/commands/*.ts` `.action()` callback, a new provider bypassing `src/providers/router.ts`'s shared `post()`/`postStream()` helpers, or an artifact kind writing outside `src/generate/`/`src/rules/generators.ts`.
 4. Verify every relative import in the plan keeps its explicit `.js` extension (NodeNext resolution) — a refactor is a common place to drop this by accident when an editor auto-imports.
-5. Check whether moved code has a test file that needs to move with it — Knowa's convention is one `tests/<module>.test.ts` per module area (`analyzer`, `commands`, `config`, `router`, `vault`, etc.); a symbol moving from `core/` to `generate/` implies its tests move from `tests/config.test.ts`-style files to `tests/generate.test.ts`.
+5. Check whether moved code has a test file that needs to move with it — Meridian's convention is one `tests/<module>.test.ts` per module area (`analyzer`, `commands`, `config`, `router`, `vault`, etc.); a symbol moving from `core/` to `generate/` implies its tests move from `tests/config.test.ts`-style files to `tests/generate.test.ts`.
 6. Check whether the moved code is a side-effecting singleton (network, subprocess) — if so, confirm its `setXForTests` seam (pattern: `setFetchForTests`/`setRunForTests` in `src/providers/router.ts`) moves and is re-wired in the relocated tests, not silently dropped.
 7. Produce the plan as an ordered list of file moves + import updates + test relocations, sized so each step leaves the build green (`npm run build`) before the next.
 

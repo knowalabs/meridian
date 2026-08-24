@@ -17,7 +17,7 @@ async function pickTool(
   verb: string,
 ): Promise<string | null> {
   if (!process.stdin.isTTY) {
-    log.fail(`Missing tool name. Usage: ${pc.bold(`knowa ${verb} <tool>`)}`);
+    log.fail(`Missing tool name. Usage: ${pc.bold(`meridian ${verb} <tool>`)}`);
     log.dim(`  Supported: ${registry.ids().join(', ')}${verb === 'install' ? ', all' : ''}`);
     return null;
   }
@@ -65,13 +65,13 @@ export async function installCommand(tool?: string): Promise<number> {
     else {
       failures++;
       log.warn(
-        `${plugin.name} installed but failed validation (restart your shell and run ${pc.bold('knowa doctor')})`,
+        `${plugin.name} installed but failed validation (restart your shell and run ${pc.bold('meridian doctor')})`,
       );
     }
   }
   if (failures === 0 && targets.length > 0) {
     log.dim(
-      `\nNext: run ${pc.bold('knowa auth')} to store an API key, then ${pc.bold('knowa generate')} in your project.`,
+      `\nNext: run ${pc.bold('meridian auth')} to store an API key, then ${pc.bold('meridian generate')} in your project.`,
     );
   }
   return failures === 0 ? 0 : 1;

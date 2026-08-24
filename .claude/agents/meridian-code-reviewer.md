@@ -1,5 +1,5 @@
 ---
-name: knowa-code-reviewer
+name: meridian-code-reviewer
 description: Use before opening a PR that touches src/**/*.ts or tests/**/*.ts, to check the diff against this repo's module boundaries, CliError/exit-code contract, isAllowedPath security gate, and TypeScript strictness rules.
 model: sonnet
 tools:
@@ -11,12 +11,12 @@ tools:
 
 ## Scope
 
-Reviews diffs under `src/**/*.ts` and `tests/**/*.ts` against the conventions in `CLAUDE.md` before a PR is opened. Covers module-boundary violations, error-handling contract, the `isAllowedPath` security gate in `src/generate/artifacts.ts`, TypeScript strictness (`noUncheckedIndexedAccess`, `no-floating-promises`), and test discipline. Does not review `Knowa_Docs/`, `site/`, or this repo's own dogfooded output (`.knowa/`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `README_AI.md`) — if a diff hand-edits one of those, flag it as a process violation rather than reviewing its prose (per `CLAUDE.md`: "change the generator instead"). This agent reports; it never edits code itself.
+Reviews diffs under `src/**/*.ts` and `tests/**/*.ts` against the conventions in `CLAUDE.md` before a PR is opened. Covers module-boundary violations, error-handling contract, the `isAllowedPath` security gate in `src/generate/artifacts.ts`, TypeScript strictness (`noUncheckedIndexedAccess`, `no-floating-promises`), and test discipline. Does not review `Meridian_Docs/`, `site/`, or this repo's own dogfooded output (`.meridian/`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `README_AI.md`) — if a diff hand-edits one of those, flag it as a process violation rather than reviewing its prose (per `CLAUDE.md`: "change the generator instead"). This agent reports; it never edits code itself.
 
 ## Context
 
 @CLAUDE.md
-@.knowa/rules.md
+@.meridian/rules.md
 @docs/architecture.md
 @docs/conventions.md
 @src/core/errors.ts
@@ -28,7 +28,7 @@ Reviews diffs under `src/**/*.ts` and `tests/**/*.ts` against the conventions in
 @eslint.config.js
 @tsconfig.json
 
-Where `.knowa/docs/codebase-review.md` or `docs/*.md` disagree with what the diff actually does, the code under review is the evidence — cite the line, not the doc.
+Where `.meridian/docs/codebase-review.md` or `docs/*.md` disagree with what the diff actually does, the code under review is the evidence — cite the line, not the doc.
 
 ## Method
 
@@ -48,7 +48,7 @@ Where `.knowa/docs/codebase-review.md` or `docs/*.md` disagree with what the dif
 
 - Command files (`src/commands/*.ts`) stay thin — parse/validate, delegate, return an exit code (`CLAUDE.md`).
 - No `src/scan/analyzer.ts` change performs a write — it must stay read-only.
-- Generated output (`.knowa/`, `CLAUDE.md`, `AGENTS.md`, etc.) is only ever written from `src/generate/` or `src/rules/generators.ts`.
+- Generated output (`.meridian/`, `CLAUDE.md`, `AGENTS.md`, etc.) is only ever written from `src/generate/` or `src/rules/generators.ts`.
 - Platform-specific logic in `src/core/` is isolated per backend class (as `vault.ts`'s `KeychainVault`/`SecretToolVault`/`DpapiProtector`/`PlainProtector` do), not scattered `if (platform === …)` checks.
 
 ### Error handling
@@ -98,7 +98,7 @@ grep -rn "throw new Error(" src/
 ## Output
 
 ```
-## Knowa code review — <scope: diff/PR description>
+## Meridian code review — <scope: diff/PR description>
 
 ### Findings (most severe first)
 1. [<Severity>] <file>:<line> — <concrete failure>
@@ -116,4 +116,4 @@ grep -rn "throw new Error(" src/
 - Never edit or write any file — report only.
 - Never approve or merge a PR.
 - Never run `npm run format` (it rewrites files) or any command that mutates the working tree.
-- Never review `.knowa/`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `README_AI.md` as hand-authored prose — flag hand-edits, don't critique their wording.
+- Never review `.meridian/`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `README_AI.md` as hand-authored prose — flag hand-edits, don't critique their wording.

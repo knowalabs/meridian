@@ -4,15 +4,16 @@ import { updateToolsCommand } from './install.js';
 import { log } from '../core/logger.js';
 import { PACKAGE_NAME } from '../core/pkg.js';
 
-/** `knowa update` — update the CLI itself, then installed tools. */
+/** `meridian update` — update the CLI itself, then installed tools. */
 export async function updateCommand(opts: { self?: boolean; tools?: boolean }): Promise<number> {
   const doSelf = opts.self || (!opts.self && !opts.tools);
   const doTools = opts.tools || (!opts.self && !opts.tools);
   let failed = false;
 
   if (doSelf) {
-    log.info('Updating Knowa CLI…');
-    if (runLive('npm', ['install', '-g', `${PACKAGE_NAME}@latest`])) log.ok('Knowa is up to date');
+    log.info('Updating Meridian CLI…');
+    if (runLive('npm', ['install', '-g', `${PACKAGE_NAME}@latest`]))
+      log.ok('Meridian is up to date');
     else {
       failed = true;
       log.fail(
@@ -27,12 +28,12 @@ export async function updateCommand(opts: { self?: boolean; tools?: boolean }): 
   return failed ? 1 : 0;
 }
 
-/** `knowa login` — Cloud Sync (roadmap v0.4). */
+/** `meridian login` — Cloud Sync (roadmap v0.4). */
 export function loginCommand(): number {
   log.warn('Cloud Sync is not available yet — it is on the roadmap, without a date.');
   log.info(
     `It would sync encrypted API keys, rules, prompts, MCP config and preferences across machines.
-Everything works locally today: ${pc.bold('knowa auth')}, ${pc.bold('knowa generate')}, ${pc.bold('knowa mcp install')}.`,
+Everything works locally today: ${pc.bold('meridian auth')}, ${pc.bold('meridian generate')}, ${pc.bold('meridian mcp install')}.`,
   );
   return 0;
 }

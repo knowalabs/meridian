@@ -1,5 +1,5 @@
 ---
-description: Run Knowa's fast verify loop (default) or the full CI-order chain with `full`
+description: Run Meridian's fast verify loop (default) or the full CI-order chain with `full`
 argument-hint: [fast|full|lint|format|build|test|coverage|e2e]
 ---
 

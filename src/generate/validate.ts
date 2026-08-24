@@ -54,7 +54,7 @@ const KNOWN_MODELS = new Set(['haiku', 'sonnet', 'opus', 'inherit']);
 
 /** Kit paths a generated file may reference before the run has written them. */
 const KIT_PREFIXES = [
-  '.knowa/',
+  '.meridian/',
   '.claude/',
   '.cursor/',
   '.github/copilot-instructions.md',
