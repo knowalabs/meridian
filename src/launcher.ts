@@ -6,9 +6,35 @@ import { renderError } from './core/errors.js';
 
 /* ---------------------------------- banner ---------------------------------- */
 
+const LETTERS: Record<string, string[]> = {
+  M: ['███╗   ███╗', '████╗ ████║', '██╔████╔██║', '██║╚██╔╝██║', '██║ ╚═╝ ██║', '╚═╝     ╚═╝'],
+  E: ['███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '███████╗', '╚══════╝'],
+  R: ['██████╗ ', '██╔══██╗', '██████╔╝', '██╔══██╗', '██║  ██║', '╚═╝  ╚═╝'],
+  I: ['██╗', '██║', '██║', '██║', '██║', '╚═╝'],
+  D: ['██████╗ ', '██╔══██╗', '██║  ██║', '██║  ██║', '██████╔╝', '╚═════╝ '],
+  A: [' █████╗ ', '██╔══██╗', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
+  N: ['███╗   ██╗', '████╗  ██║', '██╔██╗ ██║', '██║╚██╗██║', '██║ ╚████║', '╚═╝  ╚═══╝'],
+};
+
+function bannerRows(word: string): string[] {
+  return Array.from({ length: 6 }, (_, row) =>
+    word
+      .split('')
+      .map((ch) => LETTERS[ch]?.[row] ?? '')
+      .join(''),
+  );
+}
+
 export function showBanner(): void {
+  // "MERIDIAN" is 59 columns of art plus the two-space indent; below that the
+  // rows wrap into noise, so fall back to the plain wordmark.
+  const wide = (process.stdout.columns ?? 80) >= 62;
   console.log('');
-  console.log(`  ${pc.green(pc.bold('Meridian'))}`);
+  if (wide) {
+    for (const row of bannerRows('MERIDIAN')) console.log(`  ${pc.green(row)}`);
+  } else {
+    console.log(`  ${pc.green(pc.bold('Meridian'))}`);
+  }
   console.log(
     `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
   );
