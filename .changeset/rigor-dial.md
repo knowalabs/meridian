@@ -1,8 +1,8 @@
 ---
-'@sonalsithara/knowa': minor
+'@sonalsithara/meridian': minor
 ---
 
-Add `knowa generate --rigor light|standard|strict`, and shrink the kit's
+Add `meridian generate --rigor light|standard|strict`, and shrink the kit's
 always-resident footprint.
 
 The generated working agreement trades speed for rigour on purpose, but it was
@@ -21,7 +21,7 @@ there was no dial.
   defects in the summary instead of stopping mid-task.
 - `--rigor strict` (~85 lines) is the previous behaviour, byte-identical.
 
-The level is recorded in `.knowa/manifest.json`, and `knowa sync` reads it back,
+The level is recorded in `.meridian/manifest.json`, and `meridian sync` reads it back,
 so refreshing a kit never silently re-rigs it. Manifests written before this
 release have no level and are treated as `standard`.
 
