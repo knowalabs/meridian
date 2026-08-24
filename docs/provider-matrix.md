@@ -1,6 +1,6 @@
 # Provider matrix
 
-The AI providers `src/providers/router.ts` can route `knowa generate`, `knowa sync` and `knowa ask` to, how each is authenticated, and provider-specific behavior worth knowing before adding or debugging one. Read this before touching `PROVIDERS` in `src/providers/router.ts` or `src/providers/router.test.ts`/`tests/router-network.test.ts`/`tests/ask-stream.test.ts`. Not covered: which provider a given run actually picks — that's `route()`'s cost/speed/quality/context-size logic, described structurally below, not as fixed numbers this doc would go stale against.
+The AI providers `src/providers/router.ts` can route `meridian generate`, `meridian sync` and `meridian ask` to, how each is authenticated, and provider-specific behavior worth knowing before adding or debugging one. Read this before touching `PROVIDERS` in `src/providers/router.ts` or `src/providers/router.test.ts`/`tests/router-network.test.ts`/`tests/ask-stream.test.ts`. Not covered: which provider a given run actually picks — that's `route()`'s cost/speed/quality/context-size logic, described structurally below, not as fixed numbers this doc would go stale against.
 
 ## Providers
 
@@ -21,15 +21,15 @@ The AI providers `src/providers/router.ts` can route `knowa generate`, `knowa sy
 
 ## Selection order (no key required)
 
-Per the README, when no API key is configured Knowa tries, in order of quality: `claude-code` (Claude Pro/Max via `claude -p`), `codex-cli` (ChatGPT plan via `codex exec`, read-only sandbox), `gemini-cli` (Google account). `route()` (`src/providers/router.ts`) otherwise picks among `availableProviders()` by each `ProviderSpec`'s relative `cost`/`speed`/`quality`/`contextTokens` rankings (lower = better/cheaper/faster per the field comments in the `ProviderSpec` interface) and the user's `router.prefer`/`router.optimize` config.
+Per the README, when no API key is configured Meridian tries, in order of quality: `claude-code` (Claude Pro/Max via `claude -p`), `codex-cli` (ChatGPT plan via `codex exec`, read-only sandbox), `gemini-cli` (Google account). `route()` (`src/providers/router.ts`) otherwise picks among `availableProviders()` by each `ProviderSpec`'s relative `cost`/`speed`/`quality`/`contextTokens` rankings (lower = better/cheaper/faster per the field comments in the `ProviderSpec` interface) and the user's `router.prefer`/`router.optimize` config.
 
 ## Model resolution
 
-`modelFor(spec)` resolves in this order: a per-run `--model` override (`setRuntimeModel`), then `router.models.<id>` in `~/.knowa/config.json`, then the provider's own default `model`. CLI-backed providers use the sentinel `CLI_DEFAULT_MODEL = 'cli-default'` — "use whatever the signed-in CLI is configured with" — unless explicitly overridden.
+`modelFor(spec)` resolves in this order: a per-run `--model` override (`setRuntimeModel`), then `router.models.<id>` in `~/.meridian/config.json`, then the provider's own default `model`. CLI-backed providers use the sentinel `CLI_DEFAULT_MODEL = 'cli-default'` — "use whatever the signed-in CLI is configured with" — unless explicitly overridden.
 
 ## Network resilience
 
-All hosted-API calls go through `post()`/`postStream()` in `src/providers/router.ts`: `DEFAULT_TIMEOUT_MS = 60_000`, up to `MAX_ATTEMPTS = 3` for `RETRYABLE_STATUS` (`408, 425, 429, 500, 502, 503, 504`) with exponential backoff (`backoffFor`) honoring a `Retry-After` header (`retryAfterMs`, capped at 30s); 4xx errors outside that set are never retried. `401`/`403` map to an auth-failure `CliError` hinting `knowa auth <provider>`; `404` hints at a retired model, pointing at `router.models.<id>`. Streaming (`postStream`) never retries — once the first byte reaches the terminal, replaying would print the answer twice.
+All hosted-API calls go through `post()`/`postStream()` in `src/providers/router.ts`: `DEFAULT_TIMEOUT_MS = 60_000`, up to `MAX_ATTEMPTS = 3` for `RETRYABLE_STATUS` (`408, 425, 429, 500, 502, 503, 504`) with exponential backoff (`backoffFor`) honoring a `Retry-After` header (`retryAfterMs`, capped at 30s); 4xx errors outside that set are never retried. `401`/`403` map to an auth-failure `CliError` hinting `meridian auth <provider>`; `404` hints at a retired model, pointing at `router.models.<id>`. Streaming (`postStream`) never retries — once the first byte reaches the terminal, replaying would print the answer twice.
 
 ## Adding a provider
 
@@ -37,4 +37,4 @@ Add an entry to `PROVIDERS` in `src/providers/router.ts` with `cost`/`speed`/`qu
 
 ## Related
 
-[cli-reference.md](cli-reference.md) for the `-p/--provider`/`-m/--model` flags that select among these, [architecture.md](architecture.md) for where `route()`'s output feeds into `knowa generate`'s pipeline.
+[cli-reference.md](cli-reference.md) for the `-p/--provider`/`-m/--model` flags that select among these, [architecture.md](architecture.md) for where `route()`'s output feeds into `meridian generate`'s pipeline.

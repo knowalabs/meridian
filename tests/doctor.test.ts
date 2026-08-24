@@ -24,7 +24,7 @@ async function runDoctor(opts: { online?: boolean } = {}): Promise<DoctorReportJ
 }
 
 beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-doctor-'));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-doctor-'));
   project = path.join(tmp, 'project');
   fs.mkdirSync(project, { recursive: true });
   fs.writeFileSync(
@@ -33,13 +33,13 @@ beforeEach(() => {
   );
   fs.mkdirSync(path.join(project, 'src'));
   fs.writeFileSync(path.join(project, 'src/index.ts'), 'export const app = 1;\n');
-  process.env.KNOWA_HOME = path.join(tmp, 'home');
+  process.env.MERIDIAN_HOME = path.join(tmp, 'home');
   // buildCli() calls ensureHome() before any command runs; mirror that here.
-  fs.mkdirSync(process.env.KNOWA_HOME, { recursive: true });
-  process.env.KNOWA_VAULT = 'file';
+  fs.mkdirSync(process.env.MERIDIAN_HOME, { recursive: true });
+  process.env.MERIDIAN_VAULT = 'file';
   // Without this the suite would consult whichever AI CLIs the developer
   // happens to have signed in to, making provider assertions machine-specific.
-  process.env.KNOWA_DISABLE_PROVIDERS = 'claude-code,codex-cli,gemini-cli,ollama';
+  process.env.MERIDIAN_DISABLE_PROVIDERS = 'claude-code,codex-cli,gemini-cli,ollama';
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -47,25 +47,25 @@ beforeEach(() => {
 afterEach(() => {
   configureLogger({ level: 'normal', json: false });
   setFetchForTests(null);
-  delete process.env.KNOWA_HOME;
-  delete process.env.KNOWA_VAULT;
-  delete process.env.KNOWA_DISABLE_PROVIDERS;
+  delete process.env.MERIDIAN_HOME;
+  delete process.env.MERIDIAN_VAULT;
+  delete process.env.MERIDIAN_DISABLE_PROVIDERS;
   vi.restoreAllMocks();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe('doctor: environment', () => {
-  it('reports the running node and a writable Knowa home', async () => {
+  it('reports the running node and a writable Meridian home', async () => {
     const doc = await runDoctor();
     const node = doc.environment.find((c) => c.label === 'Node.js')!;
     expect(node.level).toBe('ok');
     expect(node.detail).toContain(process.versions.node);
-    expect(doc.environment.find((c) => c.label === 'Knowa home')?.level).toBe('ok');
+    expect(doc.environment.find((c) => c.label === 'Meridian home')?.level).toBe('ok');
   });
 
   it('treats a missing config as fine and a corrupt one as a warning', async () => {
     expect((await runDoctor()).environment.find((c) => c.label === 'Config')?.level).toBe('ok');
-    fs.writeFileSync(path.join(process.env.KNOWA_HOME!, 'config.json'), '{ not json');
+    fs.writeFileSync(path.join(process.env.MERIDIAN_HOME!, 'config.json'), '{ not json');
     const corrupt = (await runDoctor()).environment.find((c) => c.label === 'Config')!;
     expect(corrupt.level).toBe('warn');
     expect(corrupt.fix).toContain('config.json');
@@ -163,15 +163,15 @@ describe('doctor: project kit', () => {
 
   it('reports a deleted generated file as missing', async () => {
     await runGenerate({ root: project, kinds: ['rules'], force: true, dryRun: false, noAi: true });
-    fs.rmSync(path.join(project, '.knowa/rules.md'));
-    expect((await runDoctor()).kit.missing).toContain('.knowa/rules.md');
+    fs.rmSync(path.join(project, '.meridian/rules.md'));
+    expect((await runDoctor()).kit.missing).toContain('.meridian/rules.md');
   });
 
   it('reports a hand-edited generated file as preserved, not as drift', async () => {
     await runGenerate({ root: project, kinds: ['rules'], force: true, dryRun: false, noAi: true });
-    fs.writeFileSync(path.join(project, '.knowa/rules.md'), '# my own rules\n');
+    fs.writeFileSync(path.join(project, '.meridian/rules.md'), '# my own rules\n');
     const doc = await runDoctor();
-    expect(doc.kit.edited).toContain('.knowa/rules.md');
+    expect(doc.kit.edited).toContain('.meridian/rules.md');
     expect(doc.kit.missing).toEqual([]);
   });
 });
@@ -185,6 +185,6 @@ describe('doctor: human output', () => {
       expect(out).toContain(section);
     }
     expect(out).toContain('Next steps');
-    expect(out).toContain('knowa generate');
+    expect(out).toContain('meridian generate');
   });
 });

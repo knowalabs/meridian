@@ -1,4 +1,4 @@
-import type { KnowaConfig } from './config.js';
+import type { MeridianConfig } from './config.js';
 
 export function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -8,7 +8,7 @@ export function isRecord(x: unknown): x is Record<string, unknown> {
  * Merge parsed (untrusted) config JSON into a defaults object, keeping only
  * fields with the expected types. Unknown or mistyped fields are dropped.
  */
-export function coerceConfig(parsed: unknown, base: KnowaConfig): KnowaConfig {
+export function coerceConfig(parsed: unknown, base: MeridianConfig): MeridianConfig {
   if (!isRecord(parsed)) return base;
   if (typeof parsed.version === 'number') base.version = parsed.version;
   if (typeof parsed.telemetry === 'boolean') base.telemetry = parsed.telemetry;

@@ -1,19 +1,19 @@
 ---
-'@sonalsithara/knowa': minor
+'@sonalsithara/meridian': minor
 ---
 
 Fix the rules-edit workflow, mirror only to detected tools, and report what a
 kit costs per request.
 
 **The documented rules workflow destroyed the edit it asked for.** Every
-generated agreement said to edit `.knowa/rules.md` and re-run
-`knowa generate rules --force` — but that command regenerates `.knowa/rules.md`
+generated agreement said to edit `.meridian/rules.md` and re-run
+`meridian generate rules --force` — but that command regenerates `.meridian/rules.md`
 itself, discarding the edit before it ever reached `CLAUDE.md` and the other
-mirrors. `knowa sync` preserved the edit but never propagated it, so there was
+mirrors. `meridian sync` preserved the edit but never propagated it, so there was
 no supported path from the canonical rules to the tool files at all.
 
-`knowa sync` now detects mirrors that no longer render from a hand-edited
-`.knowa/rules.md` and re-renders them from the rules file directly — no AI
+`meridian sync` now detects mirrors that no longer render from a hand-edited
+`.meridian/rules.md` and re-renders them from the rules file directly — no AI
 call, no regeneration, so the edit survives and reaches every tool. `--check`
 reports it and exits non-zero, which is what CI wants. A hand-edit to a mirror
 rather than to the canonical file is unaffected: that case is already covered

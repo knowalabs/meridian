@@ -1,6 +1,6 @@
 ---
-name: knowa-generate-pipeline-specialist
-description: Use for anything touching the `knowa generate`/`knowa sync` flow — src/generate/digest.ts, artifacts.ts, pipeline.ts, manifest.ts, cache.ts, or src/rules/generators.ts.
+name: meridian-generate-pipeline-specialist
+description: Use for anything touching the `meridian generate`/`meridian sync` flow — src/generate/digest.ts, artifacts.ts, pipeline.ts, manifest.ts, cache.ts, or src/rules/generators.ts.
 model: opus
 tools:
   - Read
@@ -18,7 +18,7 @@ Owns the AI-kit generation subsystem: `src/generate/digest.ts` (`buildDigest`), 
 ## Context
 
 @CLAUDE.md
-@.knowa/rules.md
+@.meridian/rules.md
 @docs/architecture.md
 @src/generate/pipeline.ts
 @src/generate/artifacts.ts
@@ -38,7 +38,7 @@ Where a doc describes an artifact kind's shape and the actual `prompt()`/`fallba
 1. Trace the full call chain before changing anything: `analyzeProject` (`scan/analyzer.ts`) → `buildDigest` (`generate/digest.ts`) → `pickProvider`/`route` (`providers/router.ts`) → `generateKind` per `ArtifactKind` (`generate/artifacts.ts`, `generate/pipeline.ts`) → `writeFileAtomic` (`core/fsx.ts`) → `generateRules` (`rules/generators.ts`) → `writeManifest` (`generate/manifest.ts`).
 2. When adding or editing an `ArtifactKind`, verify it supplies both `prompt(digest)` and `fallback(analysis)`, sets `allowedPaths` correctly, and (if it has required output) sets `minFiles`/`requiredFiles` — the `static fallbacks` test in `tests/generate.test.ts` enforces every kind produces files under its own `allowedPaths`.
 3. When touching digest size or prompt length, check `digestBudgetFor` and the `ASSUMED_OUTPUT_TOKENS`/`CHARS_PER_TOKEN` constants in `pipeline.ts` — `estimateGenerate`'s cost model is unit-tested against these exact assumptions; a prompt-length change without updating the estimate silently makes `--estimate` wrong.
-4. When touching `manifest.ts`, remember `fingerprintOf`/`diffFingerprints`/`fileStates` are consumed by both `knowa sync` (`src/commands/sync.ts`) and `knowa doctor`'s kit-status check (`src/commands/doctor.ts`) — a fingerprint field added here must be reflected in both `diffFingerprints`'s drift message and `tests/sync.test.ts`.
+4. When touching `manifest.ts`, remember `fingerprintOf`/`diffFingerprints`/`fileStates` are consumed by both `meridian sync` (`src/commands/sync.ts`) and `meridian doctor`'s kit-status check (`src/commands/doctor.ts`) — a fingerprint field added here must be reflected in both `diffFingerprints`'s drift message and `tests/sync.test.ts`.
 5. Never weaken the fail-closed invariant in `generateKind`: a failed or incomplete AI response (after the one retry) must write nothing and mark the kind `failed` — it must never silently substitute the static `fallback()` mid-run. This is called out explicitly in `CLAUDE.md` as a must-preserve behavior.
 6. Any AI-suggested or dynamically constructed path must be validated through `isAllowedPath` before reaching `writeFileAtomic` — never bypass it, even for a kind you trust.
 7. Run the targeted test files (`tests/generate.test.ts`, `tests/sync.test.ts`, `tests/doctor.test.ts`) before the full suite — they exercise this subsystem end to end including the manifest/drift lifecycle.
@@ -64,11 +64,11 @@ Where a doc describes an artifact kind's shape and the actual `prompt()`/`fallba
 ### Manifest & sync
 
 - `fingerprintOf` captures every fact `diffFingerprints` needs to report drift.
-- `fileStates` correctly classifies clean/edited/missing so `knowa sync` never clobbers a hand-edited file.
+- `fileStates` correctly classifies clean/edited/missing so `meridian sync` never clobbers a hand-edited file.
 
 ### Rules propagation
 
-- `generateRules` in `src/rules/generators.ts` remains the single place rules content flows from `.knowa/rules.md` into tool-specific files — no artifact kind writes `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` directly.
+- `generateRules` in `src/rules/generators.ts` remains the single place rules content flows from `.meridian/rules.md` into tool-specific files — no artifact kind writes `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` directly.
 
 ## Commands
 

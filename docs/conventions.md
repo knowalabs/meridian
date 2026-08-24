@@ -1,6 +1,6 @@
 # Conventions
 
-Real naming, file-organization, import, typing, error-handling and tooling conventions actually in force in this codebase, each proven against a file. Read this before writing new code in `src/` or `tests/`. Not covered: conventions for a _target_ project `knowa generate` scans — those are whatever that project already does, discovered by `src/scan/analyzer.ts`, not imposed by this file.
+Real naming, file-organization, import, typing, error-handling and tooling conventions actually in force in this codebase, each proven against a file. Read this before writing new code in `src/` or `tests/`. Not covered: conventions for a _target_ project `meridian generate` scans — those are whatever that project already does, discovered by `src/scan/analyzer.ts`, not imposed by this file.
 
 ## Naming
 
@@ -24,7 +24,7 @@ Relative imports use explicit `.js` extensions even though the source is `.ts`, 
 
 ## Error handling
 
-Every user-facing failure throws `CliError` (`src/core/errors.ts`), never a raw `Error`, always with an actionable `hint` — see `classifyStatus` in `src/providers/router.ts` (`hint: 'Run "knowa auth ${ctx.provider}"...'`) and `FileVault.readAll`'s catch block in `src/core/vault.ts` (`hint: '...run "knowa keys repair"...'`). `@typescript-eslint/no-floating-promises` and `no-misused-promises` are `error` on `src/**` (`eslint.config.js`) — every promise is `await`ed or explicitly `void`ed.
+Every user-facing failure throws `CliError` (`src/core/errors.ts`), never a raw `Error`, always with an actionable `hint` — see `classifyStatus` in `src/providers/router.ts` (`hint: 'Run "meridian auth ${ctx.provider}"...'`) and `FileVault.readAll`'s catch block in `src/core/vault.ts` (`hint: '...run "meridian keys repair"...'`). `@typescript-eslint/no-floating-promises` and `no-misused-promises` are `error` on `src/**` (`eslint.config.js`) — every promise is `await`ed or explicitly `void`ed.
 
 ## Test seams instead of a mocking library
 

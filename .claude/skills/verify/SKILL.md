@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Use to run Knowa's verification chain — the fast inner loop after an edit, or the full CI-order chain before a PR — and fix any failures.
+description: Use to run Meridian's verification chain — the fast inner loop after an edit, or the full CI-order chain before a PR — and fix any failures.
 ---
 
 # Verify

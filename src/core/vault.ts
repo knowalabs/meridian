@@ -5,9 +5,9 @@ import { CliError } from './errors.js';
 import { writeFileAtomic, backupFile } from './fsx.js';
 import { log } from './logger.js';
 import { run, which } from './exec.js';
-import { knowaHome, ensureHome } from './paths.js';
+import { meridianHome, ensureHome } from './paths.js';
 
-const SERVICE = 'knowa';
+const SERVICE = 'meridian';
 
 export type VaultBackend = 'keychain' | 'secret-service' | 'dpapi-file' | 'encrypted-file';
 
@@ -102,7 +102,7 @@ class SecretToolVault implements Vault {
  * items for a service, so we keep a non-secret index of account names on disk.
  */
 function indexPath(): string {
-  return path.join(knowaHome(), 'keys', 'index.json');
+  return path.join(meridianHome(), 'keys', 'index.json');
 }
 function indexRead(): string[] {
   try {
@@ -208,10 +208,10 @@ class FileVault implements Vault {
   }
 
   private masterKeyPath(): string {
-    return path.join(knowaHome(), 'keys', '.master');
+    return path.join(meridianHome(), 'keys', '.master');
   }
   private vaultPath(): string {
-    return path.join(knowaHome(), 'keys', 'vault.enc');
+    return path.join(meridianHome(), 'keys', 'vault.enc');
   }
 
   private masterKey(): Buffer {
@@ -240,7 +240,7 @@ class FileVault implements Vault {
       return JSON.parse(plain.toString('utf8')) as Record<string, string>;
     } catch (err) {
       throw new CliError(`The key vault could not be read: ${p}`, {
-        hint: 'The vault file is corrupted or its master key changed. Back up the keys directory, then run "knowa keys repair" and re-add your keys with "knowa auth".',
+        hint: 'The vault file is corrupted or its master key changed. Back up the keys directory, then run "meridian keys repair" and re-add your keys with "meridian auth".',
         cause: err,
       });
     }
@@ -289,7 +289,7 @@ class FileVault implements Vault {
  * reinitialized. Returns the backups that were made.
  */
 export function repairVault(): string[] {
-  const keysDir = path.join(knowaHome(), 'keys');
+  const keysDir = path.join(meridianHome(), 'keys');
   const backups: string[] = [];
   for (const name of ['vault.enc', '.master', 'index.json']) {
     const file = path.join(keysDir, name);
@@ -307,7 +307,7 @@ export function repairVault(): string[] {
 let warnedFallback = false;
 
 export function openVault(): Vault {
-  if (process.env.KNOWA_VAULT === 'file') return new FileVault();
+  if (process.env.MERIDIAN_VAULT === 'file') return new FileVault();
   if (process.platform === 'darwin' && which('security')) return new KeychainVault();
   if (process.platform === 'linux' && which('secret-tool')) return new SecretToolVault();
   if (process.platform === 'win32' && which('powershell')) {

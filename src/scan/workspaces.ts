@@ -262,7 +262,7 @@ export function detectWorkspaces(
   return best;
 }
 
-/** Compact workspace summary for the digest and for .knowa/context.md. */
+/** Compact workspace summary for the digest and for .meridian/context.md. */
 export function renderWorkspaces(info: WorkspaceInfo): string {
   const lines = [
     `Workspace: ${info.tool}${info.runners.length ? ` (+ ${info.runners.join(', ')})` : ''} — ${info.packages.length} packages`,

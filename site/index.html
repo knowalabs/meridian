@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Knowa — one command to set up every AI coding tool</title>
+    <title>Meridian — one command to set up every AI coding tool</title>
     <meta
       name="description"
-      content="Knowa reviews your codebase and generates the complete AI kit — rules, subagents, skills, slash commands, harness config and docs — then keeps it fresh as your code evolves."
+      content="Meridian reviews your codebase and generates the complete AI kit — rules, subagents, skills, slash commands, harness config and docs — then keeps it fresh as your code evolves."
     />
     <style>
       :root {
@@ -295,8 +295,8 @@
           <a href="#kit">The AI kit</a>
           <a href="#sync">Sync</a>
           <a href="#commands">Commands</a>
-          <a href="https://github.com/sonal-sithara/knowa">GitHub</a>
-          <a href="https://www.npmjs.com/package/@sonalsithara/knowa">npm</a>
+          <a href="https://github.com/sonal-sithara/meridian">GitHub</a>
+          <a href="https://www.npmjs.com/package/@sonalsithara/meridian">npm</a>
         </nav>
       </header>
 
@@ -304,13 +304,13 @@
         <div class="hero">
           <h1>Make any codebase <em>AI-ready</em> in one command.</h1>
           <p class="sub">
-            Knowa reviews your project and generates the complete AI kit — rules, subagents, skills,
-            slash commands, harness config and real docs — for Claude Code, Cursor, Copilot, Codex
-            and Gemini. Then it keeps the kit fresh as your code evolves.
+            Meridian reviews your project and generates the complete AI kit — rules, subagents,
+            skills, slash commands, harness config and real docs — for Claude Code, Cursor, Copilot,
+            Codex and Gemini. Then it keeps the kit fresh as your code evolves.
           </p>
           <div class="install">
             <span class="dollar">$</span>
-            <span id="cmd">npm install -g @sonalsithara/knowa</span>
+            <span id="cmd">npm install -g @sonalsithara/meridian</span>
             <button
               onclick="navigator.clipboard.writeText(document.getElementById('cmd').textContent)"
             >
@@ -322,10 +322,10 @@
           <div class="term">
             <div class="term-bar"><i></i><i></i><i></i></div>
             <pre>
-$ knowa generate
+$ meridian generate
 <span class="g">✔</span> Reviewed 214 files <span class="d">— read src/cli.ts, src/server/router.ts, +12 more</span>
 <span class="d">→ generating with Claude Code [sonnet]</span>
-<span class="g">✔</span> AI read the codebase → .knowa/docs/codebase-review.md
+<span class="g">✔</span> AI read the codebase → .meridian/docs/codebase-review.md
 <span class="g">✔</span> [1/7] Rules: 1 file <span class="d">(rules.md)</span>
 <span class="g">✔</span> [2/7] Subagents: 4 files <span class="d">(code-reviewer.md, test-fixer.md, …)</span>
 <span class="g">✔</span> [3/7] Skills: 6 files <span class="d">(commit, new-feature, fix-bug, …)</span>
@@ -335,10 +335,10 @@ $ knowa generate
 
 <span class="c">Your project is AI-ready:</span> rules, agents, skills, commands and docs are in place.
 
-$ knowa sync --check
+$ meridian sync --check
 <span class="y">△</span> new script: e2e (playwright test)
 <span class="y">△</span> new top-level directory: workers
-<span class="d">Kit is stale — run knowa sync to refresh.</span></pre>
+<span class="d">Kit is stale — run meridian sync to refresh.</span></pre>
           </div>
         </div>
 
@@ -346,7 +346,7 @@ $ knowa sync --check
           <div class="wrap" style="padding: 0">
             <h2>One command writes what you'd never write by hand</h2>
             <p class="lead">
-              <code>knowa generate</code> is AI-first: it digests your codebase — layout,
+              <code>meridian generate</code> is AI-first: it digests your codebase — layout,
               dependencies, scripts, conventions, source excerpts, a full symbol map — has your best
               provider write a real codebase review, and grounds every generated file in it.
             </p>
@@ -378,7 +378,7 @@ $ knowa sync --check
               <div class="card">
                 <h3>No API key required</h3>
                 <p>
-                  Signed in to Claude Code, Codex CLI or Gemini CLI? Knowa uses your subscription
+                  Signed in to Claude Code, Codex CLI or Gemini CLI? Meridian uses your subscription
                   directly. Or bring an API key, or run local models via Ollama.
                 </p>
               </div>
@@ -404,29 +404,29 @@ $ knowa sync --check
           <div class="wrap" style="padding: 0">
             <h2>The kit stays alive</h2>
             <p class="lead">
-              Generated config rots the day your code moves on. Knowa records a manifest of what it
-              knew and what it wrote — so the kit can tell when it's stale.
+              Generated config rots the day your code moves on. Meridian records a manifest of what
+              it knew and what it wrote — so the kit can tell when it's stale.
             </p>
             <div class="steps">
               <div class="step">
-                <h3>knowa generate</h3>
+                <h3>meridian generate</h3>
                 <p>
                   Writes the kit and a manifest: a fingerprint of your project plus a hash of every
                   generated file.
                 </p>
               </div>
               <div class="step">
-                <h3>knowa sync</h3>
+                <h3>meridian sync</h3>
                 <p>
                   Detects drift — new scripts, frameworks, modules — and refreshes only stale files.
                   Anything you hand-edited is detected by hash and always preserved.
                 </p>
               </div>
               <div class="step">
-                <h3>knowa sync --check in CI</h3>
+                <h3>meridian sync --check in CI</h3>
                 <p>
                   Exits 1 when the kit is stale. No AI, no keys needed.
-                  <code>knowa generate ci</code> writes the GitHub Action for you.
+                  <code>meridian generate ci</code> writes the GitHub Action for you.
                 </p>
               </div>
             </div>
@@ -436,7 +436,7 @@ $ knowa sync --check
         <section id="commands">
           <div class="wrap" style="padding: 0">
             <h2>Command reference</h2>
-            <p class="lead">Run bare <code>knowa</code> for the interactive launcher.</p>
+            <p class="lead">Run bare <code>meridian</code> for the interactive launcher.</p>
             <div class="tbl">
               <table>
                 <tr>
@@ -444,31 +444,31 @@ $ knowa sync --check
                   <th>What it does</th>
                 </tr>
                 <tr>
-                  <td>knowa generate [kinds…]</td>
+                  <td>meridian generate [kinds…]</td>
                   <td>Review the codebase and generate the complete AI kit</td>
                 </tr>
                 <tr>
-                  <td>knowa sync [--check]</td>
+                  <td>meridian sync [--check]</td>
                   <td>Detect drift and refresh the kit; --check is the CI gate</td>
                 </tr>
                 <tr>
-                  <td>knowa doctor</td>
+                  <td>meridian doctor</td>
                   <td>Detect installed AI tools and missing dependencies</td>
                 </tr>
                 <tr>
-                  <td>knowa install &lt;tool&gt;</td>
+                  <td>meridian install &lt;tool&gt;</td>
                   <td>Install &amp; configure Claude Code, Cursor, Codex, Gemini CLI…</td>
                 </tr>
                 <tr>
-                  <td>knowa auth [provider]</td>
+                  <td>meridian auth [provider]</td>
                   <td>Store API keys in the OS-native secret store</td>
                 </tr>
                 <tr>
-                  <td>knowa mcp search/install</td>
+                  <td>meridian mcp search/install</td>
                   <td>MCP marketplace — one install configures every detected tool</td>
                 </tr>
                 <tr>
-                  <td>knowa ask "…"</td>
+                  <td>meridian ask "…"</td>
                   <td>Ask AI via a cost/speed/quality-aware router</td>
                 </tr>
               </table>
@@ -480,9 +480,9 @@ $ knowa sync --check
       <footer>
         <span>MIT © Sonal Sithara</span>
         <span>
-          <a href="https://github.com/sonal-sithara/knowa">GitHub</a> ·
-          <a href="https://www.npmjs.com/package/@sonalsithara/knowa">npm</a> ·
-          <a href="https://github.com/sonal-sithara/knowa/blob/main/CHANGELOG.md">Changelog</a>
+          <a href="https://github.com/sonal-sithara/meridian">GitHub</a> ·
+          <a href="https://www.npmjs.com/package/@sonalsithara/meridian">npm</a> ·
+          <a href="https://github.com/sonal-sithara/meridian/blob/main/CHANGELOG.md">Changelog</a>
         </span>
       </footer>
     </div>

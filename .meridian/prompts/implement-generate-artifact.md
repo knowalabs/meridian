@@ -1,6 +1,6 @@
-# Implement a New Artifact Kind or Provider in Knowa
+# Implement a New Artifact Kind or Provider in Meridian
 
-I'm adding <describe: a new `ArtifactKind` to `knowa generate`, OR a new provider to `src/providers/router.ts`>. Follow this project's architecture exactly — do not invent new patterns where an existing one already fits.
+I'm adding <describe: a new `ArtifactKind` to `meridian generate`, OR a new provider to `src/providers/router.ts`>. Follow this project's architecture exactly — do not invent new patterns where an existing one already fits.
 
 ## If this is a new artifact kind (`src/generate/artifacts.ts`)
 

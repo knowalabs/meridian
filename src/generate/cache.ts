@@ -1,27 +1,27 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { knowaHome } from '../core/paths.js';
+import { meridianHome } from '../core/paths.js';
 import { writeFileAtomic } from '../core/fsx.js';
 import { VERSION } from '../core/pkg.js';
 
 /**
  * Cache for the codebase-review pass — the single most expensive call in a
- * generate run, and the one `knowa sync` would otherwise repeat in full
+ * generate run, and the one `meridian sync` would otherwise repeat in full
  * every time even when nothing about the digest changed.
  *
- * The cache lives in the Knowa home, never in the target project: a
+ * The cache lives in the Meridian home, never in the target project: a
  * generated kit is committed, and a cache of AI output is not something a
  * user should find in their repository or accidentally commit.
  *
  * The key covers everything that could change the review — project root,
- * provider, model, Knowa version (the review prompt ships with it) and the
+ * provider, model, Meridian version (the review prompt ships with it) and the
  * digest itself — so a stale entry is unreachable rather than wrong.
  *
  * Note that the very first `generate` on a project cannot hit: writing the kit
  * changes the project, so the digest that produced the review is no longer the
  * digest of the project afterwards. Hits start from the run after that, which
- * is exactly the `knowa sync` case this exists for.
+ * is exactly the `meridian sync` case this exists for.
  */
 
 const CACHE_DIR = 'cache/reviews';
@@ -64,7 +64,7 @@ export function reviewCacheKey(key: ReviewKey): string {
 }
 
 function cacheDir(): string {
-  return path.join(knowaHome(), CACHE_DIR);
+  return path.join(meridianHome(), CACHE_DIR);
 }
 
 function entryPath(hash: string): string {

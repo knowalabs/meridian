@@ -6,33 +6,9 @@ import { renderError } from './core/errors.js';
 
 /* ---------------------------------- banner ---------------------------------- */
 
-const LETTERS: Record<string, string[]> = {
-  K: ['██╗  ██╗', '██║ ██╔╝', '█████╔╝ ', '██╔═██╗ ', '██║  ██╗', '╚═╝  ╚═╝'],
-  N: ['███╗   ██╗', '████╗  ██║', '██╔██╗ ██║', '██║╚██╗██║', '██║ ╚████║', '╚═╝  ╚═══╝'],
-  O: [' ██████╗ ', '██╔═══██╗', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '],
-  W: ['██╗    ██╗', '██║    ██║', '██║ █╗ ██║', '██║███╗██║', '╚███╔███╔╝', ' ╚══╝╚══╝ '],
-  A: [' █████╗ ', '██╔══██╗', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
-};
-
-function bannerRows(word: string): string[] {
-  return Array.from({ length: 6 }, (_, row) =>
-    word
-      .split('')
-      .map((ch) => LETTERS[ch]?.[row] ?? '')
-      .join(''),
-  );
-}
-
 export function showBanner(): void {
-  // 45 columns of art plus the two-space indent — "KNOWA" is five letters where
-  // the old wordmark was eight, so the old 68-column gate hid art that fits.
-  const wide = (process.stdout.columns ?? 80) >= 52;
   console.log('');
-  if (wide) {
-    for (const row of bannerRows('KNOWA')) console.log(`  ${pc.green(row)}`);
-  } else {
-    console.log(`  ${pc.green(pc.bold('Knowa'))}`);
-  }
+  console.log(`  ${pc.green(pc.bold('Meridian'))}`);
   console.log(
     `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
   );
@@ -42,26 +18,26 @@ export function showBanner(): void {
 export function showWelcome(): void {
   const row = (cmd: string, what: string) => `  ${pc.green(cmd.padEnd(28))} ${what}`;
   console.log(`
-${pc.bold(`Knowa ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
+${pc.bold(`Meridian ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
 
 ${pc.bold('Get started:')}
-${row('knowa doctor', 'check tools, providers, vault and kit health')}
-${row('knowa install', 'install tools (interactive picker)')}
-${row('knowa auth', 'store an API key in the secure vault')}
-${row('knowa generate', 'make your project AI-ready in one shot')}
+${row('meridian doctor', 'check tools, providers, vault and kit health')}
+${row('meridian install', 'install tools (interactive picker)')}
+${row('meridian auth', 'store an API key in the secure vault')}
+${row('meridian generate', 'make your project AI-ready in one shot')}
 
 ${pc.bold('Everyday:')}
-${row('knowa sync', 'refresh the AI kit when the codebase drifts')}
-${row('knowa ask "…"', 'ask AI via the smart router')}
-${row('knowa mcp search', 'find & install MCP servers')}
+${row('meridian sync', 'refresh the AI kit when the codebase drifts')}
+${row('meridian ask "…"', 'ask AI via the smart router')}
+${row('meridian mcp search', 'find & install MCP servers')}
 
-Run ${pc.bold('knowa --help')} for all commands, or ${pc.bold('knowa <command> --help')} for details.`);
+Run ${pc.bold('meridian --help')} for all commands, or ${pc.bold('meridian <command> --help')} for details.`);
 }
 
 /* ----------------------------------- menu ----------------------------------- */
 
 interface MenuItem {
-  /** knowa subcommand line this item runs. */
+  /** meridian subcommand line this item runs. */
   command: string;
   label: string;
   description: string;
@@ -104,7 +80,7 @@ const MENU: MenuItem[] = [
 
 /**
  * Arrow-key menu with a hybrid input line: typing filters the menu, and any
- * text that matches no item is run as a raw knowa command on Enter.
+ * text that matches no item is run as a raw meridian command on Enter.
  * Resolves with the chosen command line, or null to quit.
  */
 function menuPrompt(): Promise<string | null> {
@@ -135,17 +111,17 @@ function menuPrompt(): Promise<string | null> {
         const active = i === selected;
         const marker = active ? pc.green('❯') : ' ';
         const label = active ? pc.green(pc.bold(item.label.padEnd(16))) : item.label.padEnd(16);
-        const cmd = item.command === QUIT ? '' : pc.dim(`knowa ${item.command}`.padEnd(24));
+        const cmd = item.command === QUIT ? '' : pc.dim(`meridian ${item.command}`.padEnd(24));
         lines.push(`  ${marker} ${label} ${cmd} ${pc.dim(item.description)}`);
       }
       lines.push('');
       if (buffer && items.length === 0) {
         lines.push(
-          `  ${pc.green('❯')} knowa ${pc.bold(buffer)}${pc.green('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
+          `  ${pc.green('❯')} meridian ${pc.bold(buffer)}${pc.green('▌')}  ${pc.dim('↵ run this command · Esc clear')}`,
         );
       } else if (buffer) {
         lines.push(
-          `  ${pc.dim('>')} knowa ${pc.bold(buffer)}${pc.green('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
+          `  ${pc.dim('>')} meridian ${pc.bold(buffer)}${pc.green('▌')}  ${pc.dim('Tab complete · Esc clear')}`,
         );
       } else {
         lines.push(`  ${pc.dim('> start typing to filter or enter any command…')}`);
@@ -243,7 +219,7 @@ export function tokenize(line: string): string[] {
 
 async function runCommandLine(line: string): Promise<number> {
   // Users may type the binary name out of habit — accept both forms.
-  const argv = tokenize(line.replace(/^knowa\s+/, ''));
+  const argv = tokenize(line.replace(/^meridian\s+/, ''));
   process.exitCode = 0;
   try {
     await buildCli({ exitOverride: true }).parseAsync(argv, { from: 'user' });
@@ -269,10 +245,10 @@ export async function runInteractive(): Promise<void> {
   for (;;) {
     const line = await menuPrompt();
     if (line === null) {
-      console.log(pc.dim('  Bye! Run knowa anytime to come back.\n'));
+      console.log(pc.dim('  Bye! Run meridian anytime to come back.\n'));
       return;
     }
-    console.log(`  ${pc.dim('$')} ${pc.bold(`knowa ${line}`)}`);
+    console.log(`  ${pc.dim('$')} ${pc.bold(`meridian ${line}`)}`);
     const code = await runCommandLine(line);
     console.log(
       code === 0 ? pc.dim('\n  ── done ──\n') : pc.yellow(`\n  ── exited with code ${code} ──\n`),

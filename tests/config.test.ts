@@ -8,12 +8,12 @@ describe('config corruption handling', () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-config-'));
-    process.env.KNOWA_HOME = tmp;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-config-'));
+    process.env.MERIDIAN_HOME = tmp;
   });
 
   afterEach(() => {
-    delete process.env.KNOWA_HOME;
+    delete process.env.MERIDIAN_HOME;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

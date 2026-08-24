@@ -1,6 +1,6 @@
 /**
  * MCP Marketplace (Phase 3): a curated registry of well-known MCP servers.
- * `knowa mcp install <id>` writes the server into the config of every
+ * `meridian mcp install <id>` writes the server into the config of every
  * supported AI tool detected on the machine.
  */
 

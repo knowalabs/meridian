@@ -1,5 +1,5 @@
 ---
-description: Prepare a Knowa release matching the CI publish gate
+description: Prepare a Meridian release matching the CI publish gate
 argument-hint: [version]
 ---
 

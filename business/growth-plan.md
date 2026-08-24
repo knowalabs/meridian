@@ -1,21 +1,21 @@
-# Knowa — Growth & Revenue Plan
+# Meridian — Growth & Revenue Plan
 
 _Written 2026-08-08. Private working doc — `business/` is gitignored; this repo is public._
 
 ## The bet
 
-Knowa's sellable product is not "set up your AI coding tools." It is:
+Meridian's sellable product is not "set up your AI coding tools." It is:
 
 > **AI coding rules go stale and drift across a team, and nobody notices until an agent
-> does something wrong. Knowa detects the drift and fails the build.**
+> does something wrong. Meridian detects the drift and fails the build.**
 
 Setup is a one-shot with front-loaded value → no recurring revenue, and the tool vendors
 (Anthropic `/init`, Cursor rules) are absorbing it. Drift is continuous, scales with team
 size, and is cross-tool — which is the one position Anthropic and Cursor structurally
 cannot take, because each only serves its own tool.
 
-`knowa sync --check` already exists. The business is built on that command, not on
-`knowa generate`.
+`meridian sync --check` already exists. The business is built on that command, not on
+`meridian generate`.
 
 **Free CLI = distribution. Paid = org scope (many repos, many people).**
 
@@ -28,12 +28,12 @@ installable. Timebox: two weeks, no new features.
 
 ### Blockers
 
-- [ ] **Claim the bare npm name `knowa`** — verified available 2026-08-08. Publish as
-      `knowa`, keep `@sonalsithara/knowa` as a deprecated alias pointing at it.
+- [ ] **Claim the bare npm name `meridian`** — verified available 2026-08-08. Publish as
+      `meridian`, keep `@sonalsithara/meridian` as a deprecated alias pointing at it.
       An unscoped name is worth real money in install-command credibility.
-- [ ] **Rename the GitHub repo** `sonal-sithara/devpilot` → `sonal-sithara/knowa`;
+- [ ] **Rename the GitHub repo** `sonal-sithara/devpilot` → `sonal-sithara/meridian`;
       update `git remote set-url origin`. GitHub keeps the redirect.
-- [ ] **Fix the README's `Knowa_Docs/` links** (line 187) — the directory is `docs/`.
+- [ ] **Fix the README's `Meridian_Docs/` links** (line 187) — the directory is `docs/`.
       Broken link in the first paragraph anyone reads.
 - [ ] **Publish 1.0.0**, not 0.20.0. 0.x signals "not ready" to the exact team buyers
       this plan targets. The surface is stable; the version number should say so.
@@ -45,7 +45,7 @@ installable. Timebox: two weeks, no new features.
 ### Launch
 
 - [ ] Hacker News Show HN, drift framing. Title candidate:
-      _"Show HN: Knowa – CI gate that fails the build when your AI coding rules go stale"_
+      _"Show HN: Meridian – CI gate that fails the build when your AI coding rules go stale"_
 - [ ] r/programming, r/ExperiencedDevs, Claude Code + Cursor Discords, Lobsters.
 - [ ] One demo GIF: rules drift → `sync --check` → red CI → `sync` → green. 20 seconds.
 
@@ -95,7 +95,7 @@ path is dead for another year.
 **Kill criteria — be honest here.** If by Oct 3 fewer than 3 teams say drift is a real
 pain worth paying for, **do not build the cloud layer**. Pivot instead to whichever
 command telemetry says people actually run daily (my guess: `mcp` or `ask`), or
-accept Knowa as a portfolio-grade OSS project and stop investing.
+accept Meridian as a portfolio-grade OSS project and stop investing.
 
 ---
 
@@ -112,7 +112,7 @@ nothing else.
 2. **Drift dashboard.** One page listing every connected repo and whether its kit is
    fresh, stale, or hand-edited. Read straight from `manifest.json` fingerprints —
    `diffFingerprints`/`fileStates` already compute this.
-3. **`knowa login`.** Fill in the stub in `src/commands/update.ts`. Device-code flow,
+3. **`meridian login`.** Fill in the stub in `src/commands/update.ts`. Device-code flow,
    token in the existing vault. No new secret-storage code paths.
 
 Explicitly out of scope for v1: SSO, RBAC, self-hosting, audit log, web-based rule
@@ -122,12 +122,12 @@ editing, Slack/Jira integrations, a marketplace.
 
 MIT code cannot be clawed back. Draw the line once, at **single-repo vs. org scope**:
 
-| Free forever (MIT, this repo)                                         | Paid (private service + `@knowa/cloud` client)  |
-| --------------------------------------------------------------------- | ----------------------------------------------- |
-| `doctor`, `install`, `auth`, `keys`, `mcp`, `ask`, `router`, `update` | Org base rules → inherited into N repos         |
-| `generate` + `sync` for one repo, unlimited                           | Cross-repo drift dashboard                      |
-| Local vault, local `manifest.json`, CI gate                           | Shared/versioned team kits                      |
-| Every artifact kind, every provider                                   | SSO, audit log, policy enforcement, self-hosted |
+| Free forever (MIT, this repo)                                         | Paid (private service + `@meridian/cloud` client) |
+| --------------------------------------------------------------------- | ------------------------------------------------- |
+| `doctor`, `install`, `auth`, `keys`, `mcp`, `ask`, `router`, `update` | Org base rules → inherited into N repos           |
+| `generate` + `sync` for one repo, unlimited                           | Cross-repo drift dashboard                        |
+| Local vault, local `manifest.json`, CI gate                           | Shared/versioned team kits                        |
+| Every artifact kind, every provider                                   | SSO, audit log, policy enforcement, self-hosted   |
 
 The free CLI stays genuinely unrestricted — no repo caps, no artifact caps, no nag.
 It is the funnel, and crippling it kills distribution to save revenue you don't have yet.
@@ -157,7 +157,7 @@ is irrelevant at this stage.
 Only with Phase 2 revenue. The reframe that unlocks real budget:
 
 > The generated `.claude/settings.json` is an **AI agent permission policy**.
-> Enterprise Knowa enforces, versions, and audits it across every repo in the org.
+> Enterprise Meridian enforces, versions, and audits it across every repo in the org.
 
 "Which commands are our AI agents allowed to run, enforced org-wide, with an audit
 trail" is a security/compliance purchase with an existing budget line. "Config
@@ -174,7 +174,7 @@ SSO/SCIM, self-hosted deployment, SOC 2 (start the process here, not earlier).
 Fastest path to a first real dollar, and every engagement is a paid customer interview.
 
 - **"AI-readiness audit"** for 20–100 engineer orgs: 1–2 weeks, delivered _using_
-  Knowa, priced $8–15k. Deliverable is their kit + a standards doc + a rollout plan.
+  Meridian, priced $8–15k. Deliverable is their kit + a standards doc + a rollout plan.
 - Two or three of these fund six months of building, and each one tells you exactly
   what Phase 2 should contain.
 

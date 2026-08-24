@@ -37,19 +37,19 @@ function lastJson<T>(): T {
 }
 
 beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-cmd-'));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-cmd-'));
   project = path.join(tmp, 'project');
   fs.mkdirSync(project, { recursive: true });
-  process.env.KNOWA_HOME = path.join(tmp, 'home');
-  process.env.KNOWA_VAULT = 'file';
+  process.env.MERIDIAN_HOME = path.join(tmp, 'home');
+  process.env.MERIDIAN_VAULT = 'file';
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
   configureLogger({ level: 'normal', json: false });
-  delete process.env.KNOWA_HOME;
-  delete process.env.KNOWA_VAULT;
+  delete process.env.MERIDIAN_HOME;
+  delete process.env.MERIDIAN_VAULT;
   vi.restoreAllMocks();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -143,9 +143,9 @@ describe('generate command (one-shot AI kit)', () => {
     fs.writeFileSync(path.join(project, 'main.ts'), 'export const a = 1;\n');
     expect(await generateCommand([], { ai: false, tools: 'all' }, project)).toBe(0);
     for (const f of [
-      '.knowa/project.json',
-      '.knowa/context.md',
-      '.knowa/rules.md',
+      '.meridian/project.json',
+      '.meridian/context.md',
+      '.meridian/rules.md',
       'docs/architecture.md',
       'docs/conventions.md',
       'docs/engineer-workflow.md',

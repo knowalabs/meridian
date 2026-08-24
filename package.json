@@ -1,5 +1,5 @@
 {
-  "name": "@sonalsithara/knowa",
+  "name": "@sonalsithara/meridian",
   "version": "0.20.0",
   "description": "One command to set up every AI coding tool on any machine.",
   "keywords": [
@@ -16,20 +16,20 @@
   ],
   "author": "Sonal Sithara <sonalsithara2352@gmail.com>",
   "license": "MIT",
-  "homepage": "https://github.com/sonal-sithara/knowa#readme",
+  "homepage": "https://github.com/sonal-sithara/meridian#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sonal-sithara/knowa.git"
+    "url": "git+https://github.com/sonal-sithara/meridian.git"
   },
   "bugs": {
-    "url": "https://github.com/sonal-sithara/knowa/issues"
+    "url": "https://github.com/sonal-sithara/meridian/issues"
   },
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "bin": {
-    "knowa": "./dist/index.js"
+    "meridian": "./dist/index.js"
   },
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",

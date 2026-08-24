@@ -12,7 +12,7 @@ vi.mock('../src/core/exec.js', () => ({
   versionOf: (bin: string) => versionOfMock(bin),
 }));
 
-const { knowaHome } = await import('../src/core/paths.js');
+const { meridianHome } = await import('../src/core/paths.js');
 const { makePlugin, TOOL_SPECS } = await import('../src/plugins/tools.js');
 const { mcpConfigTargets } = await import('../src/mcp/configure.js');
 
@@ -25,11 +25,11 @@ afterEach(() => {
   setPlatform(realPlatform);
 });
 
-describe('knowaHome per platform', () => {
+describe('meridianHome per platform', () => {
   const savedAppData = process.env.APPDATA;
 
   beforeEach(() => {
-    delete process.env.KNOWA_HOME;
+    delete process.env.MERIDIAN_HOME;
   });
 
   afterEach(() => {
@@ -37,22 +37,22 @@ describe('knowaHome per platform', () => {
     else process.env.APPDATA = savedAppData;
   });
 
-  it('KNOWA_HOME wins everywhere', () => {
-    process.env.KNOWA_HOME = '/custom/home';
+  it('MERIDIAN_HOME wins everywhere', () => {
+    process.env.MERIDIAN_HOME = '/custom/home';
     setPlatform('win32');
-    expect(knowaHome()).toBe('/custom/home');
-    delete process.env.KNOWA_HOME;
+    expect(meridianHome()).toBe('/custom/home');
+    delete process.env.MERIDIAN_HOME;
   });
 
-  it('uses %APPDATA%\\knowa on Windows', () => {
+  it('uses %APPDATA%\\meridian on Windows', () => {
     setPlatform('win32');
     process.env.APPDATA = path.join('C:', 'Users', 'test', 'AppData', 'Roaming');
-    expect(knowaHome()).toBe(path.join(process.env.APPDATA, 'knowa'));
+    expect(meridianHome()).toBe(path.join(process.env.APPDATA, 'meridian'));
   });
 
-  it('uses ~/.knowa elsewhere', () => {
+  it('uses ~/.meridian elsewhere', () => {
     setPlatform('linux');
-    expect(knowaHome()).toBe(path.join(os.homedir(), '.knowa'));
+    expect(meridianHome()).toBe(path.join(os.homedir(), '.meridian'));
   });
 });
 

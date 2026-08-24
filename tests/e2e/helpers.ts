@@ -26,7 +26,7 @@ export interface Sandbox {
 
 /** Fresh sandbox per test: fake home + empty project, all under tmpdir. */
 export function makeSandbox(): Sandbox {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowa-e2e-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-e2e-'));
   const home = path.join(root, 'home');
   const project = path.join(root, 'project');
   fs.mkdirSync(home, { recursive: true });
@@ -49,8 +49,8 @@ export async function runCli(
 ): Promise<CliResult> {
   const env = {
     ...process.env,
-    KNOWA_HOME: path.join(sandbox.home, '.knowa'),
-    KNOWA_VAULT: 'file',
+    MERIDIAN_HOME: path.join(sandbox.home, '.meridian'),
+    MERIDIAN_VAULT: 'file',
     NO_COLOR: '1',
     HOME: sandbox.home,
     USERPROFILE: sandbox.home,

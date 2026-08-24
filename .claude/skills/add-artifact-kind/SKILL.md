@@ -1,13 +1,13 @@
 ---
 name: add-artifact-kind
-description: Use when adding a new generated artifact kind (like rules, agents, skills, commands, prompts, docs, harness) to knowa generate's ARTIFACT_KINDS.
+description: Use when adding a new generated artifact kind (like rules, agents, skills, commands, prompts, docs, harness) to meridian generate's ARTIFACT_KINDS.
 ---
 
 # Add Artifact Kind
 
 ## When to use
 
-Adding a brand-new kind of file `knowa generate` produces (today: `rules`, `agents`, `skills`, `commands`, `prompts`, `docs`, `harness`, and the opt-in `ci`). Not for changing what an _existing_ kind writes — that's a direct edit to its `prompt`/`fallback` — and not for provider wiring, which is `@.claude/skills/add-ai-provider/SKILL.md`.
+Adding a brand-new kind of file `meridian generate` produces (today: `rules`, `agents`, `skills`, `commands`, `prompts`, `docs`, `harness`, and the opt-in `ci`). Not for changing what an _existing_ kind writes — that's a direct edit to its `prompt`/`fallback` — and not for provider wiring, which is `@.claude/skills/add-ai-provider/SKILL.md`.
 
 ## Before you start
 
@@ -22,7 +22,7 @@ Adding a brand-new kind of file `knowa generate` produces (today: `rules`, `agen
 2. Write `prompt(digest)` by calling `commonPrompt(kindInstructions, digest)` (as the `rules` kind does) so the shared quality bar, safety rules, and `FORMAT_SPEC` file-block protocol apply automatically — do not hand-roll a prompt from scratch.
 3. Write `fallback(analysis: ProjectAnalysis)` returning `ArtifactFile[]` whose every `file` passes `isAllowedPath(file, kind.allowedPaths)` — this is enforced by the static-fallbacks test, not just convention.
 4. If the kind should not ship by default (like `ci`), set `optIn: true`.
-5. Update the `Kinds:` and `Opt-in kinds:` help text in the `generate` command's `addHelpText('after', …)` block in `src/cli.ts` so `knowa generate --help` stays accurate.
+5. Update the `Kinds:` and `Opt-in kinds:` help text in the `generate` command's `addHelpText('after', …)` block in `src/cli.ts` so `meridian generate --help` stays accurate.
 6. Extend `tests/generate.test.ts` with kind-specific assertions (prompt contains the right section headings; fallback content covers the cases you care about) — the generic `static fallbacks` loop already covers every kind automatically, so add cases beyond that baseline.
 
 ## Verification
@@ -39,7 +39,7 @@ Run in this order (matches `.github/workflows/ci.yml`):
 
 - [ ] The new kind has both `prompt` and `fallback`.
 - [ ] Every fallback file passes `isAllowedPath` against the kind's own `allowedPaths`.
-- [ ] `knowa generate --help`'s kind list is updated.
+- [ ] `meridian generate --help`'s kind list is updated.
 - [ ] The full verification chain above is green.
 
 ## Never

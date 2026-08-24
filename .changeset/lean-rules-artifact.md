@@ -1,8 +1,8 @@
 ---
-'@sonalsithara/knowa': minor
+'@sonalsithara/meridian': minor
 ---
 
-Make the generated `.knowa/rules.md` lean enough to carry on every request.
+Make the generated `.meridian/rules.md` lean enough to carry on every request.
 
 The rules artifact is loaded into an assistant's context on every turn, but its
 prompt asked for a module-by-module architecture catalogue and a "Raising the

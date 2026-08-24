@@ -13,12 +13,12 @@ import { jsonMode, log } from '../core/logger.js';
 import { generateRules, staleMirrors } from '../rules/generators.js';
 
 /** The canonical rules file, as recorded in the manifest. */
-const RULES_FILE = '.knowa/rules.md';
+const RULES_FILE = '.meridian/rules.md';
 
 /**
- * `knowa sync` — keep the generated AI kit alive after `generate`:
+ * `meridian sync` — keep the generated AI kit alive after `generate`:
  * detect when the codebase has drifted from the kit recorded in
- * .knowa/manifest.json, then refresh only what is safe to refresh —
+ * .meridian/manifest.json, then refresh only what is safe to refresh —
  * hand-edited files are always preserved. `--check` reports and sets the
  * exit code without writing, which is what CI runs.
  */
@@ -52,7 +52,7 @@ export async function syncCommand(
   const manifest = readManifest(cwd);
   if (!manifest) {
     log.fail(
-      `No kit manifest found (${MANIFEST_FILE}). Run ${pc.bold('knowa generate')} first — ` +
+      `No kit manifest found (${MANIFEST_FILE}). Run ${pc.bold('meridian generate')} first — ` +
         `generate records what it wrote so sync can keep it fresh.`,
     );
     return 1;
@@ -61,7 +61,7 @@ export async function syncCommand(
   const analysis = analyzeProject(cwd);
   const drift = diffFingerprints(manifest.fingerprint, fingerprintOf(analysis));
   const states = fileStates(cwd, manifest);
-  // A hand-edited .knowa/rules.md whose tool files still carry the old text is
+  // A hand-edited .meridian/rules.md whose tool files still carry the old text is
   // the kit's own documented workflow half-applied: propagate it here, because
   // regenerating the rules kind would overwrite the edit instead of spreading it.
   //
@@ -78,7 +78,7 @@ export async function syncCommand(
   }
 
   for (const d of drift) log.info(`${pc.yellow('△')} ${d}`);
-  for (const f of mirrors) log.info(`${pc.yellow('△')} out of date with .knowa/rules.md: ${f}`);
+  for (const f of mirrors) log.info(`${pc.yellow('△')} out of date with .meridian/rules.md: ${f}`);
   for (const f of states.missing) log.info(`${pc.yellow('△')} generated file deleted: ${f}`);
   for (const f of states.edited) log.dim(`  hand-edited, will be preserved: ${f}`);
 
@@ -93,7 +93,7 @@ export async function syncCommand(
     if (mirrors.length) {
       if (opts.check) {
         log.fail(
-          `${mirrors.length} tool file(s) no longer match .knowa/rules.md. Run ${pc.bold('knowa sync')}.`,
+          `${mirrors.length} tool file(s) no longer match .meridian/rules.md. Run ${pc.bold('meridian sync')}.`,
         );
         return 1;
       }
@@ -103,7 +103,7 @@ export async function syncCommand(
       `Kit is in sync with the codebase (${Object.keys(manifest.files).length} tracked files` +
         `${states.edited.length ? `, ${states.edited.length} hand-edited` : ''}).`,
     );
-    log.dim(`  last generated ${manifest.generatedAt} by knowa ${manifest.knowa}`);
+    log.dim(`  last generated ${manifest.generatedAt} by meridian ${manifest.meridian}`);
     return 0;
   }
 
@@ -111,7 +111,7 @@ export async function syncCommand(
     log.warn(
       `Kit is stale: ${drift.length} drift signal${drift.length === 1 ? '' : 's'}, ` +
         `${states.missing.length} missing file${states.missing.length === 1 ? '' : 's'}. ` +
-        `Run ${pc.bold('knowa sync')} to refresh.`,
+        `Run ${pc.bold('meridian sync')} to refresh.`,
     );
     return 1;
   }
@@ -122,12 +122,12 @@ export async function syncCommand(
   if (opts.ai !== false && !pickProvider(opts.provider)) {
     if (opts.provider) {
       log.fail(
-        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`knowa auth ${opts.provider}`)}.`,
+        `Provider "${opts.provider}" is not available. Add its key with ${pc.bold(`meridian auth ${opts.provider}`)}.`,
       );
     } else {
       log.fail(
-        'knowa sync refreshes your kit with AI, but no AI provider is configured. ' +
-          `Sign in to an AI CLI, run ${pc.bold('knowa auth <provider>')}, or use ${pc.bold('knowa sync --no-ai')} for static templates.`,
+        'meridian sync refreshes your kit with AI, but no AI provider is configured. ' +
+          `Sign in to an AI CLI, run ${pc.bold('meridian auth <provider>')}, or use ${pc.bold('meridian sync --no-ai')} for static templates.`,
       );
     }
     return 1;
@@ -164,7 +164,7 @@ export async function syncCommand(
       log.warn(`Stopped early — the provider hit a limit: ${result.aborted.slice(0, 200)}`);
     }
     log.warn(
-      `Not refreshed yet: ${result.failed.join(', ')}. Re-run ${pc.bold('knowa sync')} later.`,
+      `Not refreshed yet: ${result.failed.join(', ')}. Re-run ${pc.bold('meridian sync')} later.`,
     );
     return 1;
   }

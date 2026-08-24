@@ -264,7 +264,7 @@ export function buildDigest(
  * lets a response name the files it wants, and `serveFileRequests` reads them
  * back under the same rules the digest itself obeys.
  *
- * Deliberately text-only, not tool-calling — every provider Knowa supports
+ * Deliberately text-only, not tool-calling — every provider Meridian supports
  * goes through the same `ask(prompt)` string interface, including the keyless
  * CLIs, and a protocol they all speak is worth more than one only the hosted
  * APIs could use.
