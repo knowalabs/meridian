@@ -28,6 +28,7 @@ import {
   setRetryDelayForTests,
   type ProviderSpec,
 } from '../src/providers/router.js';
+import { setToolDetectionForTests } from '../src/plugins/tools.js';
 import { openVault } from '../src/core/vault.js';
 import { setGitForTests } from '../src/scan/git.js';
 import { analyzeProject } from '../src/scan/analyzer.js';
@@ -1000,10 +1001,47 @@ describe('runGenerate', () => {
   afterEach(() => {
     setFetchForTests(null);
     setRetryDelayForTests(null);
+    setToolDetectionForTests(null);
     delete process.env.MERIDIAN_HOME;
     delete process.env.MERIDIAN_VAULT;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('mirrors to every tool on a machine with no AI CLI installed', async () => {
+    // A container or CI box has no AI CLI on PATH, so detection can only read
+    // the project itself. `generate` writes .claude/ for agents, skills and
+    // commands before it mirrors the rules — detection must therefore be taken
+    // before this run writes anything, or it reads Meridian's own output back
+    // as "a Claude-only project" and silently skips the other four files.
+    setToolDetectionForTests((dir) => {
+      const has = (...rel: string[]): boolean => rel.some((r) => fs.existsSync(path.join(dir, r)));
+      const found: string[] = [];
+      if (has('CLAUDE.md', '.claude')) found.push('claude');
+      if (has('.cursor')) found.push('cursor');
+      if (has('AGENTS.md')) found.push('codex');
+      if (has('GEMINI.md')) found.push('gemini');
+      if (has(path.join('.github', 'copilot-instructions.md'))) found.push('copilot');
+      return found;
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: [],
+      force: false,
+      dryRun: false,
+      noAi: true,
+    });
+
+    expect(result.propagated).toEqual(
+      expect.arrayContaining([
+        'CLAUDE.md',
+        'AGENTS.md',
+        'GEMINI.md',
+        path.join('.cursor', 'rules', 'meridian.mdc'),
+        path.join('.github', 'copilot-instructions.md'),
+      ]),
+    );
   });
 
   it('generates the full static kit when no provider is available', async () => {

@@ -675,6 +675,12 @@ export function estimateGenerate(opts: GenerateOptions): GenerateEstimate {
 export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult> {
   const rigor = opts.rigor ?? DEFAULT_RIGOR;
   const kinds = kindsById(opts.kinds);
+  // Which tools to mirror into is decided before this run writes anything.
+  // The artifact kinds create .claude/ for agents, skills and commands, and
+  // detection counts that directory as evidence of Claude Code — so deciding
+  // later would read this run's own output back as "a Claude-only project"
+  // and silently skip the other four instruction files.
+  const mirrors = mirrorTools(opts);
   // Pick the provider first: the digest budget scales with its context
   // window, so a large-context provider gets to see far more of the project.
   const provider = opts.noAi ? null : pickProvider(opts.provider);
@@ -921,9 +927,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
 
   // Fresh rules should reach every tool's instruction file.
   if (!opts.dryRun && result.files.some((f) => f.kind === 'rules' && f.action === 'written')) {
-    result.propagated = generateRules(opts.root, analysis.name, mirrorTools(opts)).map(
-      (g) => g.file,
-    );
+    result.propagated = generateRules(opts.root, analysis.name, mirrors).map((g) => g.file);
     for (const file of result.propagated) {
       try {
         writtenSignatures.set(
