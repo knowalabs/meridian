@@ -2917,7 +2917,7 @@ you must not generate.`,
       commonPrompt(
         `Generate exactly one file: ".github/workflows/meridian-sync.yml" — a
 GitHub Actions workflow that keeps this repository's generated AI kit
-honest: it runs "npx -y @sonalsithara/meridian sync --check", which exits
+honest: it runs "npx -y @knowalabs/meridian sync --check", which exits
 non-zero when the codebase has drifted from the kit recorded in
 .meridian/manifest.json.
 
@@ -2953,7 +2953,7 @@ jobs:
           node-version: 20
       # Static drift check against .meridian/manifest.json — no AI provider
       # or secrets needed. Exits 1 when the kit is stale.
-      - run: npx -y @sonalsithara/meridian sync --check
+      - run: npx -y @knowalabs/meridian sync --check
 `,
       },
     ],

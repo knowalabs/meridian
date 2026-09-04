@@ -3,7 +3,7 @@
 **One command to set up every AI coding tool on any machine.**
 
 ```bash
-npm install -g @sonalsithara/meridian
+npm install -g @knowalabs/meridian
 meridian generate
 ```
 

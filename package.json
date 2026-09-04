@@ -1,6 +1,6 @@
 {
-  "name": "@sonalsithara/meridian",
-  "version": "0.20.0",
+  "name": "@knowalabs/meridian",
+  "version": "0.1.0",
   "description": "One command to set up every AI coding tool on any machine.",
   "keywords": [
     "ai",
@@ -16,13 +16,13 @@
   ],
   "author": "Sonal Sithara <sonalsithara2352@gmail.com>",
   "license": "MIT",
-  "homepage": "https://github.com/sonal-sithara/meridian#readme",
+  "homepage": "https://github.com/knowalabs/meridian#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sonal-sithara/meridian.git"
+    "url": "git+https://github.com/knowalabs/meridian.git"
   },
   "bugs": {
-    "url": "https://github.com/sonal-sithara/meridian/issues"
+    "url": "https://github.com/knowalabs/meridian/issues"
   },
   "type": "module",
   "engines": {
