@@ -8,6 +8,12 @@ import { setFetchForTests } from '../src/providers/router.js';
 import { openVault } from '../src/core/vault.js';
 import { runGenerate } from '../src/generate/pipeline.js';
 
+// `doctor` probes all 13 tool specs for real, and on Windows each probe costs a
+// `where` plus the binary itself — comfortably past Vitest's 5s default once the
+// runner is also busy with the other suites. The work is the point of these
+// tests, so give them room rather than making the assertions weaker.
+vi.setConfig({ testTimeout: 30_000 });
+
 let tmp: string;
 let project: string;
 let logSpy: ReturnType<typeof vi.spyOn>;

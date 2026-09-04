@@ -680,7 +680,11 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   // detection counts that directory as evidence of Claude Code — so deciding
   // later would read this run's own output back as "a Claude-only project"
   // and silently skip the other four instruction files.
-  const mirrors = mirrorTools(opts);
+  //
+  // Detection shells out once per tool, so it is skipped for a run that will
+  // not mirror anything: the same condition the propagation step below uses.
+  const willMirror = !opts.dryRun && kinds.some((k) => k.id === 'rules');
+  const mirrors = willMirror ? mirrorTools(opts) : undefined;
   // Pick the provider first: the digest budget scales with its context
   // window, so a large-context provider gets to see far more of the project.
   const provider = opts.noAi ? null : pickProvider(opts.provider);
