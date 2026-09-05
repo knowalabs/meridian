@@ -7,7 +7,7 @@ description: Use when the user asks to commit staged changes in this repo — wa
 
 ## When to use
 
-Whenever staged changes in this repo (`@sonalsithara/meridian`) are ready to be committed. This is interactive and approval-gated end to end — it is not for staging files itself (the user or another step does that first) and not for pushing without a separate explicit ask.
+Whenever staged changes in this repo (`@knowalabs/meridian`) are ready to be committed. This is interactive and approval-gated end to end — it is not for staging files itself (the user or another step does that first) and not for pushing without a separate explicit ask.
 
 ## Before you start
 

@@ -1,6 +1,6 @@
 # Security
 
-How `@sonalsithara/meridian` stores secrets, why AI-suggested file paths are never trusted directly, and which code paths in this repo demand extra care. Read this before touching `src/core/vault.ts`, `src/generate/artifacts.ts`'s `isAllowedPath`, or the harness config Meridian generates for _other_ projects. Not covered: security advice for a target project being scanned — that's whatever `meridian generate` writes into _that_ project's own `docs/security.md`, not this one.
+How `@knowalabs/meridian` stores secrets, why AI-suggested file paths are never trusted directly, and which code paths in this repo demand extra care. Read this before touching `src/core/vault.ts`, `src/generate/artifacts.ts`'s `isAllowedPath`, or the harness config Meridian generates for _other_ projects. Not covered: security advice for a target project being scanned — that's whatever `meridian generate` writes into _that_ project's own `docs/security.md`, not this one.
 
 ## Secret storage
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-Where `@sonalsithara/meridian` has been and is headed, grounded entirely in `CHANGELOG.md`'s release history and the explicit `meridian login` stub. Read this to understand why a module looks the way it does, or before adding something that conflicts with a direction already in motion. Not a wishlist — every entry below is evidence from a shipped release or a stated-but-unbuilt feature, never a speculative addition.
+Where `@knowalabs/meridian` has been and is headed, grounded entirely in `CHANGELOG.md`'s release history and the explicit `meridian login` stub. Read this to understand why a module looks the way it does, or before adding something that conflicts with a direction already in motion. Not a wishlist — every entry below is evidence from a shipped release or a stated-but-unbuilt feature, never a speculative addition.
 
 ## Release history (from `CHANGELOG.md`)
 

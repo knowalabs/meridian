@@ -1,6 +1,6 @@
 # Write Tests for Meridian in This Project's Vitest Style
 
-Write tests for `<module/function under test>` in `@sonalsithara/meridian`, following the exact conventions already established in `tests/*.test.ts` — do not introduce a different testing pattern or library.
+Write tests for `<module/function under test>` in `@knowalabs/meridian`, following the exact conventions already established in `tests/*.test.ts` — do not introduce a different testing pattern or library.
 
 **Placement and structure**
 

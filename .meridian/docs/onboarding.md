@@ -1,4 +1,4 @@
-# Onboarding — @sonalsithara/meridian (for AI assistants)
+# Onboarding — @knowalabs/meridian (for AI assistants)
 
 ## Project in one paragraph
 

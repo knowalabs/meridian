@@ -29,7 +29,7 @@
     "node": ">=18"
   },
   "bin": {
-    "meridian": "./dist/index.js"
+    "meridian": "dist/index.js"
   },
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",

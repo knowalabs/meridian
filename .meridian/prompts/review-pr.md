@@ -2,7 +2,7 @@
 
 ## When to use
 
-Before merging a PR that touches `src/**/*.ts` or `tests/**/*.ts` in `@sonalsithara/meridian` — the CLI that makes other codebases AI-assistant-ready.
+Before merging a PR that touches `src/**/*.ts` or `tests/**/*.ts` in `@knowalabs/meridian` — the CLI that makes other codebases AI-assistant-ready.
 
 ## Context
 

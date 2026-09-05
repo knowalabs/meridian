@@ -2,7 +2,7 @@
 
 ## When to use
 
-Adding new functionality to `@sonalsithara/meridian` — a new command, a new `core` utility, a new plugin — that must slot into the existing module boundaries without violating them.
+Adding new functionality to `@knowalabs/meridian` — a new command, a new `core` utility, a new plugin — that must slot into the existing module boundaries without violating them.
 
 ## Context
 

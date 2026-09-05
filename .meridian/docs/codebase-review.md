@@ -1,8 +1,8 @@
-# Codebase Review — @sonalsithara/meridian
+# Codebase Review — @knowalabs/meridian
 
 ## What this project is — purpose and domain, in the project's own terms
 
-Meridian (`@sonalsithara/meridian`) is a Node.js/TypeScript CLI, installed globally as `meridian`, whose stated mission is "one command to set up every AI coding tool on any machine." It is a **meta-tool for AI-assistant tooling**: rather than being an AI application itself, it configures, feeds, and maintains the surrounding infrastructure that other AI coding tools (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot) depend on.
+Meridian (`@knowalabs/meridian`) is a Node.js/TypeScript CLI, installed globally as `meridian`, whose stated mission is "one command to set up every AI coding tool on any machine." It is a **meta-tool for AI-assistant tooling**: rather than being an AI application itself, it configures, feeds, and maintains the surrounding infrastructure that other AI coding tools (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot) depend on.
 
 Concretely, its domain covers four things: (1) installing and configuring AI coding tools across macOS/Windows/Linux, (2) securely storing provider API keys in the OS-native secret store, (3) statically analyzing a _target_ codebase and using AI to generate a complete "AI kit" — rules files, subagents, skills, slash commands, harness permissions, prompts, and a docs suite — tailored to that project, and (4) keeping that generated kit alive over time via drift detection and refresh (`meridian sync`). The README frames this as turning AI configuration from a hand-authored, quickly-stale artifact into a living one, "you never hand-write an AI config file again."
 

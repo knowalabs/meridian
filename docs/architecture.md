@@ -1,6 +1,6 @@
 # Architecture
 
-Covers the module layout of `@sonalsithara/meridian`'s own source (`src/`), how control and data flow through the flagship `meridian generate` pipeline, why each runtime dependency exists, and the invariants a change must not break. Read this before moving code between modules or adding a new one. Not covered: the internals of a _target_ project `meridian generate` scans — that's a different concept entirely (see `.meridian/rules.md`'s "General" section).
+Covers the module layout of `@knowalabs/meridian`'s own source (`src/`), how control and data flow through the flagship `meridian generate` pipeline, why each runtime dependency exists, and the invariants a change must not break. Read this before moving code between modules or adding a new one. Not covered: the internals of a _target_ project `meridian generate` scans — that's a different concept entirely (see `.meridian/rules.md`'s "General" section).
 
 ## Entry points
 

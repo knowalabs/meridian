@@ -7,7 +7,7 @@ description: Use when preparing a new Meridian release — version bump, CHANGEL
 
 ## When to use
 
-Cutting a new version of `@sonalsithara/meridian` for npm publish. This is a destructive/hard-to-reverse workflow — every step below stops for explicit user approval before acting, per `CLAUDE.md`'s safety rules.
+Cutting a new version of `@knowalabs/meridian` for npm publish. This is a destructive/hard-to-reverse workflow — every step below stops for explicit user approval before acting, per `CLAUDE.md`'s safety rules.
 
 ## Before you start
 

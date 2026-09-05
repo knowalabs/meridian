@@ -1,8 +1,8 @@
-# Architecture — @sonalsithara/meridian
+# Architecture — @knowalabs/meridian
 
 ## What this project is
 
-`@sonalsithara/meridian` is a Node.js/TypeScript CLI, invoked as `meridian`, that makes _other_ codebases ("the target project") AI-assistant-ready in one command. It is distributed as a global npm package (`bin: { "meridian": "./dist/index.js" }`) and does four jobs:
+`@knowalabs/meridian` is a Node.js/TypeScript CLI, invoked as `meridian`, that makes _other_ codebases ("the target project") AI-assistant-ready in one command. It is distributed as a global npm package (`bin: { "meridian": "./dist/index.js" }`) and does four jobs:
 
 1. **Tool management** — detect/install/configure AI coding assistants (Claude Code, Codex CLI, Gemini CLI, Cursor, Copilot) via `meridian doctor` / `install` / `uninstall`.
 2. **Secret management** — store provider API keys in the OS-native secret store via `meridian auth` / `keys`.

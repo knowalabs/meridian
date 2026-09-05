@@ -1,6 +1,6 @@
 # Engineer workflow
 
-Day-one setup, the real npm scripts, the exact ordered verification CI runs, and the release/publish process for `@sonalsithara/meridian`. Read this before your first commit, or whenever you forget which command to run next. Not covered: how to use `meridian` once installed globally — that's the README; this is about developing Meridian itself.
+Day-one setup, the real npm scripts, the exact ordered verification CI runs, and the release/publish process for `@knowalabs/meridian`. Read this before your first commit, or whenever you forget which command to run next. Not covered: how to use `meridian` once installed globally — that's the README; this is about developing Meridian itself.
 
 ## Day one
 
