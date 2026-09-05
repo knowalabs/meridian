@@ -2,80 +2,133 @@
 
 # @knowalabs/meridian — Instructions for Codex
 
-## Working agreement
+## Working agreement — non-negotiable
 
-- This is `@knowalabs/meridian`, a Node/TypeScript CLI (`meridian`) that makes _other_ codebases AI-assistant-ready. Keep "the target project" (what `meridian generate` scans) strictly separate from "this repo" (Meridian's own source) — never conflate the two.
-- Read the files you are about to change before your first edit. For anything in the `generate` flow, read `runGenerate` in `src/generate/pipeline.ts` first — it is the flagship path.
-- Put new code in the module that already owns the concern. `docs/architecture.md` is the authority on module boundaries, the `generate` control/data flow, and the invariants a change must not break — read it rather than guessing.
-- Get approval before adding a module, dependency, or layer.
-- Never rewrite or regenerate documentation as a side effect of a code change. Edit only what the change made wrong, and name every doc file you touched in your summary.
+These rules outrank convenience and your own judgement about what the code
+"obviously" needs. Breaking one is a defect even when the code works.
 
-## Architecture — the rules easiest to break by accident
+### 1. Read before you write
 
-Full module map, `meridian generate` flow, and invariants: `docs/architecture.md`. The ones worth carrying in your head:
+- Before your first edit in a session, read `.meridian/rules.md` plus every file
+  you are about to change. Say which ones you read. Reach for
+  `docs/architecture.md` and `docs/conventions.md` when the change crosses a
+  module boundary or introduces a pattern — not as a fixed preamble to
+  every task.
+- Before adding anything, search for an existing implementation of the same
+  concern and extend it. A second way to do something already done here is a
+  defect, not a feature.
+- When a doc and the code disagree, the code is the evidence: follow the code
+  and report the stale doc — do not quietly "fix" either one.
+- Do not start implementing while a requirement is ambiguous. Ask, or state the
+  assumption you are proceeding on before writing code.
 
-- Commands in `src/commands/*.ts` stay thin — parse/validate input, call into `core`/`generate`/`providers`/`scan`, return an exit code. No business logic.
-- Never call `process.exit()` in a command or in code reachable from `src/launcher.ts`. Every Commander action is wired as `.action(async (...) => done(await xCommand(...)))`, where `done()` sets `process.exitCode`; a raw exit would kill the whole in-process TUI session after one action.
-- `src/index.ts` imports `./core/colorflag.js` first. It mutates `NO_COLOR` state before `picocolors` reads it at load time. Never reorder that import or insert another above it.
-- A new `ArtifactKind` in `src/generate/artifacts.ts` needs both `prompt(digest)` and `fallback(analysis)` — `describe('static fallbacks')` in `tests/generate.test.ts` asserts every fallback stays inside its own `allowedPaths`.
-- `generateKind` is fail-closed: a failed or incomplete-after-retry AI response writes nothing for that kind and marks it `failed`. Never substitute the static fallback mid-run.
-- `createIgnore` (`src/scan/ignore.ts`) is the single ignore-matching authority, shared by the analyzer walk, layout tree, and digest sampling. Never add a second, parallel ignore list.
-- `src/scan/` is read-only with respect to the target project. Only `src/generate/` and `src/rules/generators.ts` write generated output.
+### 2. Follow the architecture — do not invent your own
 
-## Code style
+- Put every new file in the module that already owns that concern per
+  `docs/architecture.md`. If nothing owns it, say so and get approval before
+  creating a new module or top-level directory.
+- Match the file you are editing: its error handling, naming, imports, logging,
+  state management and test style. Code that reads differently from what
+  surrounds it is wrong even when it passes.
+- Where the surrounding code is below the bar this kit sets, write the new code
+  to the standard, keep it self-consistent, and name in your summary the local
+  habit you deliberately did not copy.
+- Never add a dependency, framework, abstraction layer or configuration format
+  without explicit approval. Use what the project already has.
+- Never re-architect, rename, reformat or "clean up" anything outside the scope
+  you were asked to change. Propose unrelated improvements; do not perform them.
 
-- Strict TypeScript, ESM only. Relative imports carry explicit `.js` extensions (NodeNext) even though the source is `.ts` — e.g. `import './core/colorflag.js'`.
-- `noUncheckedIndexedAccess` is on: this codebase leans on non-null assertions after a proven-safe access (e.g. `match[1]!` in `extractFileSymbols`) rather than optional chaining everywhere. Match that idiom; don't invent a different one.
-- No `any` on `src/**`; no floating or misused promises — `await` or explicitly `void`.
-- Throw `CliError` (`src/core/errors.ts`) for every user-facing failure, never a raw `Error`, and always attach an actionable `hint` — see `classifyStatus` in `src/providers/router.ts`.
-- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` seam — `setFetchForTests`, `setRunForTests`, `setRetryDelayForTests`. Follow this instead of adding a mocking library.
-- Atomic or permissioned writes go through `writeFileAtomic` (`src/core/fsx.ts`); secret and sensitive files pass `mode: 0o600` explicitly.
-- Secrets avoid `argv` — `KeychainVault.set` prefers `security -i` (stdin) before falling back; `SecretToolVault.set` always uses stdin.
-- Naming: PascalCase for types, camelCase for functions/variables, `UPPER_SNAKE_CASE` for module constants (`PROVIDERS`, `ARTIFACT_KINDS`, `RULE_TARGETS`).
-- Prettier owns formatting (`npm run format`) — don't hand-format or fight it.
+### 3. Never touch documentation silently
+
+- Never rewrite, reorganize or regenerate `docs/`, `README.md`, `CLAUDE.md`,
+  `AGENTS.md`, `GEMINI.md` or anything under `.meridian/` as a side effect of a
+  code change. Edit a doc only when the change you were asked for makes it
+  factually wrong, and then edit the smallest section that is wrong.
+- Announce every documentation edit: list each file and what changed in the
+  summary of your work.
+- `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc` and
+  `.github/copilot-instructions.md` are generated from `.meridian/rules.md`.
+  Edit `.meridian/rules.md` and run `meridian sync` to propagate it; a hand-edit
+  to a mirror is overwritten on the next run, and
+  `meridian generate rules --force` regenerates `.meridian/rules.md` itself and
+  would discard your edit.
+
+### 4. Report a bug before you fix it
+
+- When you find a defect the task did not ask you to fix, report it in the
+  summary of your work: `file:line`, what breaks, and the smallest correct
+  fix. Never fix it silently inside an unrelated change, and never leave it
+  unmentioned because it was out of scope.
+- If it blocks the task you were given, say so and give the options rather than
+  inventing a workaround around a known defect.
+- A behavior change is never bundled into a refactor: once approved, fix it as
+  its own change, with a test that fails before the fix and passes after.
+
+## General
+
+- Single-package npm project, no workspace — every command runs from the repo root using the scripts in package.json.
+- Before touching `src/generate/*`, read `docs/architecture.md` plus `src/generate/artifacts.ts` and `src/generate/pipeline.ts` in full — the artifact-kind/dependency-wave contract breaks if either file moves without the other.
+- Before touching `src/providers/router.ts`, read `post`/`rawPost`/`classifyStatus` end to end — the timeout-vs-retry distinction and the HTTP-vs-CLI provider split are load-bearing.
+- Before touching `src/core/vault.ts`, read SECURITY.md's "What is in scope" section — this is one of the two CODEOWNERS-flagged security-critical files.
+- Before touching `src/mcp/*`, read `addServer`/`writeConfig` in `src/mcp/configure.ts` — every write there must survive a malformed existing config without corrupting it.
+
+## Architecture
+
+- `src/generate/artifacts.ts` owns what an AI response may write (`isAllowedPath`) and the artifact-kind contract — no other module writes generated kit files directly.
+- `src/generate/pipeline.ts` owns orchestration (`dependencyWaves`, `concurrencyFor`, `generateKind`) — a new artifact kind declares `dependsOn` instead of reading another kind's output straight off disk.
+- `src/providers/router.ts` owns provider selection, retry/backoff and HTTP-vs-CLI dispatch — commands call `route()`/`pickProvider()`, never a provider's API directly.
+- `src/core/vault.ts` owns secret storage across all four backends — commands read/write secrets only through `openVault()`, never via `fs` directly.
+- `src/rules/generators.ts` owns rendering `.meridian/rules.md` into its five mirrors — no other code writes `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc` or `.github/copilot-instructions.md`.
+- `src/scan/*` is read-only analysis of the target project — nothing under it may write to the scanned project or mutate shared state.
+- `src/generate/manifest.ts` owns kit-drift detection (`signatureOf`, `fileStates`) — sync decisions go through it, not ad hoc hashing.
+- Crossing into `src/core/vault.ts`, `src/generate/artifacts.ts`, `.github/workflows/`, or `SECURITY.md` needs explicit approval — CODEOWNERS names exactly these as the security-critical surface.
+- Never bypass `isAllowedPath` for a new write path, and never require a provider to speak more than plain `ask(prompt: string)` — the keyless CLI providers (`claude-code`, `codex-cli`, `gemini-cli`) only understand a text prompt, so a structured protocol added for one provider must stay optional for the rest.
+
+## Code Style
+
+- TypeScript strict mode is non-negotiable: `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch` are on in tsconfig.json — never add code that needs them relaxed.
+- Never introduce `any` in `src/**/*.ts` — `@typescript-eslint/no-explicit-any` is `error`; only `tests/**/*.ts` relaxes the unsafe-* family.
+- Every Promise must be awaited or explicitly handled — `no-floating-promises` and `no-misused-promises` are errors in eslint.config.js.
+- Unused function args are only allowed with a leading underscore (`argsIgnorePattern: '^_'`).
+- Run `prettier --write .` before committing; CI runs `npx prettier --check .` and fails on drift.
+- Import with explicit `.js` extensions in TypeScript source (NodeNext resolution) — see `src/index.ts`, `src/cli.ts`.
+- Raise user-facing failures as `new CliError(message, { hint, exitCode, cause })` (`src/core/errors.ts`) — never a bare `throw` or `console.error` for an expected failure; anything else that escapes to the top level is rendered as a bug with a "re-run with --verbose" hint.
+- Follow the existing test-seam convention for module-level state that needs mocking: a `setXForTests(value | null)` function that restores the real implementation on `null` (`setFetchForTests`, `setRunForTests`, `setGitForTests`, `setToolDetectionForTests`, `setRetryDelayForTests`) — don't invent a different mocking mechanism.
+- Comments explain the "why", never the "what" — match the existing style (e.g. why a timeout is never retried, why manifest signatures ignore cosmetic diffs).
 
 ## Testing
 
-- Vitest. Unit/integration in `tests/*.test.ts`, one file per module area; e2e in `tests/e2e/`, run via `vitest.e2e.config.ts` (`pretest:e2e` builds first).
-- Sandbox all filesystem/vault state via `process.env.MERIDIAN_HOME` (temp dir) and `process.env.MERIDIAN_VAULT = 'file'`, cleaned up in `afterEach` with `fs.rmSync(..., { recursive: true, force: true })`. Never touch the real OS keychain or the developer's real `~/.meridian`.
-- Router network/retry/timeout tests use `setFetchForTests`/`setRunForTests` plus `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync` — never a real network call or a real `setTimeout` delay.
-- Changes to `src/generate/artifacts.ts` must keep `isAllowedPath`/`parseFileBlocks` covered — extend the existing `describe` blocks in `tests/generate.test.ts` rather than writing ad hoc scripts.
-- Coverage gate (`vitest.config.ts`): 70% lines, 60% branches over `src/**/*.ts`, excluding `src/launcher.ts` and `src/index.ts`.
+- Unit tests: Vitest, in `tests/*.test.ts`, run with `npm test` or `npm run test:watch`; config is vitest.config.ts and excludes `tests/e2e/**`.
+- `npm run test:coverage` enforces 70% lines / 60% branches (v8) on `src/**/*.ts`, excluding `src/launcher.ts` and `src/index.ts` (interactive TUI and process entrypoint — exercised by e2e and humans, not unit tests).
+- e2e tests: `tests/e2e/*.test.ts`, run with `npm run test:e2e` against vitest.e2e.config.ts; they spawn the _built_ CLI as a subprocess (30s timeout) — its own `pretest:e2e` hook runs `npm run build` first, so never assume `dist/` is current otherwise.
+- Any change to `src/generate/*` or `src/providers/router.ts` needs a unit test using the matching test seam (`setFetchForTests`/`setRunForTests`), never a real network call or a real CLI binary.
+- Any change to CLI wiring (`src/cli.ts`, `src/launcher.ts`) or to end-to-end file-writing behavior needs a `tests/e2e` addition, since coverage does not measure those two files.
+- Match existing fixture style: build throwaway projects with `fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-<x>-'))` and clean up in `afterEach` (see tests/generate.test.ts, tests/sync.test.ts).
 
-## Verification — two loops, not one
+## Verification
 
-**While working**, after each change:
+- One meaningful chain for this project — there is no separate fast script, so run the smallest matching piece while iterating and the full chain before calling work done.
+- While iterating: `npm run lint` plus `npx vitest run <path-to-test-file>` for the file you're touching.
+- Full chain, in CI's order, once the change is finished: `npm run lint` → `npx prettier --check .` → `npm run build` → `npm run test:coverage` → `npm run test:e2e` (`.github/workflows/ci.yml`).
+- Don't hand-run `npm run build` before `npm run test:e2e` and assume it's redundant — its `pretest:e2e` hook does this automatically, but a stale `dist/` from a failed prior build is the classic way this chain lies to you.
 
-1. `npm run lint`
-2. `npm run build`
-3. `npm test`
+## Legacy code
 
-**When the change is done / before a PR** — the CI-equivalent chain, matching `.github/workflows/ci.yml` (lint → `prettier --check .` → build → test:coverage → test:e2e):
-
-1. `npx prettier --check .` (or `npm run format` to fix)
-2. `npm run lint`
-3. `npm run build`
-4. `npm run test:coverage` — confirm nothing dropped below 70%/60%
-5. `npm run test:e2e` — only when the change touches `src/generate/**`, `src/cli.ts`, or another end-to-end path. It runs `pretest:e2e` (a full `tsc`) itself, so skip step 3 if you go straight to it.
-
-The full chain takes roughly 15s end to end, so this split is about signal, not speed: `npm test` answers "did I break something" in ~6s, while coverage and e2e answer questions that only matter once the change is finished. Run the fast loop while iterating and the full chain once. When a step fails, fix the root cause — never bypass a check to make it pass.
-
-A green local run predicts, but doesn't guarantee, a green CI run: CI also runs a 3×3 matrix (ubuntu/macos/windows × Node 18/20/22).
+- No file surfaced in this review falls below the standard set above. Hold new code to it regardless, and if you find a real exception while working, report it to the developer before fixing it rather than treating it as sanctioned precedent.
 
 ## Safety
 
-- Never commit or write real API keys, tokens, or vault contents to disk outside `src/core/vault.ts`'s backends. `keys/index.json` under `meridianHome()` stores only account names, never secret values.
-- Never bypass `isAllowedPath` (`src/generate/artifacts.ts`) for any AI-suggested or dynamically constructed file path — it is the only guard against a malformed or adversarial AI response writing outside the project (blocks absolute paths, Windows drive letters, `..` traversal).
-- Never add a raw `process.exit()` anywhere in `src/commands/*` or code reachable from `src/launcher.ts`.
-- Treat `.meridian/` and the root-level generated files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc`, `.github/copilot-instructions.md`, `README_AI.md`) as `meridian generate` output, not hand-authored source. To change the rules, edit `.meridian/rules.md` and re-run the mirror (`generateRules` in `src/rules/generators.ts`) — the five mirrored copies are overwritten wholesale. To change generated artifact or doc content, change `src/generate/artifacts.ts`.
-- Do not touch `.github/workflows/ci.yml`'s publish gating (the tag-vs-`package.json`-version check, the `refs/tags/v*` trigger) without explicit confirmation — it is the only thing preventing an accidental `npm publish`.
-- Never run `npm publish`, push git tags matching `v*`, or modify `NPM_TOKEN`/CI secrets from an assistant session. Use the `release-meridian` skill to prepare (not execute) a release.
-- Windows vault code (`DpapiProtector` in `src/core/vault.ts`) shells out to PowerShell with base64 over stdin — never change it to pass secrets as command-line arguments.
-- Do not delete the legacy plain-hex fallback in `DpapiProtector.unprotect` — it exists for keys stored before the `dpapi:` prefix, and removing it would break existing users' stored keys.
+- Never put a secret in argv, a log line, or a plaintext file — SECURITY.md and `src/core/vault.ts` require every key to go through `openVault()` into an OS-native store (Keychain, libsecret, DPAPI-wrapped or 0600 file vault).
+- Never write an MCP secret inline — `src/mcp/configure.ts` writes `${VAR}` environment references only; resolved values must never land in a project file.
+- Never let generated content write outside `isAllowedPath`'s allowlist in `src/generate/artifacts.ts` — it is the only thing stopping AI-suggested output from escaping the target project.
+- Never hand-edit `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc`, or `.github/copilot-instructions.md` — they are mirrors rendered from `.meridian/rules.md` by `src/rules/generators.ts` and will be overwritten or flagged stale.
+- Never hand-edit `.meridian/manifest.json` — it is sync's drift/edit-detection record, written only by `src/generate/manifest.ts`.
+- Treat `src/core/vault.ts`, `src/generate/artifacts.ts`, `.github/workflows/`, and `SECURITY.md` as requiring explicit sign-off for any change — CODEOWNERS names exactly these as the security-critical surface.
+- Ask before running a destructive command (git push, `npm publish`, wiping a vault) — `meridian keys repair` already gates destructive vault recovery behind an explicit subcommand; never add a path that skips that gate.
 
-## Further reading — consult on demand, not every change
+## Further reading
 
-- `docs/architecture.md` — module boundaries, `generate` control/data flow, invariants.
-- `docs/conventions.md` — the fuller rationale behind the code style above.
-- `docs/tech-debt.md` and `docs/engineering-standards.md` — the standards backlog (`SECURITY.md`, `CODEOWNERS`, Dependabot, a `src/launcher.ts` test seam, the `meridian login` stub). Read when picking up work, not as a per-change checklist.
-- `.meridian/context.md` and `.meridian/docs/onboarding.md` — orientation for a new contributor.
+- docs/architecture.md — open when a change crosses module boundaries and you need the full module-by-module map beyond the handful of rules above.
+- docs/conventions.md — open for the full naming/style catalogue beyond the highlights in Code Style.
+- docs/engineer-workflow.md — open for the complete day-to-day workflow beyond the Verification commands above.
+- .meridian/docs/codebase-review.md — open for the maturity gaps and trajectory notes (e.g. the CI dependency-scanning gap, thin `--estimate` price coverage) that motivate but don't change today's rules.

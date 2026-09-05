@@ -1,49 +1,35 @@
-# Behaviour contract template
+A fill-in template for pinning down what "correct" means for a piece of Meridian behavior _before_ changing it — required whenever a change is more than a pure refactor (see `.meridian/rules.md`'s rule that "a behavior change is never bundled into a refactor"). Copy this into the PR description or a scratch file, fill it in, then implement.
 
-A fill-in template for writing down what a piece of Meridian's behavior actually does _before_ changing it — so a change can be checked against what was true, not against memory. Copy this into your PR description or a scratch file when touching anything with non-obvious current behavior (retry logic, the vault backends, `isAllowedPath`, the manifest/sync drift rules). Not a doc about a specific module — it's the process to run against any of them.
+## What behavior is this about?
 
-## When to use this
+Name the exact entry point: a CLI command (`meridian <command>`), an exported function (`file.ts`'s `functionName`), or a user-visible output shape (a `--json` document field). One sentence — if it takes more than one, the scope is too big for one contract.
 
-Before changing behavior in a module where "what it currently does" isn't obvious from the function name alone — network retry/backoff (`src/providers/router.ts`), vault backend selection (`src/core/vault.ts`'s `openVault`), kit drift detection (`src/generate/manifest.ts`), or anything covered by an existing `tests/*.test.ts` file whose assertions you're about to touch.
+## Current observable behavior
 
-## Template
+What does it do today, verified by reading the code or running it — not assumed. Cite the file and function. If tests already assert this behavior, name them (e.g. `tests/router-network.test.ts`'s "retries on 429, then succeeds").
 
-```
-### Behavior under contract
+## Desired observable behavior
 
-Module / function: <e.g. classifyStatus() in src/providers/router.ts>
+What should it do after the change? State it as an input → output pair, not as an implementation instruction. If this changes a `CliError` message, hint, or exit code, state the exact new text/code — those are part of the public surface per [conventions.md](conventions.md)'s error-handling section.
 
-### Current observable behavior (fill in from reading the code + running the tests)
+## Inputs that must keep working
 
-Given: <input / state — e.g. "a 503 response on the 2nd of 3 attempts">
-When:  <action — e.g. "post() is called">
-Then:  <observable result — e.g. "sleeps backoffFor(2)ms, retries once more, then throws
-        a CliError with the '3 times in a row' hint if attempt 3 also fails">
+List the inputs (flags, config values, provider responses, malformed data) the current behavior handles that the new behavior must not regress. For anything touching `src/generate/*` or `src/providers/router.ts`, explicitly list the test-seam inputs (`setFetchForTests`, `setRunForTests`) that already cover this path.
 
-Evidence: <file:symbol or test name that proves this — e.g.
-           "tests/router-network.test.ts: 'surfaces a persistent 5xx with a
-           provider is having trouble hint'">
+## Inputs that are explicitly out of scope
 
-### Proposed change
+State what this change does _not_ need to handle — an edge case being explicitly deferred is not the same as an edge case being missed. Absence of a caveat here reads as a guarantee, per this suite's own standard.
 
-What changes: <...>
-What must NOT change (existing callers/tests relying on current behavior):
-  - <e.g. "4xx errors outside RETRYABLE_STATUS must still throw on the first attempt">
-  - <e.g. "streaming (postStream) must still never retry">
+## Verification
 
-### Verification
+The exact test(s) that will fail before the change and pass after — write these first (test-driven), not after implementing. Name the file: a new case in an existing `tests/*.test.ts`, or a new `tests/e2e/*.test.ts` case if this touches `src/cli.ts`, `src/launcher.ts`, or end-to-end file-writing behavior (neither is measured by `test:coverage`).
 
-- [ ] Existing tests for this behavior still pass, or are updated with a stated reason
-- [ ] New/changed behavior has a corresponding test (see the sandboxing conventions in
-      docs/conventions.md and the test-seam pattern — setFetchForTests/setRunForTests,
-      never a real network call or real setTimeout)
-- [ ] Full verification chain run in CI order (docs/engineer-workflow.md)
-```
+## Rollback
 
-## Why this exists
-
-Meridian's own fail-closed AI generation, retry/backoff, and drift-detection logic are exactly the kind of behavior that's easy to "simplify" into something subtly different — the contract above forces the current behavior to be stated and evidenced before a diff is written, not inferred from the diff afterward.
+If this ships and is wrong, what is the smallest revert? For anything touching `.meridian/manifest.json`'s format, `src/rules/generators.ts`'s mirror output, or the vault's stored format, state explicitly whether existing on-disk state from before the change stays readable.
 
 ## Related
 
-[conventions.md](conventions.md) for the test-seam pattern referenced above, [engineer-workflow.md](engineer-workflow.md) for the verification chain, [architecture.md](architecture.md) for the invariants a contract change must not silently break.
+- `.meridian/rules.md` — the rule requiring a behavior change to ship as its own change, with a test that fails before and passes after.
+- [conventions.md](conventions.md) — error-handling and typing conventions a filled-in contract must respect.
+- [engineer-workflow.md](engineer-workflow.md) — the verification chain to run once the contract's test passes.

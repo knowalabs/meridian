@@ -2,14 +2,28 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(npm run format)",
+      "Bash(npm test)",
       "Bash(npm run test)",
       "Bash(npm run test:*)",
-      "Bash(npm run lint)",
-      "Bash(npm run build)",
-      "Bash(npm run format)",
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)"
+    ],
+    "ask": [
+      "Edit(docs/**)",
+      "Write(docs/**)",
+      "Edit(README.md)",
+      "Write(README.md)",
+      "Edit(CLAUDE.md)",
+      "Edit(AGENTS.md)",
+      "Edit(GEMINI.md)",
+      "Edit(.meridian/**)",
+      "Write(.meridian/**)",
+      "Edit(.cursor/rules/meridian.mdc)",
+      "Edit(.github/copilot-instructions.md)"
     ],
     "deny": ["Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)"]
   }

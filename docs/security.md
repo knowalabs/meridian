@@ -1,45 +1,43 @@
-# Security
+The security-critical surface of the Meridian CLI itself: the key vault, the boundary that keeps AI-suggested writes inside the target project, and how tool configs get edited. Read this before touching any file `CODEOWNERS` flags, and read `SECURITY.md` at the repo root first for the disclosure process — this doc is the engineering detail behind it.
 
-How `@knowalabs/meridian` stores secrets, why AI-suggested file paths are never trusted directly, and which code paths in this repo demand extra care. Read this before touching `src/core/vault.ts`, `src/generate/artifacts.ts`'s `isAllowedPath`, or the harness config Meridian generates for _other_ projects. Not covered: security advice for a target project being scanned — that's whatever `meridian generate` writes into _that_ project's own `docs/security.md`, not this one.
+## What is security-critical, and why
 
-## Secret storage
+`CODEOWNERS` names exactly four things as requiring explicit sign-off, and `SECURITY.md` explains why:
 
-`src/core/vault.ts`'s `Vault` interface (`set`/`get`/`delete`/`list`) has one implementation per platform, chosen by `openVault()`:
+| Path                        | Why it matters                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/core/vault.ts`         | Owns every API key Meridian stores. A bug here can leak a secret to disk, a log line, or another local user.        |
+| `src/generate/artifacts.ts` | Owns `isAllowedPath` — the only thing stopping AI-suggested file writes from escaping the target project directory. |
+| `.github/workflows/`        | Governs what `publish` runs and what secrets it has access to (`NODE_AUTH_TOKEN`).                                  |
+| `SECURITY.md`               | The disclosure process itself; changing it changes how a real report gets handled.                                  |
 
-| Backend           | Platform                                                     | Mechanism                                                                                                                                                                         |
-| ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KeychainVault`   | macOS                                                        | Shells out to `security`; `set()` prefers `security -i` (commands over stdin) so the secret never appears in the process argument list, falling back to argv only if stdin fails. |
-| `SecretToolVault` | Linux                                                        | Shells out to `secret-tool` (libsecret); `set()` always pipes the secret over stdin, never argv.                                                                                  |
-| `FileVault`       | fallback (any platform, or forced via `MERIDIAN_VAULT=file`) | AES-256-GCM encrypted blob at `<meridianHome>/keys/vault.enc`; the 256-bit master key lives separately at `<meridianHome>/keys/.master`, written with `mode: 0o600`.              |
+## The key vault
 
-Neither `security` nor `secret-tool` can reliably enumerate stored items, so a non-secret index of account _names only_ (never values) is kept at `<meridianHome>/keys/index.json`, written via `indexAdd`/`indexRemove`/`indexWrite` — never add secret material to this file.
+`src/core/vault.ts` exposes one `Vault` interface with four backends, chosen by `openVault()`:
 
-On Windows, `FileVault`'s master key is wrapped with `DpapiProtector`, which shells out to PowerShell with the key base64-encoded over **stdin**, never as a command-line argument — do not change this to pass secrets via PowerShell argv. `DpapiProtector.unprotect()` deliberately keeps a legacy plain-hex fallback (`PlainProtector`) for keys stored before the `dpapi:` prefix existed; do not delete it, it would break existing users' stored keys. Where DPAPI/`secret-tool` are unavailable, `FileVault` falls back to `PlainProtector` (plain hex, protected only by the `0o600` file mode) and `openVault()` logs a one-time warning.
+- **macOS**: `KeychainVault`, via the `security` CLI — the secret is written through `-i` (stdin) so it never appears in the process argument list; only falls back to argv if stdin mode fails.
+- **Linux**: `SecretToolVault`, via `secret-tool`, secret piped over stdin the same way.
+- **Windows**: `FileVault` wrapped by `DpapiProtector` — the master key is protected with Windows DPAPI (`CurrentUser` scope) via PowerShell; secrets themselves are AES-256-GCM encrypted with that master key.
+- **Fallback** (any platform, or `MERIDIAN_VAULT=file`): `FileVault` with a plain hex-encoded master key, restricted to `0600` — used when no OS-native store is available.
 
-`repairVault()` (`src/core/vault.ts`) backs up (`backupFile`) and removes `vault.enc`, `.master` and `index.json` so a corrupted vault can be reinitialized via `meridian keys repair` — it never silently discards without a backup first.
+Never bypass `openVault()` to read or write a secret directly via `fs` — every command that needs a key (`src/commands/auth.ts`, `src/commands/ask.ts`, `src/generate/pipeline.ts`) goes through it. `repairVault()` backs up and clears file-vault state for recovery; it is the only sanctioned destructive vault operation, gated behind the explicit `meridian keys repair` subcommand.
 
-## AI-output path validation
+## The artifact write boundary
 
-`isAllowedPath(file, allowed)` in `src/generate/artifacts.ts` is the **only** guard between an AI-suggested (or fallback-suggested) file path and a real write. It rejects:
+`isAllowedPath` (`src/generate/artifacts.ts`) checks every path an AI response names before anything is written: it rejects absolute paths, Windows drive letters, and `..` escapes, and requires the path to fall under one of the `ArtifactKind`'s declared `allowedPaths`. `SECURITY.md` states this plainly: "Prompt injection reaching a provider through the digest is a known property of the design, not a bug... It becomes a vulnerability when it escapes the write allowlist. That boundary is the thing to attack." Any new `ArtifactKind` or path-handling code must route through this function — never construct a write path independently.
 
-- absolute paths (`path.isAbsolute`) and Windows drive letters (`/^[a-zA-Z]:[\\/]/`);
-- `..` traversal, after `path.posix.normalize`;
-- anything outside the requesting `ArtifactKind`'s own `allowedPaths` prefix list.
+## MCP config writes
 
-Every new `ArtifactKind` (`src/generate/artifacts.ts`) must route its writes through this check — never construct a write path any other way. `tests/generate.test.ts`'s `describe('isAllowedPath')` block is the place to add new cases, not an ad hoc script.
+MCP server installs (`src/mcp/configure.ts`'s `addServer`/`writeConfig`) write `${VAR}` environment-variable references into a tool's config, never a resolved secret value — confirmed by `tests/mcp.test.ts`'s assertion that a stored `GITHUB_PERSONAL_ACCESS_TOKEN` never appears in the written `.mcp.json`. Writes are defensive against a config file that already exists and is malformed: `addServer` backs up an unparseable config and skips it rather than overwriting it (`tests/mcp.test.ts`'s "never destroys a malformed tool config" case), and refuses to merge into a config whose `mcpServers` field has an unexpected shape.
 
-## Generated harness safety (what Meridian writes for other projects)
+## What is not in scope
 
-The `harness` artifact kind (`src/generate/artifacts.ts`) writes `.claude/settings.json` for the _target_ project with a permission allowlist derived only from that project's real verification scripts, plus deny rules for `.env` and key files. Its AI prompt hard-forbids allowlisting anything destructive or outward-facing (push, publish, deploy, `rm`, `sudo`, `curl`, package installs).
-
-## Destructive workflow steps in generated output
-
-Every artifact kind's prompt (`commonPrompt` in `src/generate/artifacts.ts`) requires that any generated workflow step which is destructive or hard to reverse — committing, pushing, tagging, publishing, deleting, migrating — shows exactly what it is about to do and waits for explicit user approval, with suspected secrets as a hard stop and no "continue anyway" path; amend and force-push are never generated.
-
-## This repo's own publish gating
-
-`.github/workflows/ci.yml`'s `publish` job is gated on a tag-vs-`package.json`-version check and only triggers on `refs/tags/v*` — this is the only thing preventing an accidental `npm publish`. Do not modify it without explicit confirmation, and never run `npm publish` or push a `v*` tag from an assistant session.
+- A missing tool, unconfigured provider, or expired key — `meridian doctor` reports these as normal states by design, not vulnerabilities (`SECURITY.md`).
+- Anything requiring an attacker who already controls the local user account — they can already read the OS keychain directly.
+- The DPAPI plain-hex fallback path in `unprotect()` — it exists only to read master keys stored before the `dpapi:` prefix existed; removing it without a migration would lock out existing users.
 
 ## Related
 
-[architecture.md](architecture.md)'s invariants section for the enforcement summary, [engineering-standards.md](engineering-standards.md) for where the repo's security posture stands against an enterprise bar, [conventions.md](conventions.md) for the general secrets/error-handling conventions these mechanisms follow.
+- [architecture.md](architecture.md) — where the vault, artifact pipeline and MCP writer sit in the module map.
+- `SECURITY.md` (repo root) — the vulnerability disclosure process this doc supports.
+- `.meridian/rules.md`'s Safety section — the operational rules (never put a secret in argv/logs, never hand-edit a mirror or manifest file) layered on top of this doc.

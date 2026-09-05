@@ -1,39 +1,31 @@
-# Review a Meridian Pull Request
+# Reviewing a PR in Meridian
 
 ## When to use
-
-Before merging a PR that touches `src/**/*.ts` or `tests/**/*.ts` in `@knowalabs/meridian` — the CLI that makes other codebases AI-assistant-ready.
+Before merging any PR or diff touching `src/**/*.ts` or `tests/**/*.ts` in the Meridian CLI — the tool that generates AI-assistant kits for other codebases.
 
 ## Context
-
-- Node.js/TypeScript CLI (`meridian`), ESM only (`"type": "module"`), strict `tsconfig.json` with `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`.
-- Relative imports must use explicit `.js` extensions (NodeNext resolution) — e.g. `import './core/colorflag.js'` in `src/index.ts`.
-- ESLint (`eslint.config.js`) errors on `src/**` for `@typescript-eslint/no-explicit-any`, `no-floating-promises`, `no-misused-promises`.
-- Module boundaries: `src/commands/*.ts` are thin adapters (parse/validate, call `core`/`generate`/`providers`/`scan`, return an exit code) — no business logic in a Commander `.action()`. `src/scan/analyzer.ts` is read-only and must never write files. Only `src/generate/` and `src/rules/generators.ts` write generated output.
-- Commands never call `process.exit()` — every action returns a number and `src/cli.ts`'s `done()` closure sets `process.exitCode`, because `src/launcher.ts` runs commands in-process (`buildCli({ exitOverride: true }).parseAsync`) and a raw exit would kill the interactive TUI.
-- User-facing failures throw `CliError` (`src/core/errors.ts`) with an actionable `hint`, never a raw `Error` — see the pattern in `src/providers/router.ts`'s `classifyStatus`.
-- Any AI-suggested or dynamically constructed file path in `src/generate/*.ts` must be validated through `isAllowedPath` (`src/generate/artifacts.ts`) — never bypassed.
-- Side-effecting singletons (network, subprocess) expose a `setXForTests(impl | null)` seam — see `setFetchForTests`/`setRunForTests` in `src/providers/router.ts` — instead of a mocking library.
-- Secrets avoid `argv` where possible (stdin-based `security -i`, `secret-tool`) per `KeychainVault.set`/`SecretToolVault.set` in `src/core/vault.ts`; secret file writes use `writeFileAtomic` (`src/core/fsx.ts`) with `mode: 0o600`.
-- `src/index.ts` imports `./core/colorflag.js` first, before anything else — reordering breaks `--no-color`.
+- Meridian (`@knowalabs/meridian`) is a single-package TypeScript CLI (Commander), no workspace — every command runs from the repo root.
+- `tsconfig.json` has `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch` on. New code must never need them relaxed.
+- `eslint.config.js` sets `@typescript-eslint/no-explicit-any: error` (source only — `tests/**/*.ts` relaxes the unsafe-* family), `no-floating-promises: error`, `no-misused-promises: error`, and unused args must be prefixed `_`.
+- `CODEOWNERS` names four security-critical paths requiring explicit sign-off: `src/core/vault.ts` (the secret vault — Keychain/libsecret/DPAPI/file backends), `src/generate/artifacts.ts` (owns `isAllowedPath`, the only guard stopping AI-suggested writes from escaping the target project), `.github/workflows/` (build/publish gating), and `SECURITY.md`.
+- `src/providers/router.ts`'s `post`/`rawPost`/`classifyStatus` distinguish retryable transient failures (429/5xx, dropped connections) from timeouts, which are never retried — a diff that changes this needs to preserve that distinction.
+- Module ownership: `src/generate/artifacts.ts` owns the artifact-kind contract, `src/generate/pipeline.ts` owns orchestration (`dependencyWaves`, `concurrencyFor`), `src/providers/router.ts` owns provider selection/dispatch, `src/core/vault.ts` owns secret storage, `src/rules/generators.ts` owns rendering `.meridian/rules.md` into its five mirrors, `src/mcp/configure.ts` owns MCP config writes.
+- Test seam convention: module-level state needing mocking exposes `setXForTests(value | null)` (e.g. `setFetchForTests`, `setRunForTests`, `setGitForTests`, `setRetryDelayForTests`) — a diff introducing a different mocking mechanism is a defect.
+- CI (`.github/workflows/ci.yml`) runs, per push/PR, across ubuntu/macos/windows × Node 18/20/22: `npm run lint`, `npx prettier --check .`, `npm run build`, `npm run test:coverage`, `npm run test:e2e`.
 
 ## Task
-
-1. Read the diff in full before commenting on any single hunk.
-2. Check module placement: does new logic in `src/commands/*.ts` belong there, or should it live in `core`/`generate`/`providers`/`scan`? Flag business logic sitting directly in a `.action()` callback.
-3. Check for any `process.exit()` call in `src/commands/*` or code reachable from the launcher — this is a hard violation.
-4. Check every user-facing failure path throws `CliError` with a `hint`, not a raw `Error` or a silent `console.error`.
-5. If the diff touches `src/generate/*.ts`, confirm every AI-suggested or constructed path goes through `isAllowedPath` before being written, and that a failed/incomplete AI response still writes nothing (fail-closed — see `generateKind` in `src/generate/pipeline.ts`).
-6. Check relative imports use `.js` extensions, and that no new `any` type, floating promise, or unchecked indexed access was introduced (`noUncheckedIndexedAccess` means `arr[i]` is possibly `undefined`).
-7. If the diff adds a new side-effecting singleton, confirm it exposes a `setXForTests` seam rather than requiring a mocking library in tests.
-8. If secrets or vault code changed, confirm no secret reaches `argv` and any new sensitive file write uses `writeFileAtomic` with an explicit `mode`.
-9. Do not speculate — every finding must cite a `file:line`. If you can't point at the line, drop the claim.
-10. Do not approve, merge, or push anything — this is a read-only review. Flag anything destructive (publish gating changes in `.github/workflows/ci.yml`, tag pushes) as a hard stop requiring explicit human confirmation.
+1. Read the full diff before forming an opinion — do not review a hunk in isolation from its file.
+2. Check whether the diff touches any CODEOWNERS-flagged path (`src/core/vault.ts`, `src/generate/artifacts.ts`, `.github/workflows/`, `SECURITY.md`); if so, flag that it needs explicit sign-off and describe exactly what changed in the security-relevant behavior (e.g. does it alter `isAllowedPath`'s allowlist, or how `openVault()` selects a backend).
+3. Verify every new `async` call site is awaited or otherwise handled (no floating promises) and that no `any` was introduced in `src/**/*.ts`.
+4. If the diff adds or changes a test seam, confirm it follows the `setXForTests(value | null)` pattern rather than inventing a new one.
+5. If the diff touches `src/generate/*` or `src/providers/router.ts`, confirm the accompanying test uses `setFetchForTests`/`setRunForTests` rather than a real network call or CLI binary.
+6. Check for a `CliError` (`src/core/errors.ts`) on every new user-facing failure path rather than a bare `throw` or `console.error`.
+7. Do not propose or make unrelated refactors, renames or doc edits — report them as separate observations instead.
+8. State which verification commands you ran (or would need to run) from the chain in `.meridian/rules.md`, and their result.
 
 ## Output
-
-A findings list ordered most-severe first. Each finding: `file:line`, the concrete rule violated (quote the CLAUDE.md/convention it breaks), why it matters here, and the smallest fix. End with a one-line verdict: approve, approve with nits, or request changes.
+A findings list ordered most-severe first. For each: file:line, what is wrong, why it matters (cite the rule or file it violates), and the smallest correct fix. End with a one-line verdict: approve, approve with comments, or request changes.
 
 ```
-<paste the PR diff here>
+PASTE THE DIFF OR PR HERE
 ```

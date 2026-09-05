@@ -1,65 +1,58 @@
-# Architecture
+This is the module map for the Meridian CLI itself — the layers under `src/`, how a `meridian generate` run flows through them, and the invariants a change must not break. Read it before crossing a module boundary; for the day-to-day command list see [engineer-workflow.md](engineer-workflow.md), and for naming/style once you're inside a file see [conventions.md](conventions.md).
 
-Covers the module layout of `@knowalabs/meridian`'s own source (`src/`), how control and data flow through the flagship `meridian generate` pipeline, why each runtime dependency exists, and the invariants a change must not break. Read this before moving code between modules or adding a new one. Not covered: the internals of a _target_ project `meridian generate` scans — that's a different concept entirely (see `.meridian/rules.md`'s "General" section).
+## Layers and responsibilities
 
-## Entry points
+| Layer                               | Key files                              | Responsibility                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entrypoint                          | `src/index.ts`, `src/cli.ts`           | Node-version gate, global crash handlers (`uncaughtException`/`unhandledRejection`/`SIGINT` → `renderError`), the single Commander command tree (`buildCli`).                                                                                                                               |
+| Interactive shell                   | `src/launcher.ts`                      | Bare-`meridian` TUI: arrow-key menu (`menuPrompt`), banner (`showBanner`), runs commands in-process via `buildCli({ exitOverride: true })` so a failing command never kills the menu loop.                                                                                                  |
+| Commands                            | `src/commands/*.ts`                    | One thin orchestration module per command group (`ask.ts`, `auth.ts`, `doctor.ts`, `generate.ts`, `install.ts`, `mcp.ts`, `sync.ts`, `update.ts`) — parse/validate flags, call into `core`/`generate`/`providers`, format `--json`/human output via `log`.                                  |
+| Cross-cutting infra                 | `src/core/*.ts`                        | `config.ts` (global config load/save + `coerceConfig`), `errors.ts` (`CliError`, `EXIT`, `renderError`), `exec.ts` (subprocess helpers), `fsx.ts` (`writeFileAtomic`, `backupFile`), `vault.ts` (secret storage), `paths.ts` (`meridianHome`), `plugin.ts` (shared `ToolPlugin` interface). |
+| Target-project analysis (read-only) | `src/scan/*.ts`                        | `analyzer.ts` (`analyzeProject` → `ProjectAnalysis`), `git.ts` (`collectGitSignal`/`churnMap`), `ignore.ts` (shared gitignore matcher), `workspaces.ts` (monorepo detection).                                                                                                               |
+| Generation pipeline                 | `src/generate/*.ts`                    | `digest.ts` (`buildDigest`), `artifacts.ts` (`ArtifactKind` contract, `isAllowedPath`), `pipeline.ts` (`dependencyWaves`, `runGenerate`), `manifest.ts` (drift/edit detection), `validate.ts` (claim-checking), `cache.ts` (codebase-review cache).                                         |
+| AI routing                          | `src/providers/router.ts`              | Provider registry (`PROVIDERS`), selection (`route`/`pickProvider`), HTTP retry/backoff (`post`/`rawPost`/`classifyStatus`), CLI-provider dispatch.                                                                                                                                         |
+| Rule mirroring                      | `src/rules/generators.ts`              | Renders `.meridian/rules.md` into `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc`, `.github/copilot-instructions.md`.                                                                                                                                                   |
+| Tool/MCP management                 | `src/plugins/tools.ts`, `src/mcp/*.ts` | Detecting/installing AI tool CLIs; the MCP server registry and per-tool config writer.                                                                                                                                                                                                      |
 
-| File              | Responsibility                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/index.ts`    | Process entry point only: Node-version gate (`>=18`), global `uncaughtException`/`unhandledRejection`/`SIGINT` handlers, dispatch to `launcher.ts` (bare `meridian` in a TTY) or `cli.ts` (`buildCli().parseAsync`). Imports `./core/colorflag.js` first, before `renderError`/`buildCli` — it mutates `NO_COLOR` before `picocolors` (loaded by nearly everything else) reads color support. |
-| `src/cli.ts`      | Builds the Commander program (`buildCli`), registers every subcommand and global flags (`--verbose`, `-q/--quiet`, `--json`, `--no-color`) via `addGlobalFlags`, applied recursively to every leaf command.                                                                                                                                                                                   |
-| `src/launcher.ts` | Interactive TUI (`runInteractive`, `menuPrompt`, `showBanner`/`showWelcome`). Runs `buildCli({ exitOverride: true }).parseAsync` in-process per selection via `runCommandLine`, catching `CommanderError` so one failing command never kills the menu loop. Excluded from coverage thresholds in `vitest.config.ts` — exercised by humans/e2e, not unit tests.                                |
+## Control and data flow
 
-## Layers
+`meridian generate` (`src/commands/generate.ts` → `src/generate/pipeline.ts`'s `runGenerate`):
 
-| Layer               | Directory                          | Responsibility                                                                                                                                                                                                                                                                                                              |
-| ------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Commands            | `src/commands/*.ts`                | Thin adapters: parse/validate CLI input, call into `core`/`generate`/`providers`/`scan`, return an exit code. No business logic, no `process.exit()`.                                                                                                                                                                       |
-| Cross-cutting infra | `src/core/`                        | `errors.ts` (`CliError`, `renderError`, `EXIT`), `logger.ts`, `config.ts`, `vault.ts` (multi-backend secrets), `fsx.ts` (`writeFileAtomic`, `backupFile`), `paths.ts`, `exec.ts` (`run`/`runAsync`/`which`), `spinner.ts`, `pkg.ts` (`VERSION`), `prompt.ts`, `validate.ts`, `colorflag.ts`.                                |
-| Target-project scan | `src/scan/`                        | `analyzer.ts` (`analyzeProject`, code-map symbol extraction), `ignore.ts` (`createIgnore` — the single ignore authority), `workspaces.ts` (`detectWorkspaces` for npm/yarn/pnpm/Lerna/Cargo/`go.work`). Read-only — must never write files.                                                                                 |
-| AI-kit pipeline     | `src/generate/`                    | `digest.ts` (`buildDigest`), `artifacts.ts` (`ARTIFACT_KINDS`, `isAllowedPath`, `parseFileBlocks`, `FORMAT_SPEC`), `pipeline.ts` (`runGenerate`, `generateKind`, `pickProvider`, `estimateGenerate`), `manifest.ts` (`KitManifest`, `fingerprintOf`, `diffFingerprints`, `fileStates`), `cache.ts` (codebase-review cache). |
-| Rule propagation    | `src/rules/generators.ts`          | Mirrors `.meridian/rules.md` into every AI tool's native config (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, …) via `generateRules`/`RULE_TARGETS`.                                                                                                                                                                              |
-| AI routing          | `src/providers/router.ts`          | `PROVIDERS: ProviderSpec[]`, `route()`, `modelFor()`, shared HTTP `post()`/`postStream()` with timeout/retry/backoff (`classifyStatus`, `RETRYABLE_STATUS`).                                                                                                                                                                |
-| MCP marketplace     | `src/mcp/` + `src/commands/mcp.ts` | `registry.ts` (`MCP_REGISTRY`, `searchMcp`), `configure.ts` (`addServer`/`removeServer`/`listInstalled` across every detected tool config).                                                                                                                                                                                 |
-| Tool plugins        | `src/plugins/tools.ts`             | Per-tool install/detect/doctor (`TOOL_SPECS`, `buildRegistry`) used by `install`/`doctor`/`uninstall`.                                                                                                                                                                                                                      |
+1. `analyzeProject` (`src/scan/analyzer.ts`) walks the _target_ project (respecting `src/scan/ignore.ts`) and produces a `ProjectAnalysis` — languages, frameworks, scripts, conventions, API routes, and the per-file `codeMap`.
+2. `buildDigest` (`src/generate/digest.ts`) turns that analysis plus budgeted file excerpts into a text blob sized to the chosen provider's context window (`digestBudgetFor`); `serveFileRequests` can serve a bounded follow-up read when a review pass asks for a specific file.
+3. `pickProvider`/`route` (`src/providers/router.ts`) select a provider; the digest is sent through `REVIEW_PROMPT` to produce a codebase review, cached per project/provider/model/digest by `src/generate/cache.ts`.
+4. `dependencyWaves` (`src/generate/pipeline.ts`) groups `ARTIFACT_KINDS` (`src/generate/artifacts.ts`) so a kind only runs once every kind it `dependsOn` has produced its files; each kind's `prompt()` or `fallback()` runs, concurrency bounded by `concurrencyFor`.
+5. `validateArtifacts` (`src/generate/validate.ts`) rejects claims the project contradicts (invented scripts, dead paths, malformed frontmatter); a failing kind gets one retry with the findings attached.
+6. Every returned path is checked by `isAllowedPath` before `writeFileAtomic` (`src/core/fsx.ts`) writes it; `src/rules/generators.ts` is the only code that writes the five rule mirrors.
+7. `src/generate/manifest.ts` records a per-file content signature (`signatureOf`) into `.meridian/manifest.json`, which `meridian sync` later reads via `fileStates`/`diffFingerprints` to decide what drifted versus what was hand-edited.
 
-## Control/data flow: `meridian generate`
-
-```
-src/scan/analyzer.ts     analyzeProject(root, ignore)         → ProjectAnalysis
-src/generate/digest.ts   buildDigest(root)                    → ProjectDigest (text + code map + excerpts)
-src/providers/router.ts  pickProvider() → ProviderSpec.ask()  → AI response text
-src/generate/artifacts.ts parseFileBlocks(response)           → ArtifactFile[]
-src/generate/artifacts.ts isAllowedPath(file, kind.allowedPaths) → validated writes only
-src/core/fsx.ts          writeFileAtomic(file, content)        → disk
-src/rules/generators.ts  generateRules()                       → CLAUDE.md / AGENTS.md / GEMINI.md / …
-src/generate/manifest.ts writeManifest()                       → .meridian/manifest.json
-```
-
-`meridian sync` (`src/commands/sync.ts`) reuses the same pipeline: `manifest.ts`'s `fileStates`/`diffFingerprints` decide which generated files are stale (`clean`, `edited` — preserved, or `missing` — regenerated) before `runGenerate` is called with `refresh` set to only the untouched files.
+`meridian ask`/`meridian generate` provider calls both go through `src/providers/router.ts`'s `route()`/`post()` — never a provider's HTTP endpoint directly — so retry/backoff and error classification stay in one place.
 
 ## External dependencies and why
 
-| Dependency                                                | Kind        | Why                                                                                                                                                    |
-| --------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `commander`                                               | runtime dep | The entire CLI command tree in `src/cli.ts` (`buildCli`, subcommands, global flags).                                                                   |
-| `picocolors`                                              | runtime dep | Every terminal color call across `commands/`, `launcher.ts`, `core/logger.ts` — hence `core/colorflag.ts` must run before it's imported anywhere else. |
-| `vitest` + `@vitest/coverage-v8`                          | dev dep     | Unit/integration tests (`tests/*.test.ts`) and coverage gating (`vitest.config.ts`).                                                                   |
-| `eslint` + `typescript-eslint` + `eslint-config-prettier` | dev dep     | `npm run lint` (`eslint src tests`), configured in `eslint.config.js`.                                                                                 |
-| `prettier`                                                | dev dep     | `npm run format` / CI's `npx prettier --check .`.                                                                                                      |
-| `typescript`                                              | dev dep     | `npm run build` (`tsc -p tsconfig.build.json`), strict mode per `tsconfig.json`.                                                                       |
-| `tsx`                                                     | dev dep     | `npm run dev` — runs `src/index.ts` directly without a build step.                                                                                     |
-| `@changesets/cli`                                         | dev dep     | Version/changelog discipline behind `CHANGELOG.md`'s structured "Minor Changes" entries.                                                               |
+| Dependency                                                                        | Why                                                                                     |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `commander`                                                                       | The entire CLI command tree (`src/cli.ts`).                                             |
+| `picocolors`                                                                      | Terminal color/formatting used throughout commands and the launcher.                    |
+| `typescript`, `typescript-eslint`, `eslint`, `eslint-config-prettier`, `prettier` | Strict type-checking and lint/format enforcement (`tsconfig.json`, `eslint.config.js`). |
+| `vitest`, `@vitest/coverage-v8`                                                   | Unit/e2e test runner and coverage gate (`vitest.config.ts`, `vitest.e2e.config.ts`).    |
+| `tsx`                                                                             | Runs `src/index.ts` directly for `npm run dev` without a build step.                    |
+| `@changesets/cli`                                                                 | Changelog/version discipline feeding `CHANGELOG.md` and releases.                       |
 
 ## Invariants a change must not break
 
-- **Fail-closed AI generation** — `generateKind` in `src/generate/pipeline.ts` writes nothing for a kind whose AI response is incomplete after one retry; it must never silently fall back to the static template mid-run.
-- **`isAllowedPath` is the only path gate** — any AI-suggested or dynamically constructed file path must pass through it before a write; it blocks absolute paths, Windows drive letters and `..` traversal.
-- **No `process.exit()` in `src/commands/*` or anything reachable from `src/launcher.ts`** — actions return an exit code via the `done()` closure in `src/cli.ts`; a raw exit would kill the whole in-process TUI session.
-- **`src/index.ts`'s `colorflag.js` import stays first** — reordering silently breaks `--no-color`/`NO_COLOR`.
-- **`src/scan/analyzer.ts` never writes** — only `src/generate/` and `src/rules/generators.ts` write generated output to the target project.
-- **Windows DPAPI (`DpapiProtector` in `src/core/vault.ts`) never receives secrets via argv** — base64 travels over PowerShell stdin.
+- `isAllowedPath` (`src/generate/artifacts.ts`) is the only gate stopping AI-suggested content from writing outside the target project — any new write path must go through it.
+- `src/generate/artifacts.ts` (the `ArtifactKind` contract) and `src/generate/pipeline.ts` (`dependencyWaves`) change together — one defines the shape, the other schedules it.
+- Every provider in `src/providers/router.ts` must work behind a plain `ask(prompt: string)` string interface — the keyless CLI providers (`claude-code`, `codex-cli`, `gemini-cli`) cannot speak a structured protocol.
+- `src/rules/generators.ts` is the sole writer of `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc`, `.github/copilot-instructions.md`; nothing else may write those files.
+- `src/scan/*` is read-only against the target project — nothing under it writes back.
+- `.meridian/manifest.json` is written only by `src/generate/manifest.ts`; sync decisions must go through `signatureOf`/`fileStates`, not ad hoc hashing.
+
+What this doc does _not_ cover: per-file naming/style rules (see [conventions.md](conventions.md)) and the operational read-before-write/report-a-bug obligations (see `.meridian/rules.md`).
 
 ## Related
 
-[conventions.md](conventions.md) for how code in these modules should look, [security.md](security.md) for the vault/`isAllowedPath` detail behind the invariants above, [engineer-workflow.md](engineer-workflow.md) for the commands that verify a change respects them.
+- [conventions.md](conventions.md) — naming, imports, typing and error-handling rules once you're inside a file.
+- [engineer-workflow.md](engineer-workflow.md) — the commands that exercise this architecture.
+- [security.md](security.md) — the security-critical subset of this map (vault, artifact allowlist, MCP writes).
+- `.meridian/rules.md` — the operational read-before-write and reporting obligations layered on top of this map.

@@ -1,33 +1,29 @@
-# Write Tests for Meridian in This Project's Vitest Style
+# Writing Vitest tests in Meridian's style
 
-Write tests for `<module/function under test>` in `@knowalabs/meridian`, following the exact conventions already established in `tests/*.test.ts` — do not introduce a different testing pattern or library.
+## When to use
+Adding or updating a test for a `src/**/*.ts` change — deciding whether it belongs in the unit suite or the e2e suite, and matching the project's existing fixture and mocking conventions.
 
-**Placement and structure**
+## Context
+- Unit tests live in `tests/*.test.ts` and run via `vitest.config.ts`, which includes `tests/**/*.test.ts` and excludes `tests/e2e/**`. Run one file while iterating with `npx vitest run <path-to-test-file>`, the whole suite with `npm run test:watch` or `npm test`.
+- `npm run test:coverage` (v8 provider) enforces 70% lines / 60% branches on `src/**/*.ts`, excluding `src/launcher.ts` and `src/index.ts` — the interactive TUI and process entrypoint, which are exercised by e2e tests and humans instead.
+- e2e tests live in `tests/e2e/*.test.ts`, run via `npm run test:e2e` against `vitest.e2e.config.ts` (30s `testTimeout` per test — each one spawns the *built* CLI as a subprocess through `tests/e2e/helpers.ts`'s `runCli`/`makeSandbox`/`CLI_PATH`). Its `pretest:e2e` hook runs `npm run build` first — never assume `dist/` is current for any other command.
+- Any change to `src/generate/*` or `src/providers/router.ts` needs a unit test using the matching test seam, never a real network call or a real CLI binary: `setFetchForTests` for HTTP providers (see `tests/router-network.test.ts`), `setRunForTests` for CLI-backed providers like `claude-code`/`codex-cli`/`gemini-cli` (see the "claude-code CLI provider" suite in the same file), `setGitForTests` (`tests/git.test.ts`), `setToolDetectionForTests` (`tests/sync.test.ts`), `setRetryDelayForTests` to shrink backoff instead of sitting through real seconds of sleep (`tests/sync.test.ts`, `tests/router-network.test.ts`).
+- Any change to CLI wiring (`src/cli.ts`, `src/launcher.ts`) or end-to-end file-writing behavior needs a `tests/e2e` addition, since coverage does not measure those two files.
+- Fixture style: build throwaway projects with `fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-<x>-'))` and clean up with `fs.rmSync(root, { recursive: true, force: true })` in `afterEach` — see `makeProject()` in `tests/generate.test.ts` and `tests/sync.test.ts`.
+- ESLint relaxes the `unsafe-*` family (`no-unsafe-assignment`/`-member-access`/`-argument`/`-return`) and `require-await` in `tests/**/*.ts` only, because tests assert on parsed JSON output constantly — source stays fully strict.
 
-- One file per module area, matching the existing set (`tests/analyzer.test.ts`, `tests/commands.test.ts`, `tests/generate.test.ts`, `tests/router.test.ts`, `tests/router-network.test.ts`, `tests/vault.test.ts`, etc.) — put new tests in the matching file, or create a new `tests/<area>.test.ts` if none fits.
-- Use `describe`/`it` from `vitest`, matching the phrasing style already in the target file (e.g. `describe('isAllowedPath')`, `it('rejects escapes, absolute paths and unrelated locations')`).
-- E2E tests belong in `tests/e2e/` under `vitest.e2e.config.ts`, not the unit config — only use this if the behavior genuinely requires the built CLI (`pretest:e2e` runs `npm run build` first).
+## Task
+1. Decide unit vs. e2e first: does the behavior depend on the CLI actually being spawned as a subprocess, or on real end-to-end file writes with no mocking possible? If not, it's a unit test.
+2. For a unit test touching a provider or generation path, wire the matching `setXForTests` seam and restore it with `null` in `afterEach` — never leave a seam engaged across tests.
+3. Follow the sandbox fixture pattern exactly: `mkdtempSync` in `beforeEach`, cleanup in `afterEach`, real files written with `fs.writeFileSync`/`fs.mkdirSync` against that sandbox root — never against the real repo.
+4. For an e2e addition, extend an existing `describe` block in `tests/e2e/workflows.test.ts` or `tests/e2e/smoke.test.ts` if the command area already has one, using `makeSandbox()`/`runCli()` from `tests/e2e/helpers.ts`.
+5. Assert on the actual contract: exit code, `--json` output shape, and files written/preserved on disk — not on implementation details of how the code got there.
+6. Run `npx vitest run <path-to-test-file>` while iterating; run `npm run test:coverage` and (if e2e was touched) `npm run test:e2e` before calling it done.
+7. If the change pushes `src/**/*.ts` coverage below 70% lines / 60% branches outside `src/launcher.ts`/`src/index.ts`, add coverage rather than lowering the threshold.
 
-**Test seams, not mocking libraries**
+## Output
+The new/updated test file content, which suite it belongs to and why, and the exact command used to verify it (plus its result).
 
-- For network calls in `src/providers/router.ts`, use `setFetchForTests(impl | null)` — return a `new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })`, and restore with `setFetchForTests(null)` in `afterEach`.
-- For subprocess calls (CLI-backed providers, `src/core/exec.ts` consumers), use `setRunForTests(impl | null)` the same way.
-- For retry/timeout logic, use `vi.useFakeTimers()` and `await vi.advanceTimersByTimeAsync(ms)` to drive it deterministically — never a real `setTimeout` delay or real network call. Call `vi.useRealTimers()` in `afterEach`.
-
-**Isolation**
-
-- Set `process.env.MERIDIAN_HOME` to a `fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-<area>-'))` temp dir in `beforeEach`, and `process.env.MERIDIAN_VAULT = 'file'` when vault/config state is involved — never touch the real OS keychain or a developer's real `~/.meridian`.
-- Clean up in `afterEach` with `fs.rmSync(dir, { recursive: true, force: true })` and `delete process.env.MERIDIAN_HOME` (and any other env vars you set).
-- For `meridian generate` pipeline tests, build a throwaway target project directory (see `makeProject()` in `tests/generate.test.ts`: writes a minimal `package.json`, `src/index.ts`, `README.md`) rather than pointing tests at this repo itself.
-
-**Assertions**
-
-- Prefer asserting on the real shape of results — e.g. `result.files.filter(f => f.action === 'written').map(f => f.file)` for generate pipeline results, `isAllowedPath(f.file, kind.allowedPaths)` for path safety, `(err as CliError).hint` for error messaging — over loose snapshot-style checks.
-- For `CliError` cases, assert both `.message` (what happened) and `.hint` (the actionable next step), matching the pattern in `tests/router-network.test.ts` (e.g. `expect((err as CliError).hint).toContain('meridian auth anthropic')`).
-- `tests/**/*.ts` has relaxed unsafe-* ESLint rules (`no-unsafe-assignment`/`no-unsafe-member-access`/`no-unsafe-argument`/`no-unsafe-return`/`require-await` are off) since tests assert on parsed JSON constantly — you don't need defensive casts there, but `src/**` stays fully strict.
-
-**Coverage**
-
-- Check `npm run test:coverage` afterward — thresholds are 70% lines / 60% branches over `src/**/*.ts`, excluding `src/launcher.ts` and `src/index.ts` (those are exercised by humans/e2e, not unit tests; don't try to cover them here).
-
-Here's the code to test: <paste the function/module>.
+```
+NAME THE SOURCE FILE/FUNCTION UNDER TEST AND THE BEHAVIOR TO COVER
+```

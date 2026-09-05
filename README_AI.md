@@ -11,8 +11,8 @@ changes to refresh what is stale (hand-edited files are preserved).
 | `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` | Tool-specific instructions                                       |
 | `docs/`                                 | Professional docs suite (architecture, conventions, workflow, …) |
 | `.claude/agents/`                       | Project-tailored subagents                                       |
-| `.claude/skills/`                       | Project workflows as skills                                      |
-| `.claude/commands/`                     | Slash commands for everyday tasks                                |
+| `.claude/skills/`                       | Project workflows — the one home for multi-step procedures       |
+| `.claude/commands/`                     | Slash commands: one per skill, plus one-shot session actions     |
 | `.claude/settings.json`                 | Claude Code harness config (permissions, hooks)                  |
 | `.meridian/prompts/`                    | Reusable prompts                                                 |
 | `.meridian/docs/`                       | AI working notes (codebase review)                               |

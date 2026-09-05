@@ -1,40 +1,42 @@
-# Provider matrix
+The twelve AI providers behind `src/providers/router.ts`'s router, in one place — for adding a new provider, comparing routing behavior, or debugging why `generate`/`ask` picked the one it did. Read this before changing anything in `PROVIDERS`. For the retry/timeout mechanics all of them share, see [architecture.md](architecture.md)'s invariants.
 
-The AI providers `src/providers/router.ts` can route `meridian generate`, `meridian sync` and `meridian ask` to, how each is authenticated, and provider-specific behavior worth knowing before adding or debugging one. Read this before touching `PROVIDERS` in `src/providers/router.ts` or `src/providers/router.test.ts`/`tests/router-network.test.ts`/`tests/ask-stream.test.ts`. Not covered: which provider a given run actually picks — that's `route()`'s cost/speed/quality/context-size logic, described structurally below, not as fixed numbers this doc would go stale against.
+## Registry
 
-## Providers
+| Provider id   | Needs key | Notes                                                                                                                                                           |
+| ------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `anthropic`   | Yes       | Default model `claude-sonnet-5`; has a `MODEL_PRICING` entry.                                                                                                   |
+| `openai`      | Yes       | Hosted API.                                                                                                                                                     |
+| `google`      | Yes       | Default model `gemini-2.5-flash`; has a `MODEL_PRICING` entry.                                                                                                  |
+| `groq`        | Yes       | Hosted API.                                                                                                                                                     |
+| `deepseek`    | Yes       | Hosted API.                                                                                                                                                     |
+| `mistral`     | Yes       | Hosted API.                                                                                                                                                     |
+| `xai`         | Yes       | Hosted API.                                                                                                                                                     |
+| `openrouter`  | Yes       | Catalogue too large to enumerate — no shipped `models` list (`ProviderSpec.models` omitted deliberately).                                                       |
+| `ollama`      | No        | Local daemon; binary `ollama`. Its model catalogue is discovered live from `ollama list` (`installedOllamaModels`) rather than shipped, since it's per-machine. |
+| `claude-code` | No        | Keyless CLI; binary `claude`, runs `claude -p` with the prompt piped over stdin (never argv).                                                                   |
+| `codex-cli`   | No        | Keyless CLI; binary `codex`, runs `codex exec -` in a read-only sandbox; prefers a `-o` last-message file over noisy stdout.                                    |
+| `gemini-cli`  | No        | Keyless CLI; binary `gemini`.                                                                                                                                   |
 
-| ID            | Kind                          | Auth                           | Host / binary                       | Notes                                                                                                                                   |
-| ------------- | ----------------------------- | ------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `anthropic`   | Hosted API                    | API key (vault)                | Anthropic API                       | Default model `claude-sonnet-5` (`MODEL_PRICING` and `modelFor` tests in `tests/router-network.test.ts`).                               |
-| `openai`      | Hosted API                    | API key (vault)                | OpenAI API                          | —                                                                                                                                       |
-| `google`      | Hosted API                    | API key (vault)                | Google API                          | Default model `gemini-2.5-flash` per `MODEL_PRICING` in `src/providers/router.ts`.                                                      |
-| `groq`        | Hosted API, OpenAI-compatible | API key (vault)                | `api.groq.com`, `/chat/completions` | Shares the OpenAI-compatible client (`openAiCompatible`), `Bearer` auth header.                                                         |
-| `deepseek`    | Hosted API, OpenAI-compatible | API key (vault)                | `api.deepseek.com`                  | Same shared client.                                                                                                                     |
-| `mistral`     | Hosted API, OpenAI-compatible | API key (vault)                | `api.mistral.ai`                    | Same shared client.                                                                                                                     |
-| `xai`         | Hosted API, OpenAI-compatible | API key (vault)                | `api.x.ai`                          | Grok, same shared client.                                                                                                               |
-| `openrouter`  | Hosted API, OpenAI-compatible | API key (vault)                | `openrouter.ai`                     | Same shared client.                                                                                                                     |
-| `ollama`      | Local                         | none                           | local daemon                        | Free, local; network errors map to a "start Ollama with `ollama serve`" hint (`post()`'s error mapping in `src/providers/router.ts`).   |
-| `claude-code` | Keyless CLI                   | signed-in CLI                  | `claude` binary                     | Spawned via `runAsync`, prompt piped over **stdin**, args include `-p`; model override via `router.models['claude-code']`.              |
-| `codex-cli`   | Keyless CLI                   | signed-in CLI                  | `codex` binary                      | `codex exec -` + `--skip-git-repo-check`, stdin prompt; prefers the `-o` last-message file over stdout, falls back to stdout if absent. |
-| `gemini-cli`  | Keyless CLI                   | signed-in CLI (Google account) | `gemini` binary                     | Stdin prompt, stdout answer.                                                                                                            |
+Every `ProviderSpec` (`src/providers/router.ts`) declares `cost`/`speed`/`quality`/`contextTokens` rankings the router (`route()`) uses to pick a default when no `--provider` or saved preference is set — quality wins ties, cost wins when `router.optimize` is `"cost"`, and a provider whose `contextTokens` can't fit the prompt is excluded outright.
 
-## Selection order (no key required)
+## Model selection
 
-Per the README, when no API key is configured Meridian tries, in order of quality: `claude-code` (Claude Pro/Max via `claude -p`), `codex-cli` (ChatGPT plan via `codex exec`, read-only sandbox), `gemini-cli` (Google account). `route()` (`src/providers/router.ts`) otherwise picks among `availableProviders()` by each `ProviderSpec`'s relative `cost`/`speed`/`quality`/`contextTokens` rankings (lower = better/cheaper/faster per the field comments in the `ProviderSpec` interface) and the user's `router.prefer`/`router.optimize` config.
+- `modelFor(spec)` resolves in order: a per-process `--model` override (`setRuntimeModel`), then `router.models.<id>` in `~/.meridian/config.json`, then the provider's shipped default.
+- `modelsFor(spec)` (used by the interactive picker) always puts the model currently in play first so pressing Enter keeps it, and always accepts free-text entry — the shipped `models` catalogue is a starting point, never a whitelist, since providers ship models faster than Meridian releases.
+- `CLI_DEFAULT_MODEL` is the sentinel for CLI-backed providers whose model naming churns with the underlying tool's own configuration.
 
-## Model resolution
+## Retry and failure classification
 
-`modelFor(spec)` resolves in this order: a per-run `--model` override (`setRuntimeModel`), then `router.models.<id>` in `~/.meridian/config.json`, then the provider's own default `model`. CLI-backed providers use the sentinel `CLI_DEFAULT_MODEL = 'cli-default'` — "use whatever the signed-in CLI is configured with" — unless explicitly overridden.
+All HTTP-backed providers share `post`/`rawPost`/`classifyStatus`:
 
-## Network resilience
+- Retried (up to `MAX_ATTEMPTS = 3`, exponential backoff, honoring `Retry-After`): HTTP 408/425/429/500/502/503/504, and a dropped connection (`TransientNetworkError`).
+- Never retried: a timeout (`AbortController`-driven — retrying a hung provider only multiplies the wait, so it maps straight to a `CliError`), and any 4xx that means "the request itself is wrong" (400, 401/403 → auth hint, 404 → model-not-found hint).
 
-All hosted-API calls go through `post()`/`postStream()` in `src/providers/router.ts`: `DEFAULT_TIMEOUT_MS = 60_000`, up to `MAX_ATTEMPTS = 3` for `RETRYABLE_STATUS` (`408, 425, 429, 500, 502, 503, 504`) with exponential backoff (`backoffFor`) honoring a `Retry-After` header (`retryAfterMs`, capped at 30s); 4xx errors outside that set are never retried. `401`/`403` map to an auth-failure `CliError` hinting `meridian auth <provider>`; `404` hints at a retired model, pointing at `router.models.<id>`. Streaming (`postStream`) never retries — once the first byte reaches the terminal, replaying would print the answer twice.
+## Cost estimation gap
 
-## Adding a provider
-
-Add an entry to `PROVIDERS` in `src/providers/router.ts` with `cost`/`speed`/`quality`/`contextTokens` set relative to the existing entries, and cover it in `tests/router-network.test.ts` or `tests/ask-stream.test.ts` alongside the others.
+`MODEL_PRICING` (`src/providers/router.ts`) has exactly two entries: `claude-sonnet-5` and `gemini-2.5-flash`. `meridian generate --estimate` reports "unknown cost" for every other model rather than guessing — correct behavior, but a real coverage gap tracked in [tech-debt.md](tech-debt.md). Users can add their own entries under `router.pricing.<model>` in `~/.meridian/config.json`, which always wins over the built-in table (`pricingFor`).
 
 ## Related
 
-[cli-reference.md](cli-reference.md) for the `-p/--provider`/`-m/--model` flags that select among these, [architecture.md](architecture.md) for where `route()`'s output feeds into `meridian generate`'s pipeline.
+- [architecture.md](architecture.md) — where the router sits relative to `commands/ask.ts` and `generate/pipeline.ts`.
+- [tech-debt.md](tech-debt.md) — the `MODEL_PRICING` coverage gap as a tracked debt item.
