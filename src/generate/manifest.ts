@@ -42,14 +42,17 @@ export interface KitManifest {
   fingerprint: KitFingerprint;
   /**
    * Per generated file, the content signature recorded when it was written
-   * (`sig1:<sha256>`). Manifests written before signatures existed hold a
-   * bare sha256 of the raw content instead — `fileStates` reads both.
+   * (`sig2:<sha256>`). Older manifests hold `sig1:` signatures or, before
+   * signatures existed, a bare sha256 of the raw content — `fileStates`
+   * reads all three.
    */
   files: Record<string, string>;
 }
 
 /** Marks a value as a signature hash rather than a legacy raw-content hash. */
-const SIG_PREFIX = 'sig1:';
+const SIG_PREFIX = 'sig2:';
+/** The first signature format, read but no longer written. */
+const SIG1_PREFIX = 'sig1:';
 
 export function hashContent(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
@@ -58,12 +61,31 @@ export function hashContent(content: string): string {
 /**
  * Strip the cosmetic degrees of freedom a formatter owns: line endings,
  * indentation and blank lines, list bullets (`*` vs `-` vs `+`), emphasis
- * markers (`*text*` vs `_text_`), table pipes and cell padding, and escape
- * backslashes. What survives is the words the file actually says.
+ * markers (`*text*` vs `_text_`), table pipes, cell padding and separator
+ * width, escape backslashes, and the spacing inside JSON. What survives is
+ * the words the file actually says.
  */
 const cosmetic = (content: string): string =>
   content
     // Leading bullets only — a hyphen inside a sentence is content.
+    .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+    .replace(/[*_\\|]/g, '')
+    // A table separator is the same separator at any width: Prettier pads
+    // `---` out to the column, and every generated doc with a table read as
+    // hand-edited the first time it did.
+    .replace(/-{2,}/g, '-')
+    // Removed, not collapsed: Prettier puts a space after a JSON colon the
+    // provider left out, and rewraps prose — collapsing to one space still
+    // told those apart from the original.
+    .replace(/\s/g, '');
+
+/**
+ * The `sig1:` stripping, kept verbatim so a kit generated before `sig2`
+ * keeps telling its clean files from its edited ones until the next run
+ * re-records them. Never used for a new signature.
+ */
+const cosmeticV1 = (content: string): string =>
+  content
     .replace(/^[ \t]*[-*+][ \t]+/gm, '')
     .replace(/[*_\\|]/g, '')
     .replace(/\s+/g, ' ')
@@ -86,11 +108,13 @@ export function signatureOf(content: string): string {
 
 /** True when `content` still matches what the manifest recorded for it. */
 function matchesRecorded(recorded: string, content: string): boolean {
-  // Legacy manifests recorded a bare hash of the raw content; compare in kind
-  // so an older kit keeps working until its next generate re-records it.
-  return recorded.startsWith(SIG_PREFIX)
-    ? recorded === signatureOf(content)
-    : recorded === hashContent(content);
+  // Older manifests recorded a `sig1:` signature or a bare hash of the raw
+  // content; compare in kind so an older kit keeps working until its next
+  // generate re-records it.
+  if (recorded.startsWith(SIG_PREFIX)) return recorded === signatureOf(content);
+  if (recorded.startsWith(SIG1_PREFIX))
+    return recorded === SIG1_PREFIX + hashContent(cosmeticV1(content));
+  return recorded === hashContent(content);
 }
 
 export function fingerprintOf(a: ProjectAnalysis): KitFingerprint {

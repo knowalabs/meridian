@@ -92,6 +92,48 @@ describe('kit manifest', () => {
     expect(states.edited).not.toContain('.meridian/rules.md');
   });
 
+  it('survives Prettier padding a table and respacing JSON', async () => {
+    await generateKit(root);
+    // Prettier pads every table separator to the column width and puts a
+    // space after each JSON colon — neither changes what the file says, and
+    // both froze every generated doc with a table out of sync.
+    const readme = path.join(root, 'README_AI.md');
+    const original = fs.readFileSync(readme, 'utf8');
+    expect(original).toMatch(/^\| --- \| --- \|$/m);
+    fs.writeFileSync(readme, original.replace(/^\| --- \| --- \|$/m, '| ---------- | -------- |'));
+    const settings = path.join(root, '.claude/settings.json');
+    fs.writeFileSync(settings, JSON.stringify(JSON.parse(fs.readFileSync(settings, 'utf8'))));
+    const states = fileStates(root, readManifest(root)!);
+    expect(states.clean).toContain('README_AI.md');
+    expect(states.clean).toContain('.claude/settings.json');
+    expect(states.edited).toEqual([]);
+  });
+
+  it('reads a manifest that recorded first-generation signatures', async () => {
+    await generateKit(root);
+    const manifest = readManifest(root)!;
+    const rules = fs.readFileSync(path.join(root, '.meridian/rules.md'), 'utf8');
+    // Kits generated before table padding was tolerated stored `sig1:` —
+    // the hash of the content with bullets, emphasis, pipes and whitespace
+    // runs stripped. Pinned here independently of the implementation.
+    const sig1 =
+      'sig1:' +
+      hashContent(
+        rules
+          .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+          .replace(/[*_\\|]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
+    fs.writeFileSync(
+      path.join(root, '.meridian/manifest.json'),
+      JSON.stringify({ ...manifest, files: { '.meridian/rules.md': sig1 } }),
+    );
+    expect(fileStates(root, readManifest(root)!).clean).toContain('.meridian/rules.md');
+    fs.appendFileSync(path.join(root, '.meridian/rules.md'), '\nedited\n');
+    expect(fileStates(root, readManifest(root)!).edited).toContain('.meridian/rules.md');
+  });
+
   it('still sees a real edit through the formatter tolerance', async () => {
     await generateKit(root);
     const file = path.join(root, '.meridian/rules.md');
