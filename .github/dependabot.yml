@@ -1,0 +1,31 @@
+version: 2
+updates:
+  # Runtime deps are two small packages; dev deps are where the churn is.
+  # Weekly, grouped, so a quiet week costs one PR rather than eight.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: ['minor', 'patch']
+      production-dependencies:
+        dependency-type: production
+        update-types: ['minor', 'patch']
+    commit-message:
+      prefix: chore(deps)
+      prefix-development: chore(deps-dev)
+
+  # The publish job's provenance depends on these actions; a stale pinned
+  # major is how that silently stops working.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(ci)

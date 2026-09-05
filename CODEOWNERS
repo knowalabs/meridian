@@ -1,0 +1,10 @@
+# Review routing. Everything falls to the maintainer unless listed below.
+*                       @sonal-sithara
+
+# The security-critical surface: the key vault, the guard that keeps
+# AI-suggested paths inside the project, and the publish gating that is the
+# only thing standing between a tag and an npm release.
+/src/core/vault.ts      @sonal-sithara
+/src/generate/artifacts.ts @sonal-sithara
+/.github/workflows/     @sonal-sithara
+/SECURITY.md            @sonal-sithara
