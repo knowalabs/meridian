@@ -16,6 +16,19 @@ export interface ArtifactFile {
   content: string;
 }
 
+/**
+ * What the kit already holds under a kind's own paths when the kind runs.
+ * Shown to the provider so it refreshes a file that covers a concern under
+ * that file's own path, instead of guessing a name and writing a rival
+ * beside it.
+ */
+export interface ExistingKit {
+  /** On disk and overwritable by this run: refreshed in place. */
+  refresh: ArtifactFile[];
+  /** On disk and not overwritable (hand-edited, or no --force): kept as is. */
+  keep: ArtifactFile[];
+}
+
 export interface ArtifactKind {
   id: string;
   name: string;
@@ -37,7 +50,7 @@ export interface ArtifactKind {
    * `commands` delegates to the skills `skills` just wrote.
    */
   dependsOn?: string[];
-  prompt(digest: string, upstream?: ArtifactFile[]): string;
+  prompt(digest: string, upstream?: ArtifactFile[], existing?: ExistingKit): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
   /**
    * Last pass over the files a run produced, AI or static alike, for the
@@ -539,7 +552,80 @@ ${parts.join('\n')}
 `;
 }
 
-function commonPrompt(kindInstructions: string, digest: string, upstream?: ArtifactFile[]): string {
+/** Chars of one existing kit file carried into the prompt that refreshes it. */
+const EXISTING_FILE_CAP = 12_000;
+/** Chars of existing kit content in total; the rest is named, not shown. */
+const EXISTING_TOTAL_CAP = 40_000;
+
+/** One line naming a kit file by what it is for, for the files not shown whole. */
+function describeKitFile(file: ArtifactFile): string {
+  const description =
+    frontmatter(file.content)?.['description'] ?? /^#\s+(.+)$/m.exec(file.content)?.[1] ?? '';
+  return `- ${file.file}${description ? ` — ${description}` : ''}`;
+}
+
+/**
+ * The kit files already under the paths a kind owns, rendered for its prompt.
+ *
+ * Without this, a second run has no idea what the first one wrote: the
+ * provider names its files afresh, the reviewer that exists as
+ * `meridian-code-reviewer.md` comes back as `code-reviewer.md`, and the kit
+ * ends up with two of everything. A file the run may overwrite is shown whole
+ * and refreshed under its own path; a file it may not is named, so the
+ * provider neither rewrites it nor duplicates the concern it covers.
+ */
+function existingSection(existing: ExistingKit | undefined): string {
+  if (!existing || (existing.refresh.length === 0 && existing.keep.length === 0)) return '';
+  const parts: string[] = [];
+  let budget = EXISTING_TOTAL_CAP;
+  const shown: string[] = [];
+  const named: ArtifactFile[] = [];
+  for (const file of existing.refresh) {
+    if (budget <= 0) {
+      named.push(file);
+      continue;
+    }
+    const cap = Math.min(EXISTING_FILE_CAP, budget);
+    const content =
+      file.content.length > cap ? file.content.slice(0, cap) + '\n… (truncated)' : file.content;
+    shown.push(`\n### ${file.file}\n\n${content}`);
+    budget -= content.length;
+  }
+  parts.push(`
+--- ALREADY IN THIS KIT UNDER THE PATHS YOU OWN ---
+This kit has been generated before, and the files below already exist under
+the paths this request writes to. A file that covers a concern is refreshed
+under ITS OWN PATH — never written a second time under a new name beside it.
+A kit with two reviewers, two commit workflows or two release prompts is a
+defect, not thoroughness. Count these files toward the numbers this request
+asks for: with them in place, produce only what is still missing.`);
+  if (shown.length || named.length) {
+    parts.push(`
+Refresh these in place: return each under exactly the path it has now,
+updated for the codebase as it is today. Keep what is still right, fix what
+is stale, and improve what falls short of the quality bar above.${shown.join('\n')}`);
+    if (named.length)
+      parts.push(
+        `\nAlso refresh these, under their own paths (too large to show here):\n${named.map(describeKitFile).join('\n')}`,
+      );
+  }
+  if (existing.keep.length) {
+    parts.push(`
+These are kept exactly as they are — the developer has edited them, or this
+run may not overwrite them. Do NOT return them, and do not write another file
+for a concern one of them already covers. They count toward what this request
+requires, so if nothing is missing, respond with no file blocks at all:
+${existing.keep.map(describeKitFile).join('\n')}`);
+  }
+  return parts.join('\n') + '\n';
+}
+
+function commonPrompt(
+  kindInstructions: string,
+  digest: string,
+  upstream?: ArtifactFile[],
+  existing?: ExistingKit,
+): string {
   return `You are Meridian, a tool that makes codebases AI-assistant-ready.
 First review the project digest below carefully — the layout, the real
 frameworks, scripts, dependencies, conventions and the actual source code
@@ -614,7 +700,7 @@ dependency you mention must appear in the digest — remove any that do not,
 and confirm you produced every file the instructions require.
 
 ${FORMAT_SPEC}
-${upstreamSection(upstream)}
+${upstreamSection(upstream)}${existingSection(existing)}
 --- PROJECT DIGEST ---
 ${digest}`;
 }
@@ -628,7 +714,7 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
     description: 'canonical project rules (.meridian/rules.md → all tools)',
     allowedPaths: ['.meridian/rules.md'],
     requiredFiles: ['.meridian/rules.md'],
-    prompt: (digest) =>
+    prompt: (digest, _upstream, existing) =>
       commonPrompt(
         `Generate exactly one file: ".meridian/rules.md" — the canonical coding
 rules for AI assistants working in this repository.
@@ -693,6 +779,8 @@ Every rule is an imperative one-liner an AI can follow. Aim for 50–90 lines of
 genuinely project-specific rules. If you run longer, you are describing rather
 than instructing — cut the description and keep the imperative.`,
         digest,
+        undefined,
+        existing,
       ),
     fallback: (a) => {
       const dirs = topLevelDirs(a);
@@ -781,7 +869,7 @@ ${checklist.length ? `Run, in order, before considering any work done:\n\n${chec
     minFiles: 3,
     requiredFiles: ['.claude/agents/code-modernizer.md'],
     dependsOn: ['rules'],
-    prompt: (digest, upstream) =>
+    prompt: (digest, upstream, existing) =>
       commonPrompt(
         `Generate 3–5 Claude Code subagent files under ".claude/agents/", each a
 specialist for THIS project — for example: a code reviewer whose checklist is
@@ -882,6 +970,7 @@ Rules that apply to every agent you generate:
 Make each agent 60–140 lines. A short, generic agent is a failure.`,
         digest,
         upstream,
+        existing,
       ),
     fallback: (a) => {
       const dirs = topLevelDirs(a);
@@ -1377,7 +1466,7 @@ What is still below standard here, and what to do about it next.
       '.claude/skills/refactor/SKILL.md',
     ],
     dependsOn: ['rules'],
-    prompt: (digest, upstream) =>
+    prompt: (digest, upstream, existing) =>
       commonPrompt(
         `Generate 4–7 Claude Code skills, each at
 ".claude/skills/<skill-name>/SKILL.md", capturing THIS project's actual
@@ -1492,6 +1581,7 @@ followed by a "# Title" line and these headings, in this order:
 25–70 lines each; every step actionable and grounded in the digest.`,
         digest,
         upstream,
+        existing,
       ),
     fallback: (a) => {
       const dirs = topLevelDirs(a);
@@ -2036,7 +2126,7 @@ naming, state handling and navigation registration all follow it.`,
     // Command descriptions are resident too — see the note on `agents`.
     minFiles: 3,
     dependsOn: ['rules', 'skills'],
-    prompt: (digest, upstream) => {
+    prompt: (digest, upstream, existing) => {
       const skills = skillIndex(upstream ?? []);
       // Only the rules go in whole. A command delegates to a skill rather than
       // restating it, so it needs the skills' names and descriptions — pasting
@@ -2112,6 +2202,7 @@ Each command-only body is 10–30 lines and executable without the developer
 explaining anything further.`,
         digest,
         rules,
+        existing,
       );
     },
     fallback: (a) => {
@@ -2297,7 +2388,7 @@ result of ${chain}, and anything left as a proposal.
     allowedPaths: ['.meridian/prompts/'],
     minFiles: 3,
     dependsOn: ['rules'],
-    prompt: (digest, upstream) =>
+    prompt: (digest, upstream, existing) =>
       commonPrompt(
         `Generate 3–5 reusable prompt files under ".meridian/prompts/" that a
 developer on this project will actually reach for — e.g. reviewing a PR in
@@ -2324,6 +2415,7 @@ as explicit instructions.
 40–90 lines each.`,
         digest,
         upstream,
+        existing,
       ),
     fallback: (a) => {
       const checklist = verificationChecklist(a);
@@ -2520,7 +2612,7 @@ not, and any behavior the tests exposed as already broken.
       'docs/engineer-workflow.md',
     ],
     dependsOn: ['rules'],
-    prompt: (digest, upstream) =>
+    prompt: (digest, upstream, existing) =>
       commonPrompt(
         `Generate a professional engineering documentation suite under "docs/" —
 the documents a staff engineer would hand a new teammate on THIS project.
@@ -2586,6 +2678,7 @@ Each doc you write should be 40–120 lines and dense with THIS project's
 real paths, names and commands.`,
         digest,
         upstream,
+        existing,
       ),
     fallback: (a) => {
       const scripts = workflowScripts(a);
@@ -2846,7 +2939,7 @@ agreed contract the change is verified against.
     description: 'Claude Code harness settings (.claude/settings.json)',
     allowedPaths: ['.claude/settings.json'],
     requiredFiles: ['.claude/settings.json'],
-    prompt: (digest) =>
+    prompt: (digest, _upstream, existing) =>
       commonPrompt(
         `Generate exactly one file: ".claude/settings.json" — the checked-in
 Claude Code harness configuration for this repository. It must be a single
@@ -2881,6 +2974,8 @@ The file is shared by the whole team via git, so keep it minimal and
 uncontroversial; personal preferences belong in settings.local.json, which
 you must not generate.`,
         digest,
+        undefined,
+        existing,
       ),
     fallback: (a) => {
       const allow = new Set<string>(['Bash(git status)', 'Bash(git diff:*)', 'Bash(git log:*)']);
@@ -2913,7 +3008,7 @@ you must not generate.`,
     allowedPaths: ['.github/workflows/meridian-sync.yml'],
     requiredFiles: ['.github/workflows/meridian-sync.yml'],
     optIn: true,
-    prompt: (digest) =>
+    prompt: (digest, _upstream, existing) =>
       commonPrompt(
         `Generate exactly one file: ".github/workflows/meridian-sync.yml" — a
 GitHub Actions workflow that keeps this repository's generated AI kit
@@ -2932,6 +3027,8 @@ Rules for the workflow:
 - The workflow is strictly read-only: it must never commit, push, publish,
   deploy or write to the repository.`,
         digest,
+        undefined,
+        existing,
       ),
     fallback: () => [
       {

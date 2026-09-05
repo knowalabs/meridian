@@ -2032,6 +2032,192 @@ describe('grounded retry, end to end', () => {
   });
 });
 
+describe('existing kit files', () => {
+  let root: string;
+  let home: string;
+
+  const agent = (name: string): string =>
+    `---\nname: ${name}\ndescription: Reviews ${name} concerns.\nmodel: sonnet\ntools:\n  - Read\n  - Grep\n---\n\n## Scope\n\n${name}.`;
+  const block = (file: string, body: string): string => `<<<FILE ${file}>>>\n${body}\n<<<END>>>`;
+  const put = (rel: string, content: string): void => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), content);
+  };
+
+  beforeEach(() => {
+    root = makeProject();
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-home-existing-'));
+    process.env.MERIDIAN_HOME = home;
+    process.env.MERIDIAN_VAULT = 'file';
+    setRetryDelayForTests(0);
+    openVault().set('anthropic', 'test-key');
+  });
+  afterEach(() => {
+    setFetchForTests(null);
+    setRetryDelayForTests(null);
+    delete process.env.MERIDIAN_HOME;
+    delete process.env.MERIDIAN_VAULT;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('shows the provider the files it may refresh, and refreshes them in place', async () => {
+    put('.claude/agents/demo-reviewer.md', agent('demo-reviewer'));
+    const kindPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      kindPrompts.push(text);
+      return aiResponse(
+        [
+          block('.claude/agents/demo-reviewer.md', agent('demo-reviewer') + '\n\nRefreshed.'),
+          block('.claude/agents/code-modernizer.md', agent('code-modernizer')),
+          block('.claude/agents/test-runner.md', agent('test-runner')),
+        ].join('\n'),
+      );
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['agents'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+      refresh: ['.claude/agents/demo-reviewer.md'],
+    });
+
+    expect(result.failed).toEqual([]);
+    // The prompt names the file, marks it as one to refresh under its own
+    // path, and carries its content so the refresh builds on it.
+    expect(kindPrompts).toHaveLength(1);
+    expect(kindPrompts[0]).toContain('--- ALREADY IN THIS KIT');
+    expect(kindPrompts[0]).toContain('### .claude/agents/demo-reviewer.md');
+    expect(kindPrompts[0]).toContain('Reviews demo-reviewer concerns.');
+    expect(result.files.find((f) => f.file === '.claude/agents/demo-reviewer.md')?.action).toBe(
+      'written',
+    );
+    expect(fs.readFileSync(path.join(root, '.claude/agents/demo-reviewer.md'), 'utf8')).toContain(
+      'Refreshed.',
+    );
+    expect(result.superseded).toEqual([]);
+  });
+
+  it('tells the provider which files are kept as they are, and accepts an answer that adds nothing', async () => {
+    put('.meridian/rules.md', '## General\n\n- MINE\n');
+    const kindPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      kindPrompts.push(text);
+      return aiResponse('Nothing to add.');
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+    });
+
+    // No retry: an empty answer is the right answer when the kit already
+    // holds everything this kind requires and none of it may be overwritten.
+    expect(kindPrompts).toHaveLength(1);
+    expect(kindPrompts[0]).toContain('kept exactly as they are');
+    expect(kindPrompts[0]).toContain('- .meridian/rules.md');
+    expect(result.failed).toEqual([]);
+    expect(result.files.find((f) => f.file === '.meridian/rules.md')?.action).toBe(
+      'skipped-exists',
+    );
+    expect(fs.readFileSync(path.join(root, '.meridian/rules.md'), 'utf8')).toContain('MINE');
+  });
+
+  it('counts kept files toward the kind’s required set', async () => {
+    // The required agent is already there and may not be overwritten: the
+    // provider must not be asked for it again, and its absence from the
+    // answer must not read as an incomplete response.
+    put('.claude/agents/code-modernizer.md', agent('code-modernizer'));
+    const kindPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      kindPrompts.push(text);
+      return aiResponse(
+        [
+          block('.claude/agents/api-reviewer.md', agent('api-reviewer')),
+          block('.claude/agents/test-runner.md', agent('test-runner')),
+        ].join('\n'),
+      );
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['agents'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+    });
+
+    expect(kindPrompts).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    const actions = Object.fromEntries(result.files.map((f) => [f.file, f.action]));
+    expect(actions['.claude/agents/code-modernizer.md']).toBe('skipped-exists');
+    expect(actions['.claude/agents/api-reviewer.md']).toBe('written');
+    expect(actions['.claude/agents/test-runner.md']).toBe('written');
+  });
+
+  it('hands a dependent kind the kept files as well as the new ones', async () => {
+    // A hand-edited skill is still part of the kit: the commands that
+    // delegate to skills must see it, or they silently drop its command.
+    put(
+      '.claude/skills/deploy/SKILL.md',
+      '---\nname: deploy\ndescription: Use when shipping a release.\n---\n\n# Deploy\n',
+    );
+    const kindPrompts = new Map<string, string>();
+    const skill = (name: string): string =>
+      block(
+        `.claude/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\ndescription: Use for ${name}.\n---\n\n# ${name}`,
+      );
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      if (text.includes('slash-command layer')) {
+        kindPrompts.set('commands', text);
+        return aiResponse(
+          ['deploy', 'commit', 'lint']
+            .map((n) =>
+              block(`.claude/commands/${n}.md`, `---\ndescription: Run ${n}.\n---\n\n${n}`),
+            )
+            .join('\n'),
+        );
+      }
+      kindPrompts.set('skills', text);
+      return aiResponse(['commit', 'handle-errors', 'document', 'refactor'].map(skill).join('\n'));
+    });
+
+    const result = await runGenerate({
+      root,
+      kinds: ['skills', 'commands'],
+      provider: 'anthropic',
+      force: false,
+      dryRun: false,
+      noAi: false,
+      noCache: true,
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(kindPrompts.get('commands')).toContain('- deploy — Use when shipping a release.');
+    expect(kindPrompts.get('commands')).toContain('- commit — Use for commit.');
+  });
+});
+
 describe('parseFileRequests', () => {
   it('reads bare, bulleted and backticked paths alike', () => {
     expect(

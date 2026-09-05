@@ -406,17 +406,19 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
     expect(doc.result.files.length).toBeGreaterThan(0);
   });
 
-  describe('a refresh the provider could not finish', () => {
-    /** Make one keyed provider usable, then decide what its HTTP calls do. */
-    async function withProvider(respond: () => Promise<Response>): Promise<void> {
-      delete process.env.MERIDIAN_DISABLE_PROVIDERS;
-      process.env.MERIDIAN_DISABLE_PROVIDERS = PROVIDERS.filter((p) => p.id !== 'openai')
-        .map((p) => p.id)
-        .join(',');
-      await authCommand('openai', 'sk-unit-test', { verify: false });
-      setFetchForTests(respond);
-    }
+  /** Make one keyed provider usable, then decide what its HTTP calls do. */
+  async function withProvider(
+    respond: (url: string | URL | Request, init?: RequestInit) => Promise<Response>,
+  ): Promise<void> {
+    delete process.env.MERIDIAN_DISABLE_PROVIDERS;
+    process.env.MERIDIAN_DISABLE_PROVIDERS = PROVIDERS.filter((p) => p.id !== 'openai')
+      .map((p) => p.id)
+      .join(',');
+    await authCommand('openai', 'sk-unit-test', { verify: false });
+    setFetchForTests(respond);
+  }
 
+  describe('a refresh the provider could not finish', () => {
     it('reports which kinds are still missing and exits 1', async () => {
       await generateKit(root);
       addScript(root, 'format', 'prettier -w .');
@@ -443,6 +445,95 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
 
       expect(await syncCommand({}, root)).toBe(1);
       expect(output()).toContain('hit a limit');
+    });
+  });
+
+  describe('a refresh that reshapes the kit', () => {
+    const block = (file: string, body: string): string => `<<<FILE ${file}>>>\n${body}\n<<<END>>>`;
+    const agent = (name: string): string =>
+      block(
+        `.claude/agents/${name}.md`,
+        `---\nname: ${name}\ndescription: Handles ${name}.\nmodel: sonnet\ntools:\n  - Read\n---\n\n${name}`,
+      );
+    const skill = (name: string): string =>
+      block(
+        `.claude/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\ndescription: Use for ${name}.\n---\n\n# ${name}`,
+      );
+    const command = (name: string): string =>
+      block(`.claude/commands/${name}.md`, `---\ndescription: Run ${name}.\n---\n\n${name}`);
+    const prompt = (init: RequestInit | undefined): string =>
+      (JSON.parse(init?.body as string) as { messages: { content: string }[] }).messages.at(-1)!
+        .content;
+
+    /**
+     * A complete answer for every kind, under names that differ from the
+     * static kit's: the reviewer the static kit called `code-reviewer` comes
+     * back as `reviewer`, and the skills are only the four required ones.
+     */
+    const reshaped = (text: string): string => {
+      if (text.includes('deep codebase review')) return '# Review';
+      if (text.includes('subagent files under ".claude/agents/"'))
+        return ['reviewer', 'code-modernizer', 'test-runner'].map(agent).join('\n');
+      if (text.includes('Claude Code skills, each at'))
+        return ['commit', 'handle-errors', 'document', 'refactor'].map(skill).join('\n');
+      if (text.includes('slash-command layer'))
+        return ['commit', 'handle-errors', 'document', 'refactor', 'lint'].map(command).join('\n');
+      if (text.includes('reusable prompt files under ".meridian/prompts/"'))
+        return [1, 2, 3]
+          .map((n) => block(`.meridian/prompts/p${n}.md`, `# Prompt ${n}`))
+          .join('\n');
+      if (text.includes('documentation suite under "docs/"'))
+        return ['README', 'architecture', 'conventions', 'engineer-workflow']
+          .map((d) => block(`docs/${d}.md`, `# ${d}`))
+          .join('\n');
+      if (text.includes('".claude/settings.json"'))
+        return block('.claude/settings.json', '{ "permissions": { "allow": [] } }');
+      return block('.meridian/rules.md', '## General\n\n- Be good.');
+    };
+    const respond = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> =>
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: reshaped(prompt(init)) } }] }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+
+    it('reports the files the refreshed kit no longer produces and stops tracking them', async () => {
+      await generateKit(root);
+      const before = readManifest(root)!;
+      expect(before.files).toHaveProperty(['.claude/agents/code-reviewer.md']);
+      addScript(root, 'format', 'prettier -w .');
+      await withProvider(respond);
+
+      expect(await syncCommand({}, root)).toBe(0);
+
+      // The refreshed agent landed, the old one is still on disk — sync never
+      // deletes — but it is reported and no longer part of the kit.
+      expect(fs.existsSync(path.join(root, '.claude/agents/reviewer.md'))).toBe(true);
+      expect(fs.existsSync(path.join(root, '.claude/agents/code-reviewer.md'))).toBe(true);
+      expect(output()).toContain('no longer part of the kit: .claude/agents/code-reviewer.md');
+      const after = readManifest(root)!;
+      expect(after.files).toHaveProperty(['.claude/agents/reviewer.md']);
+      expect(after.files).not.toHaveProperty(['.claude/agents/code-reviewer.md']);
+      // Deleting a superseded file is not "a generated file went missing".
+      fs.rmSync(path.join(root, '.claude/agents/code-reviewer.md'));
+      expect(await syncCommand({ check: true }, root)).toBe(0);
+    });
+
+    it('keeps tracking a superseded file the user had edited', async () => {
+      await generateKit(root);
+      const edited = path.join(root, '.claude/agents/code-reviewer.md');
+      fs.appendFileSync(edited, '\n- my own check\n');
+      addScript(root, 'format', 'prettier -w .');
+      await withProvider(respond);
+
+      expect(await syncCommand({}, root)).toBe(0);
+
+      expect(fs.readFileSync(edited, 'utf8')).toContain('my own check');
+      expect(output()).not.toContain('no longer part of the kit: .claude/agents/code-reviewer.md');
+      expect(readManifest(root)!.files).toHaveProperty(['.claude/agents/code-reviewer.md']);
     });
   });
 });

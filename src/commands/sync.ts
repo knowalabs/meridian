@@ -158,6 +158,12 @@ export async function syncCommand(
   for (const f of written) log.ok(`refreshed ${f.file} ${pc.dim(`(${f.kind}, ${f.source})`)}`);
   for (const f of planned) log.info(`${pc.cyan('→')} would refresh ${f.file}`);
   for (const f of result.propagated) log.ok(`${f} ${pc.dim('(rules propagated)')}`);
+  // The refreshed kit moved on without these. They stay on disk — deleting a
+  // file is the developer's call — but they are no longer tracked as the kit.
+  for (const f of result.superseded)
+    log.warn(
+      `no longer part of the kit: ${f} ${pc.dim('(left on disk — delete it, or keep it as your own)')}`,
+    );
 
   if (result.failed.length) {
     if (result.aborted) {

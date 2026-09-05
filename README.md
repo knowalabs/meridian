@@ -155,7 +155,7 @@ meridian sync --check    # report only; exit 1 when stale — wire this into CI 
 meridian sync --dry-run  # preview the refresh
 ```
 
-Sync never clobbers your work: any generated file you've hand-edited (its hash no longer matches the manifest) is detected and preserved; only untouched files are refreshed, and deleted files are regenerated. `meridian generate ci` writes a ready-made GitHub Action that runs the check on every PR.
+Sync never clobbers your work: any generated file you've hand-edited (its hash no longer matches the manifest) is detected and preserved; only untouched files are refreshed, and deleted files are regenerated. A refresh sees the files already in the kit and updates each under its own path rather than writing a second file beside it; a file the refreshed kit no longer contains is reported and untracked, never deleted. `meridian generate ci` writes a ready-made GitHub Action that runs the check on every PR.
 
 **Runs are resumable.** If the provider fails mid-run — say your Claude subscription's 5-hour usage window runs out — Meridian keeps every AI-generated file, writes nothing for the failed kinds (no silent downgrade to generic templates), and exits with a note. Re-run `meridian generate` after the window resets and it continues where it left off, generating only what's missing; or finish immediately with another provider via `--provider`.
 

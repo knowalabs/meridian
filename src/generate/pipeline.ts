@@ -27,6 +27,7 @@ import {
   ARTIFACT_KINDS,
   ArtifactFile,
   ArtifactKind,
+  ExistingKit,
   isAllowedPath,
   kindsById,
   DEFAULT_RIGOR,
@@ -117,6 +118,13 @@ export interface GenerateResult {
    * retry in `generateKind`, so the run reports what it kept.
    */
   issues: ArtifactIssue[];
+  /**
+   * Files an earlier run wrote under a kind's paths that this run — shown
+   * them, and free to overwrite them — did not produce again. The refreshed
+   * kit has moved on without them: they are dropped from the manifest and
+   * reported, never deleted from disk.
+   */
+  superseded: string[];
 }
 
 /**
@@ -231,6 +239,24 @@ function upstreamFor(
     const dep = ARTIFACT_KINDS.find((k) => k.id === id);
     return dep ? readKitFiles(root, dep.allowedPaths) : [];
   });
+}
+
+/**
+ * What already exists under a kind's own paths, split by whether this run may
+ * overwrite it. Both halves reach the prompt: a file the run may rewrite is
+ * refreshed under its own path, a file it may not is kept and counted — so
+ * the provider is never left to guess names and write a rival beside a file
+ * that already covers the concern.
+ */
+function existingFor(
+  kind: ArtifactKind,
+  root: string,
+  mayOverwrite: (file: string) => boolean,
+): ExistingKit {
+  const existing: ExistingKit = { refresh: [], keep: [] };
+  for (const file of readKitFiles(root, kind.allowedPaths))
+    (mayOverwrite(file.file) ? existing.refresh : existing.keep).push(file);
+  return existing;
 }
 
 /** Errors that will keep failing for the rest of the run (limits, quota). */
@@ -409,6 +435,7 @@ export function correctionFor(
   kind: ArtifactKind,
   previous: ArtifactFile[],
   issues: ArtifactIssue[],
+  kept: string[] = [],
 ): string {
   const problems: string[] = [];
   if (previous.length === 0) {
@@ -417,12 +444,15 @@ export function correctionFor(
         '<<<FILE path>>> … <<<END>>> markers exactly as specified above.',
     );
   } else {
-    const names = new Set(previous.map((f) => f.file));
+    // Files kept from the existing kit count: the provider was told not to
+    // return them, so their absence is not a fault to correct.
+    const names = new Set([...kept, ...previous.map((f) => f.file)]);
     const missing = (kind.requiredFiles ?? []).filter((f) => !names.has(f));
     if (missing.length) problems.push(`These required files were missing: ${missing.join(', ')}.`);
-    if (previous.length < (kind.minFiles ?? 1))
+    if (names.size < (kind.minFiles ?? 1))
       problems.push(
-        `You returned ${previous.length} file${previous.length === 1 ? '' : 's'}; ` +
+        `You returned ${previous.length} file${previous.length === 1 ? '' : 's'}` +
+          `${kept.length ? ` on top of the ${kept.length} kept` : ''}; ` +
           `this kind needs at least ${kind.minFiles}.`,
       );
     for (const issue of issues.filter((i) => i.severity === 'error'))
@@ -476,9 +506,12 @@ async function generateKind(
   root: string,
   planned: string[],
   upstream: ArtifactFile[],
+  existing: ExistingKit,
   rigor: Rigor,
 ): Promise<{
   files: ArtifactFile[];
+  /** Existing files this run may not overwrite; part of the kit all the same. */
+  kept: ArtifactFile[];
   source: 'ai' | 'static';
   error?: string;
   issues?: ArtifactIssue[];
@@ -488,14 +521,23 @@ async function generateKind(
   const finalize = (files: ArtifactFile[]): ArtifactFile[] =>
     kind.finalize ? kind.finalize(files, analysis, rigor) : files;
 
-  if (!provider) return { files: finalize(kind.fallback(analysis)), source: 'static' };
+  if (!provider) return { files: finalize(kind.fallback(analysis)), kept: [], source: 'static' };
+
+  // The provider is told these stay as they are, so they are part of what it
+  // answers with even though it must not return them: a required file that
+  // is already here is not missing, and one it returns anyway is dropped.
+  const kept = existing.keep;
+  const keptPaths = new Set(kept.map((f) => f.file));
 
   // A well-formed response meets the kind's own bar, not just "some blocks".
   const isComplete = (files: ArtifactFile[]): boolean => {
-    if (files.length < (kind.minFiles ?? 1)) return false;
-    const names = new Set(files.map((f) => f.file));
+    const names = new Set([...keptPaths, ...files.map((f) => f.file)]);
+    if (names.size < (kind.minFiles ?? 1)) return false;
     return (kind.requiredFiles ?? []).every((f) => names.has(f));
   };
+  // Nothing to add is a valid answer when the kit already holds everything
+  // this kind requires and none of it may be overwritten.
+  const keptSuffices = isComplete([]);
 
   // AI mode never silently writes static templates: a failed kind writes
   // nothing, so a later re-run regenerates it with AI. One retry covers a
@@ -511,19 +553,24 @@ async function generateKind(
       // The second attempt is a repair, not a re-roll: it carries what the
       // first attempt got wrong, so the model fixes it instead of guessing
       // again from the same prompt.
-      const correction = attempt === 0 ? '' : correctionFor(kind, lastFiles, lastIssues);
-      const response = await provider.ask(kind.prompt(digest, upstream) + correction, apiKey);
-      const files = parseFileBlocks(response);
+      const correction =
+        attempt === 0 ? '' : correctionFor(kind, lastFiles, lastIssues, [...keptPaths]);
+      const response = await provider.ask(
+        kind.prompt(digest, upstream, existing) + correction,
+        apiKey,
+      );
+      const files = parseFileBlocks(response).filter((f) => !keptPaths.has(f.file));
       const issues = files.length
         ? validateArtifacts(kind, files, analysis, root, planned)
         : lastIssues;
       const blocking = issues.filter((i) => i.severity === 'error');
-      if (files.length > 0 && ((isComplete(files) && blocking.length === 0) || attempt > 0)) {
+      const answered = files.length > 0 || keptSuffices;
+      if (answered && ((isComplete(files) && blocking.length === 0) || attempt > 0)) {
         if (!isComplete(files))
           log.warn(`${kind.name}: response incomplete after a retry — keeping what was returned.`);
         for (const issue of blocking)
           log.warn(`${kind.name}: ${formatIssue(issue)} — kept after a retry.`);
-        return { files: finalize(files), source: 'ai', issues };
+        return { files: finalize(files), kept, source: 'ai', issues };
       }
       lastIssues = issues;
       lastFiles = files;
@@ -535,10 +582,15 @@ async function generateKind(
             : 'an incomplete set of files';
       log.warn(`${kind.name}: provider returned ${reason}${attempt ? '' : ' — retrying'}.`);
     } catch (err) {
-      return { files: [], source: 'ai', error: err instanceof Error ? err.message : String(err) };
+      return {
+        files: [],
+        kept,
+        source: 'ai',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
-  return { files: [], source: 'ai', error: 'provider returned no file blocks after a retry' };
+  return { files: [], kept, source: 'ai', error: 'provider returned no file blocks after a retry' };
 }
 
 /** Scaffold + context files produced by the codebase review itself. */
@@ -715,6 +767,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     propagated: [],
     failed: [],
     issues: [],
+    superseded: [],
   };
 
   // Content signature of everything this run writes, recorded in the kit
@@ -723,6 +776,14 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   // kit's markdown without changing what it says.
   const writtenSignatures = new Map<string, string>();
   const refreshable = new Set(opts.refresh ?? []);
+  // The one answer to "may this run overwrite that file": the write below,
+  // the existing-kit split each prompt sees, and the superseded check at the
+  // end all ask it, and they must agree.
+  const mayOverwrite = (file: string, derived: string[]): boolean =>
+    opts.force || derived.includes(file) || refreshable.has(file);
+  // What the last run recorded, read before this one writes: the superseded
+  // check compares the kit as it was against the kit as it is now.
+  const prior = readManifest(opts.root);
 
   // Writes happen as each kind finishes, but the returned records are
   // collected per kind so a parallel run still reports in kind order.
@@ -740,8 +801,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
         continue;
       }
       const target = path.join(opts.root, f.file);
-      const refresh = derived.includes(f.file) || refreshable.has(f.file);
-      if (fs.existsSync(target) && !opts.force && !refresh) {
+      if (fs.existsSync(target) && !mayOverwrite(f.file, derived)) {
         records.push({ kind: kindId, file: f.file, action: 'skipped-exists', source });
         continue;
       }
@@ -867,7 +927,8 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       provider && !progress
         ? startSpinner(`Generating ${kind.name.toLowerCase()} — ${kind.description}…`)
         : null;
-    const { files, source, error, issues } = await generateKind(
+    const derived = kind.alwaysOverwrite ?? [];
+    const { files, kept, source, error, issues } = await generateKind(
       kind,
       context,
       provider,
@@ -876,6 +937,7 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       opts.root,
       plannedPaths,
       upstreamFor(kind, opts.root, produced),
+      existingFor(kind, opts.root, (file) => mayOverwrite(file, derived)),
       rigor,
     );
     progress?.update(
@@ -886,13 +948,17 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
       if (isQuotaError(error)) result.aborted = error;
       return { kind, files: [], issues: [], error, generated: 0, names: '' };
     }
-    produced.set(kind.id, files);
+    // Kept files are the kit's files too: a dependent kind builds on them,
+    // and the report shows them as the existing files they are.
+    const all = [...files, ...kept];
+    produced.set(kind.id, all);
     single?.succeed(
-      `${kind.name}: ${files.length} file${files.length === 1 ? '' : 's'} ${pcDimFiles(files)}`,
+      `${kind.name}: ${files.length} file${files.length === 1 ? '' : 's'} ${pcDimFiles(files)}` +
+        (kept.length ? pc.dim(` + ${kept.length} kept`) : ''),
     );
     return {
       kind,
-      files: write(kind.id, files, source, kind.allowedPaths, kind.alwaysOverwrite ?? []),
+      files: write(kind.id, all, source, kind.allowedPaths, derived),
       issues: issues ?? [],
       generated: files.length,
       names: pcDimFiles(files),
@@ -927,6 +993,17 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
     }
     result.files.push(...outcome.files);
     result.issues.push(...outcome.issues);
+
+    // A tracked file under this kind's paths that the run could have rewritten
+    // and did not produce is superseded: the provider saw it, and answered
+    // with a kit that no longer has it. An edited file is never superseded —
+    // it was never the provider's to drop.
+    const producedNow = new Set(outcome.files.map((f) => f.file));
+    const derived = outcome.kind.alwaysOverwrite ?? [];
+    for (const file of Object.keys(prior?.files ?? {})) {
+      if (producedNow.has(file) || !isAllowedPath(file, outcome.kind.allowedPaths)) continue;
+      if (mayOverwrite(file, derived)) result.superseded.push(file);
+    }
   }
 
   // Fresh rules should reach every tool's instruction file.
@@ -951,14 +1028,15 @@ export async function runGenerate(opts: GenerateOptions): Promise<GenerateResult
   // kit read as already drifted. Prior entries survive for files this run
   // skipped; a run that wrote nothing leaves the manifest untouched.
   if (!opts.dryRun && writtenSignatures.size > 0) {
-    const prior = readManifest(opts.root);
+    const files = { ...(prior?.files ?? {}) };
+    for (const file of result.superseded) delete files[file];
     writeManifest(opts.root, {
       meridian: VERSION,
       generatedAt: new Date().toISOString(),
       provider: result.provider,
       rigor,
       fingerprint: fingerprintOf(analyzeProject(opts.root)),
-      files: { ...(prior?.files ?? {}), ...Object.fromEntries(writtenSignatures) },
+      files: { ...files, ...Object.fromEntries(writtenSignatures) },
     });
   }
   return result;
