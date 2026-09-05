@@ -1,5 +1,12 @@
 # @knowalabs/meridian
 
+## 0.1.2
+
+### Patch Changes
+
+- 3bbb891: `meridian generate` and `meridian sync` now refresh the kit in place instead of writing a second copy of it. A kind's prompt carries the files already under the paths it owns: a file the run may overwrite is refreshed under its own path, a file it may not (hand-edited, or no `--force`) is kept, counted toward the kind's required set, and never asked for again — so a re-run on a kit that already has a `meridian-code-reviewer.md` updates that file rather than adding a `code-reviewer.md` beside it, and an answer that adds nothing is accepted rather than retried. A tracked file the refreshed kit no longer produces is reported as superseded and dropped from the manifest; it is left on disk, and deleting it no longer fails `meridian sync --check`.
+- e0ef2ce: `meridian sync` no longer mistakes a formatter pass for a hand edit when a generated file holds a table or JSON. The manifest signature that lets sync tell edits from cosmetic rewrites now also ignores table-separator width and all whitespace, so Prettier padding `| --- |` out to the column or spacing a JSON colon no longer freezes the file out of every future refresh. Signatures are written as `sig2:`; a manifest holding `sig1:` signatures keeps working exactly as before until its next run re-records it.
+
 ## 0.1.1
 
 ### Patch Changes
