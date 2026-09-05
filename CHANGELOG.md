@@ -1,5 +1,19 @@
 # @knowalabs/meridian
 
+## 0.1.1
+
+### Patch Changes
+
+- The README now opens with a diagram of what `meridian generate` actually reads and writes: a codebase in, the five instruction files and the rest of the kit out, every path real. The inputs name one manifest per ecosystem — `Cargo.toml`, `go.mod`, `package.json`, `pyproject.toml` — because a Node-only input list misreports a tool whose analyzer reads sixteen manifests across eleven language ecosystems.
+
+  The same misreading was in the prose: "Works on … (Node.js ≥ 18)" reads as a constraint on your project rather than on the CLI that scans it. It now says so plainly, and names the stacks that are supported.
+
+  Everything the README documented it still documents — the commands table, `doctor`, `--estimate`, the kit, `sync`, model selection, security and releasing — reorganised behind a quickstart and collapsible sections rather than a single wall of prose. Two dead links to a long-deleted `Meridian_Docs/` are replaced by an index of the six docs that exist.
+
+  This release exists because npm renders the README captured at publish time: 0.1.0 will show the old one forever.
+
+- `bin.meridian` is `dist/index.js` rather than `./dist/index.js`. npm rewrote it during the 0.1.0 publish and warned it had done so, which left the published metadata disagreeing with the manifest in the repository.
+
 ## 0.1.0
 
 First public release. Meridian is a CLI that makes _other_ codebases AI-assistant-ready in one command — it reads a project, then writes the rules, subagents, skills, slash commands, prompts and documentation that AI coding tools need in order to be useful in it.
