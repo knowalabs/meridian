@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-label="Meridian reads your codebase and writes one canonical rules file, mirrored into every AI tool, plus subagents, skills, slash commands, harness permissions and docs">
+  <title>Meridian</title>
+  <desc>meridian generate reads any codebase — src/ alongside Cargo.toml, go.mod, package.json or pyproject.toml — and writes CLAUDE.md, AGENTS.md, GEMINI.md, .cursor/rules/meridian.mdc and .github/copilot-instructions.md, plus .claude/agents/, .claude/skills/, .claude/commands/, .claude/settings.json and docs/</desc>
+
+  <rect width="1280" height="420" fill="#0b0e14" />
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+    <text x="70" y="200" fill="#e6e9f0" font-size="54" font-weight="600" letter-spacing="11">MERIDIAN</text>
+  </g>
+  <text x="72" y="244" fill="#8b93a7" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">One command to set up every AI coding tool.</text>
+
+  <!-- What it reads — one manifest per ecosystem, because the stack is not assumed. -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="end">
+    <text x="618" y="44" fill="#8b93a7" font-size="11" opacity="0.8">reads any codebase</text>
+    <g font-size="13" fill="#8b93a7" opacity="0.85">
+      <text x="618" y="154">src/</text>
+      <text x="618" y="184">Cargo.toml</text>
+      <text x="618" y="214">go.mod</text>
+      <text x="618" y="244">package.json</text>
+      <text x="618" y="274">pyproject.toml</text>
+    </g>
+  </g>
+  <g fill="none" stroke="#8b93a7" stroke-width="1.3" opacity="0.45">
+    <path d="M634 150 C 676 150, 678 210, 720 210" />
+    <path d="M634 180 C 676 180, 682 210, 720 210" />
+    <path d="M634 210 H 720" />
+    <path d="M634 240 C 676 240, 682 210, 720 210" />
+    <path d="M634 270 C 676 270, 678 210, 720 210" />
+  </g>
+  <g fill="#8b93a7" opacity="0.75">
+    <circle cx="634" cy="150" r="2.5" />
+    <circle cx="634" cy="180" r="2.5" />
+    <circle cx="634" cy="210" r="2.5" />
+    <circle cx="634" cy="240" r="2.5" />
+    <circle cx="634" cy="270" r="2.5" />
+  </g>
+
+  <!-- The meridian: the one line everything else is measured from. -->
+  <text x="720" y="44" fill="#5eead4" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" opacity="0.9">meridian generate</text>
+  <line x1="720" y1="60" x2="720" y2="366" stroke="#5eead4" stroke-width="2.5" />
+  <g stroke="#5eead4" stroke-width="1.5" opacity="0.45">
+    <line x1="714" y1="130" x2="726" y2="130" />
+    <line x1="714" y1="210" x2="726" y2="210" />
+    <line x1="714" y1="290" x2="726" y2="290" />
+  </g>
+
+  <!-- What it writes: the rules, mirrored into every tool. -->
+  <g fill="none" stroke="#2dd4bf" stroke-width="1.4" opacity="0.55">
+    <path d="M720 210 C 772 210, 792 76, 840 76" />
+    <path d="M720 210 C 772 210, 792 104, 840 104" />
+    <path d="M720 210 C 772 210, 792 132, 840 132" />
+    <path d="M720 210 C 772 210, 792 160, 840 160" />
+    <path d="M720 210 C 772 210, 792 188, 840 188" />
+  </g>
+  <g fill="none" stroke="#2dd4bf" stroke-width="1.4" opacity="0.3">
+    <path d="M720 210 C 772 210, 792 240, 840 240" />
+    <path d="M720 210 C 772 210, 792 268, 840 268" />
+    <path d="M720 210 C 772 210, 792 296, 840 296" />
+    <path d="M720 210 C 772 210, 792 324, 840 324" />
+    <path d="M720 210 C 772 210, 792 352, 840 352" />
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+    <text x="856" y="44" fill="#8b93a7" font-size="11" opacity="0.8">one rules file, mirrored into every tool</text>
+    <g fill="#5eead4">
+      <circle cx="840" cy="76" r="3" />
+      <circle cx="840" cy="104" r="3" />
+      <circle cx="840" cy="132" r="3" />
+      <circle cx="840" cy="160" r="3" />
+      <circle cx="840" cy="188" r="3" />
+    </g>
+    <g fill="#e6e9f0" font-size="14">
+      <text x="856" y="81">CLAUDE.md</text>
+      <text x="856" y="109">AGENTS.md</text>
+      <text x="856" y="137">GEMINI.md</text>
+      <text x="856" y="165">.cursor/rules/meridian.mdc</text>
+      <text x="856" y="193">.github/copilot-instructions.md</text>
+    </g>
+
+    <text x="856" y="220" fill="#8b93a7" font-size="11" opacity="0.8">and the rest of the kit</text>
+    <g fill="#2dd4bf" opacity="0.65">
+      <circle cx="840" cy="240" r="3" />
+      <circle cx="840" cy="268" r="3" />
+      <circle cx="840" cy="296" r="3" />
+      <circle cx="840" cy="324" r="3" />
+      <circle cx="840" cy="352" r="3" />
+    </g>
+    <g fill="#8b93a7" font-size="14">
+      <text x="856" y="245">.claude/agents/</text>
+      <text x="856" y="273">.claude/skills/</text>
+      <text x="856" y="301">.claude/commands/</text>
+      <text x="856" y="329">.claude/settings.json</text>
+      <text x="856" y="357">docs/</text>
+    </g>
+  </g>
+</svg>
