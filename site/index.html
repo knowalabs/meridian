@@ -184,6 +184,19 @@
         max-width: 70ch;
         margin-bottom: 36px;
       }
+      .flow {
+        margin: 4px 0 30px;
+        /* The diagram has a legibility floor; below it, scroll rather than shrink. */
+        overflow-x: auto;
+      }
+      .flow svg {
+        display: block;
+        width: 100%;
+        min-width: 620px;
+        max-width: 900px;
+        height: auto;
+        margin: 0 auto;
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -350,6 +363,122 @@ $ meridian sync --check
               dependencies, scripts, conventions, source excerpts, a full symbol map — has your best
               provider write a real codebase review, and grounds every generated file in it.
             </p>
+
+            <figure class="flow">
+              <svg viewBox="0 0 700 400" role="img" aria-labelledby="flow-t flow-d">
+                <title id="flow-t">What meridian generate reads and writes</title>
+                <desc id="flow-d">
+                  Meridian reads any codebase — src/ alongside Cargo.toml, go.mod, package.json or
+                  pyproject.toml — and writes one rules file mirrored into CLAUDE.md, AGENTS.md,
+                  GEMINI.md, .cursor/rules/meridian.mdc and .github/copilot-instructions.md, plus
+                  .claude/agents/, .claude/skills/, .claude/commands/, .claude/settings.json and
+                  docs/.
+                </desc>
+
+                <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+                  <g text-anchor="end" fill="var(--muted)">
+                    <text x="150" y="36" font-size="10" opacity="0.8">reads any codebase</text>
+                    <g font-size="12" opacity="0.9">
+                      <text x="150" y="146">src/</text>
+                      <text x="150" y="176">Cargo.toml</text>
+                      <text x="150" y="206">go.mod</text>
+                      <text x="150" y="236">package.json</text>
+                      <text x="150" y="266">pyproject.toml</text>
+                    </g>
+                  </g>
+                  <g fill="none" stroke="var(--muted)" stroke-width="1.2" opacity="0.45">
+                    <path d="M164 142 C 200 142, 216 202, 252 202" />
+                    <path d="M164 172 C 200 172, 220 202, 252 202" />
+                    <path d="M164 202 H 252" />
+                    <path d="M164 232 C 200 232, 220 202, 252 202" />
+                    <path d="M164 262 C 200 262, 216 202, 252 202" />
+                  </g>
+                  <g fill="var(--muted)" opacity="0.75">
+                    <circle cx="164" cy="142" r="2.5" />
+                    <circle cx="164" cy="172" r="2.5" />
+                    <circle cx="164" cy="202" r="2.5" />
+                    <circle cx="164" cy="232" r="2.5" />
+                    <circle cx="164" cy="262" r="2.5" />
+                  </g>
+
+                  <text
+                    x="252"
+                    y="36"
+                    font-size="10"
+                    fill="var(--accent)"
+                    text-anchor="middle"
+                    opacity="0.9"
+                  >
+                    meridian generate
+                  </text>
+                  <line
+                    x1="252"
+                    y1="58"
+                    x2="252"
+                    y2="352"
+                    stroke="var(--accent)"
+                    stroke-width="2.5"
+                  />
+                  <g stroke="var(--accent)" stroke-width="1.4" opacity="0.45">
+                    <line x1="246" y1="130" x2="258" y2="130" />
+                    <line x1="246" y1="202" x2="258" y2="202" />
+                    <line x1="246" y1="274" x2="258" y2="274" />
+                  </g>
+
+                  <g fill="none" stroke="var(--accent)" stroke-width="1.3" opacity="0.5">
+                    <path d="M252 202 C 300 202, 320 72, 368 72" />
+                    <path d="M252 202 C 300 202, 320 100, 368 100" />
+                    <path d="M252 202 C 300 202, 320 128, 368 128" />
+                    <path d="M252 202 C 300 202, 320 156, 368 156" />
+                    <path d="M252 202 C 300 202, 320 184, 368 184" />
+                  </g>
+                  <g fill="none" stroke="var(--accent)" stroke-width="1.3" opacity="0.28">
+                    <path d="M252 202 C 300 202, 320 230, 368 230" />
+                    <path d="M252 202 C 300 202, 320 258, 368 258" />
+                    <path d="M252 202 C 300 202, 320 286, 368 286" />
+                    <path d="M252 202 C 300 202, 320 314, 368 314" />
+                    <path d="M252 202 C 300 202, 320 342, 368 342" />
+                  </g>
+
+                  <text x="382" y="36" font-size="10" fill="var(--muted)" opacity="0.8">
+                    one rules file, mirrored into every tool
+                  </text>
+                  <g fill="var(--accent)">
+                    <circle cx="368" cy="72" r="2.8" />
+                    <circle cx="368" cy="100" r="2.8" />
+                    <circle cx="368" cy="128" r="2.8" />
+                    <circle cx="368" cy="156" r="2.8" />
+                    <circle cx="368" cy="184" r="2.8" />
+                  </g>
+                  <g fill="var(--text)" font-size="13">
+                    <text x="382" y="77">CLAUDE.md</text>
+                    <text x="382" y="105">AGENTS.md</text>
+                    <text x="382" y="133">GEMINI.md</text>
+                    <text x="382" y="161">.cursor/rules/meridian.mdc</text>
+                    <text x="382" y="189">.github/copilot-instructions.md</text>
+                  </g>
+
+                  <text x="382" y="210" font-size="10" fill="var(--muted)" opacity="0.8">
+                    and the rest of the kit
+                  </text>
+                  <g fill="var(--accent)" opacity="0.6">
+                    <circle cx="368" cy="230" r="2.8" />
+                    <circle cx="368" cy="258" r="2.8" />
+                    <circle cx="368" cy="286" r="2.8" />
+                    <circle cx="368" cy="314" r="2.8" />
+                    <circle cx="368" cy="342" r="2.8" />
+                  </g>
+                  <g fill="var(--muted)" font-size="13">
+                    <text x="382" y="235">.claude/agents/</text>
+                    <text x="382" y="263">.claude/skills/</text>
+                    <text x="382" y="291">.claude/commands/</text>
+                    <text x="382" y="319">.claude/settings.json</text>
+                    <text x="382" y="347">docs/</text>
+                  </g>
+                </g>
+              </svg>
+            </figure>
+
             <div class="grid">
               <div class="card">
                 <h3>Canonical rules, every tool</h3>
