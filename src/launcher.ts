@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { CommanderError } from 'commander';
 import { buildCli, VERSION } from './cli.js';
 import { renderError } from './core/errors.js';
+import { setRuntimeModel } from './providers/router.js';
 
 /* ---------------------------------- banner ---------------------------------- */
 
@@ -244,7 +245,7 @@ export function tokenize(line: string): string[] {
   return tokens;
 }
 
-async function runCommandLine(line: string): Promise<number> {
+export async function runCommandLine(line: string): Promise<number> {
   // Users may type the binary name out of habit — accept both forms.
   const argv = tokenize(line.replace(/^meridian\s+/, ''));
   process.exitCode = 0;
@@ -260,6 +261,10 @@ async function runCommandLine(line: string): Promise<number> {
       // A failing command must never kill the menu loop.
       process.exitCode = renderError(err, { verbose: argv.includes('--verbose') });
     }
+  } finally {
+    // Every command runs in this one process, so a --model given to one must
+    // not still be in force when the user picks the next.
+    setRuntimeModel(null);
   }
   const code = typeof process.exitCode === 'number' ? process.exitCode : 0;
   process.exitCode = 0;
