@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  availableProviders,
   hasModelChoice,
   modelFor,
   modelsFor,
@@ -13,6 +14,7 @@ import {
   type ProviderSpec,
 } from '../src/providers/router.js';
 import { saveConfig, loadConfig } from '../src/core/config.js';
+import { CliError } from '../src/core/errors.js';
 
 describe('ai router', () => {
   let tmp: string;
@@ -174,5 +176,33 @@ describe('model catalogue', () => {
     saveModelChoice('anthropic', '');
     expect(hasModelChoice('anthropic')).toBe(false);
     expect(modelFor(spec('anthropic'))).toBe('claude-sonnet-5');
+  });
+});
+
+describe('availableProviders', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-avail-'));
+    process.env.MERIDIAN_HOME = tmp;
+    process.env.MERIDIAN_VAULT = 'file';
+    // A vault that cannot be decrypted: what a changed master key leaves behind.
+    fs.mkdirSync(path.join(tmp, 'keys'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'keys', 'vault.enc'), '{"iv":"00","tag":"00","data":"00"}');
+  });
+  afterEach(() => {
+    delete process.env.MERIDIAN_HOME;
+    delete process.env.MERIDIAN_VAULT;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('still reports a broken vault when a candidate needs a key', () => {
+    expect(() => availableProviders()).toThrow(CliError);
+  });
+
+  it('does not open the vault for keyless candidates', () => {
+    const keyless = PROVIDERS.filter((p) => !p.needsKey);
+    const ids = availableProviders(keyless);
+    expect(ids.every((id) => keyless.some((p) => p.id === id))).toBe(true);
   });
 });

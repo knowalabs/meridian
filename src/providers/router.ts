@@ -915,18 +915,24 @@ export async function verifyApiKey(providerId: string, apiKey: string): Promise<
   }
 }
 
-/** Providers usable right now (key in vault, or a CLI/daemon on PATH). */
-export function availableProviders(): string[] {
-  const vault = openVault();
-  const keys = vault.list();
+/**
+ * Providers usable right now (key in vault, or a CLI/daemon on PATH), among
+ * `candidates`. The vault is opened only when a candidate needs a key: a
+ * caller asking about keyless agent CLIs must not be stopped by a vault it
+ * never needed to read.
+ */
+export function availableProviders(candidates: ProviderSpec[] = PROVIDERS): string[] {
+  const keys = candidates.some((p) => p.needsKey) ? openVault().list() : [];
   // Opt-out for specific providers, e.g. MERIDIAN_DISABLE_PROVIDERS=claude-code,ollama
   const disabled = new Set(
     (process.env.MERIDIAN_DISABLE_PROVIDERS ?? '').split(',').map((s) => s.trim()),
   );
-  return PROVIDERS.filter(
-    (p) =>
-      !disabled.has(p.id) &&
-      (!p.needsKey || keys.includes(p.id)) &&
-      (!p.binary || which(p.binary) !== null),
-  ).map((p) => p.id);
+  return candidates
+    .filter(
+      (p) =>
+        !disabled.has(p.id) &&
+        (!p.needsKey || keys.includes(p.id)) &&
+        (!p.binary || which(p.binary) !== null),
+    )
+    .map((p) => p.id);
 }
