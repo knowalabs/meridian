@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 export interface ExecResult {
@@ -12,23 +13,80 @@ export interface ExecResult {
   notFound?: boolean;
 }
 
-/*
- * On Windows, npm-style launchers are .cmd shims that spawnSync cannot start
- * without a shell. Resolve them to their real path via `where` (an .exe, so
- * it never needs resolving itself) instead of using shell:true, which would
- * reintroduce injection risk.
+/** What actually gets spawned for a command: a file plus arguments to put before the caller's. */
+export interface Launcher {
+  file: string;
+  prefixArgs: string[];
+}
+
+const WINDOWS_LAUNCHABLE = ['.exe', '.com', '.cmd', '.bat'];
+
+/**
+ * First `where` match Windows can launch. `where npm` lists the extensionless
+ * POSIX shell script npm installs alongside `npm.cmd`, and that script is not
+ * a Win32 program.
  */
-const resolved = new Map<string, string>();
-function resolveCommand(cmd: string): string {
-  if (process.platform !== 'win32') return cmd;
-  if (path.extname(cmd) !== '' || cmd.includes('\\') || cmd.includes('/')) return cmd;
+export function pickWhereMatch(stdout: string): string | null {
+  for (const line of stdout.split(/\r?\n/)) {
+    const candidate = line.trim();
+    if (candidate && WINDOWS_LAUNCHABLE.includes(path.win32.extname(candidate).toLowerCase())) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * The program an npm-generated .cmd shim launches, read from its text. Both
+ * cmd-shim's per-package shims and npm's own npm.cmd name their target as a
+ * quoted path relative to the shim's directory (`%dp0%` / `%~dp0`); the last
+ * such script or .exe is the target, since node.exe and npm-prefix.js appear
+ * first. Returns null for anything else (sh/pwsh-backed shims, hand-written
+ * batch files), which then keeps failing loudly rather than being guessed at.
+ */
+export function parseCmdShim(text: string, shimPath: string): Launcher | null {
+  const dir = path.win32.dirname(shimPath);
+  let target: string | null = null;
+  for (const match of text.matchAll(/%(?:~dp0|dp0%)\\([^"\r\n]+)"/gi)) {
+    const rel = match[1]!;
+    const base = path.win32.basename(rel).toLowerCase();
+    if (base === 'node.exe') continue;
+    if (/\.(?:c|m)?js$|\.exe$/.test(base)) target = path.win32.resolve(dir, rel);
+  }
+  if (!target) return null;
+  return target.toLowerCase().endsWith('.exe')
+    ? { file: target, prefixArgs: [] }
+    : { file: process.execPath, prefixArgs: [target] };
+}
+
+/*
+ * On Windows, npm-style launchers are .cmd shims, and Node refuses to spawn a
+ * .cmd or .bat without a shell (EINVAL since the CVE-2024-27980 fix). Rather
+ * than shell:true, which would reintroduce injection risk, a shim is resolved
+ * to the script it wraps and run with this Node, or to the .exe it wraps.
+ */
+const resolved = new Map<string, Launcher>();
+function resolveCommand(cmd: string): Launcher {
+  const bare = { file: cmd, prefixArgs: [] };
+  if (process.platform !== 'win32') return bare;
   const cached = resolved.get(cmd);
   if (cached) return cached;
-  const res = spawnSync('where', [cmd], { encoding: 'utf8' });
-  const first = res.status === 0 ? (res.stdout ?? '').split(/\r?\n/)[0]?.trim() : '';
-  const target = first || cmd;
-  resolved.set(cmd, target);
-  return target;
+  let file = cmd;
+  if (path.win32.extname(cmd) === '' && !cmd.includes('\\') && !cmd.includes('/')) {
+    const res = spawnSync('where', [cmd], { encoding: 'utf8' });
+    file = (res.status === 0 ? pickWhereMatch(res.stdout ?? '') : null) ?? cmd;
+  }
+  let launcher: Launcher = { file, prefixArgs: [] };
+  if (['.cmd', '.bat'].includes(path.win32.extname(file).toLowerCase())) {
+    try {
+      const shim = parseCmdShim(fs.readFileSync(file, 'utf8'), file);
+      if (shim && fs.existsSync(shim.prefixArgs[0] ?? shim.file)) launcher = shim;
+    } catch {
+      // Unreadable shim: spawn it as-is and let the failure surface as an ExecResult.
+    }
+  }
+  resolved.set(cmd, launcher);
+  return launcher;
 }
 
 /** Run a command without a shell. Never throws. */
@@ -38,7 +96,8 @@ export function run(
   input?: string,
   opts: { timeoutMs?: number } = {},
 ): ExecResult {
-  const res = spawnSync(resolveCommand(cmd), args, {
+  const launcher = resolveCommand(cmd);
+  const res = spawnSync(launcher.file, [...launcher.prefixArgs, ...args], {
     encoding: 'utf8',
     input,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -66,7 +125,17 @@ export function runAsync(
   opts: { timeoutMs?: number } = {},
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
-    const child = spawn(resolveCommand(cmd), args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const launcher = resolveCommand(cmd);
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(launcher.file, [...launcher.prefixArgs, ...args], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      // Argument validation (and EINVAL on Windows) throws synchronously instead of emitting 'error'.
+      resolve({ ok: false, stdout: '', stderr: '', code: null, error: (err as Error).message });
+      return;
+    }
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -113,7 +182,8 @@ export function runAsync(
 
 /** Run a command inheriting stdio (for interactive installs). */
 export function runLive(cmd: string, args: string[] = []): boolean {
-  const res = spawnSync(resolveCommand(cmd), args, { stdio: 'inherit' });
+  const launcher = resolveCommand(cmd);
+  const res = spawnSync(launcher.file, [...launcher.prefixArgs, ...args], { stdio: 'inherit' });
   return res.status === 0;
 }
 
