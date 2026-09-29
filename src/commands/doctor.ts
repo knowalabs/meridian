@@ -17,6 +17,8 @@ import { diffFingerprints, fileStates, fingerprintOf, readManifest } from '../ge
 import { analyzeProject } from '../scan/analyzer.js';
 import { VERSION } from '../core/pkg.js';
 import { jsonMode, log } from '../core/logger.js';
+import { DRIVERS, INSTALL_NAME } from '../harness/drivers/index.js';
+import { parseVersion, versionAtLeast } from '../harness/drivers/types.js';
 
 /**
  * `meridian doctor` — the first command a new user runs, so it answers the
@@ -66,6 +68,18 @@ interface ProviderStatus {
   keyCheck?: KeyVerification;
 }
 
+interface AgentStatus {
+  id: string;
+  installed: boolean;
+  version: string | null;
+  /** Oldest release `meridian agent` can drive, when known. */
+  minVersion: string | null;
+  /** Release its parser was checked against, when one was. */
+  testedVersion: string | null;
+  level: Level;
+  note: string;
+}
+
 interface KitStatus {
   root: string;
   present: boolean;
@@ -82,6 +96,8 @@ export interface DoctorReportJson {
   tools: ToolStatus[];
   missing: number;
   providers: ProviderStatus[];
+  /** The agent CLIs `meridian agent` drives, and whether each is new enough. */
+  agents: AgentStatus[];
   /** Provider `generate` and `ask` would route to today, if any. */
   routesTo: string | null;
   vault: { backend: VaultBackend | null; keys: string[]; unreadable: string[] };
@@ -156,6 +172,44 @@ function toolStatuses(): ToolStatus[] {
         hint: report.hint ?? null,
       };
     });
+}
+
+/**
+ * Agent CLIs change their headless flags between releases, so an install that
+ * predates what a driver relies on is called out here rather than failing
+ * halfway through an agent session.
+ */
+function agentStatuses(tools: ToolStatus[]): AgentStatus[] {
+  return Object.values(DRIVERS).map((driver) => {
+    const tool = tools.find((t) => t.id === INSTALL_NAME[driver.providerId]);
+    const version = parseVersion(tool?.version ?? null);
+    const base = {
+      id: driver.providerId,
+      installed: tool?.installed ?? false,
+      version,
+      minVersion: driver.minVersion,
+      testedVersion: driver.testedVersion,
+    };
+    if (!base.installed) return { ...base, level: 'warn', note: 'not installed' };
+    if (!version) return { ...base, level: 'warn', note: 'version could not be read' };
+    if (driver.minVersion && !versionAtLeast(version, driver.minVersion)) {
+      return { ...base, level: 'fail', note: `${version} is older than ${driver.minVersion}` };
+    }
+    if (!driver.testedVersion) {
+      return {
+        ...base,
+        level: 'ok',
+        note: `${version} (driver not yet checked against a real install)`,
+      };
+    }
+    return {
+      ...base,
+      level: 'ok',
+      note: versionAtLeast(driver.testedVersion, version)
+        ? version
+        : `${version} (newer than the ${driver.testedVersion} it was checked against)`,
+    };
+  });
 }
 
 /** Vault reads must never take the whole command down. */
@@ -299,6 +353,20 @@ function render(report: DoctorReportJson): void {
     );
   }
 
+  log.info(`\n${pc.bold('Agent CLIs')} ${pc.dim('— what meridian agent can drive')}`);
+  for (const a of report.agents) {
+    if (!a.installed) continue;
+    line(
+      a.level,
+      a.id,
+      a.level === 'ok' ? pc.dim(a.note) : a.note,
+      a.level === 'fail' ? 'meridian update --tools' : undefined,
+    );
+  }
+  if (!report.agents.some((a) => a.installed)) {
+    line('warn', 'none', 'no agent CLI installed', 'meridian install claude (or codex, gemini)');
+  }
+
   log.info(`\n${pc.bold('Key vault')}`);
   if (!report.vault.backend) {
     line('fail', 'vault', 'could not be opened', 'meridian keys repair');
@@ -412,6 +480,7 @@ export async function doctorCommand(
     tools,
     missing: tools.filter((t) => !t.installed).length,
     providers,
+    agents: agentStatuses(tools),
     routesTo: route('generate ai project artifacts', available)?.provider.id ?? null,
     vault,
     kit: kitStatus(cwd),

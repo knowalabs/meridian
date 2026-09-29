@@ -187,10 +187,62 @@ describe('doctor: human output', () => {
     configureLogger({ level: 'normal', json: false });
     expect(await doctorCommand({}, project)).toBe(0);
     const out = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    for (const section of ['Environment', 'AI tools', 'AI providers', 'Key vault', 'Project kit']) {
+    for (const section of [
+      'Environment',
+      'AI tools',
+      'AI providers',
+      'Agent CLIs',
+      'Key vault',
+      'Project kit',
+    ]) {
       expect(out).toContain(section);
     }
     expect(out).toContain('Next steps');
     expect(out).toContain('meridian generate');
+  });
+});
+
+describe('doctor: agent CLIs', () => {
+  const savedPath = process.env.PATH;
+  afterEach(() => {
+    process.env.PATH = savedPath;
+  });
+
+  /** A `bin` that prints `version` — shaped like an npm install on Windows, a script elsewhere. */
+  function stubCli(dir: string, bin: string, version: string): void {
+    const script = `console.log(${JSON.stringify(version)});\n`;
+    if (process.platform === 'win32') {
+      fs.writeFileSync(path.join(dir, `${bin}.js`), script);
+      fs.writeFileSync(
+        path.join(dir, `${bin}.cmd`),
+        `@ECHO off\r\n"%_prog%" "%dp0%\\${bin}.js" %*\r\n`,
+      );
+    } else {
+      fs.writeFileSync(path.join(dir, bin), `#!/usr/bin/env node\n${script}`);
+      fs.chmodSync(path.join(dir, bin), 0o755);
+    }
+  }
+
+  it('flags an agent CLI too old for meridian agent and names the fix', async () => {
+    const bin = path.join(tmp, 'bin');
+    fs.mkdirSync(bin);
+    stubCli(bin, 'claude', '1.0.0 (Claude Code)');
+    stubCli(bin, 'codex', 'codex-cli 0.142.4');
+    // Only the stubs, node and the OS basics: whatever the developer has installed stays out.
+    const system = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/usr/bin:/bin';
+    process.env.PATH = [bin, path.dirname(process.execPath), system].join(path.delimiter);
+
+    const agents = (await runDoctor()).agents;
+    expect(agents.find((a) => a.id === 'claude-code')).toMatchObject({
+      installed: true,
+      version: '1.0.0',
+      level: 'fail',
+    });
+    expect(agents.find((a) => a.id === 'codex-cli')).toMatchObject({
+      installed: true,
+      version: '0.142.4',
+      level: 'ok',
+    });
+    expect(agents.find((a) => a.id === 'gemini-cli')).toMatchObject({ installed: false });
   });
 });
