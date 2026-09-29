@@ -212,22 +212,39 @@ function agentStatuses(tools: ToolStatus[]): AgentStatus[] {
   });
 }
 
-/** Vault reads must never take the whole command down. */
-function safeVaultKeys(): string[] {
+/**
+ * Usable providers, even when the vault cannot be read: the ones that need no
+ * key are still worth reporting, and the vault section says what is wrong.
+ */
+function safeAvailableProviders(): string[] {
   try {
-    return openVault().list();
+    return availableProviders();
   } catch {
-    return [];
+    return availableProviders(PROVIDERS.filter((p) => !p.needsKey));
   }
 }
 
+/** Stored key names, or null when the vault cannot be read — never a thrown error. */
+function safeVaultKeys(): string[] | null {
+  try {
+    return openVault().list();
+  } catch {
+    return null;
+  }
+}
+
+/** Why a keyed provider is blocked when the vault itself is the problem. */
+const VAULT_UNREADABLE = 'the key vault could not be read';
+
 function providerStatuses(available: string[]): ProviderStatus[] {
-  const stored = new Set(safeVaultKeys());
+  const keys = safeVaultKeys();
+  const stored = new Set(keys ?? []);
   return PROVIDERS.map((p) => {
     const ready = available.includes(p.id);
     let blockedBy: string | null = null;
     if (!ready) {
-      if (p.needsKey && !stored.has(p.id)) blockedBy = 'no API key stored';
+      if (p.needsKey && keys === null) blockedBy = VAULT_UNREADABLE;
+      else if (p.needsKey && !stored.has(p.id)) blockedBy = 'no API key stored';
       else if (p.binary) blockedBy = `the "${p.binary}" CLI is not on PATH`;
       else blockedBy = 'disabled via MERIDIAN_DISABLE_PROVIDERS';
     }
@@ -325,9 +342,13 @@ function render(report: DoctorReportJson): void {
   // lines bury the providers that actually work. One line per reason instead.
   const needKey = report.providers.filter((p) => !p.ready && p.blockedBy?.includes('API key'));
   const needCli = report.providers.filter((p) => !p.ready && p.blockedBy?.includes('CLI'));
+  const vaultLocked = report.providers.filter((p) => !p.ready && p.blockedBy === VAULT_UNREADABLE);
   const otherwiseOff = report.providers.filter(
-    (p) => !p.ready && !needKey.includes(p) && !needCli.includes(p),
+    (p) => !p.ready && !needKey.includes(p) && !needCli.includes(p) && !vaultLocked.includes(p),
   );
+  if (vaultLocked.length) {
+    line('fail', 'vault locked', vaultLocked.map((p) => p.id).join(', '), 'meridian keys repair');
+  }
   if (needKey.length) {
     line('warn', 'need a key', needKey.map((p) => p.id).join(', '), 'meridian auth <provider>');
   }
@@ -430,7 +451,9 @@ function renderNextSteps(report: DoctorReportJson): void {
     steps.push('fix the environment problems above — nothing else will work reliably');
   }
   if (!report.routesTo) steps.push(`${pc.bold('meridian auth')} — or sign in to an AI CLI`);
-  if (report.vault.unreadable.length) steps.push(pc.bold('meridian keys repair'));
+  if (!report.vault.backend || report.vault.unreadable.length) {
+    steps.push(pc.bold('meridian keys repair'));
+  }
   if (!report.kit.present) {
     steps.push(`${pc.bold('meridian generate')} — make this project AI-ready`);
   } else if (report.kit.drift.length || report.kit.missing.length) {
@@ -458,7 +481,7 @@ export async function doctorCommand(
   opts: { online?: boolean } = {},
   cwd: string = process.cwd(),
 ): Promise<number> {
-  const available = availableProviders();
+  const available = safeAvailableProviders();
   const providers = providerStatuses(available);
   const vault = vaultStatus();
 

@@ -140,6 +140,24 @@ describe('doctor: vault', () => {
     expect(doc.vault.keys.sort()).toEqual(['anthropic', 'openai']);
     expect(doc.vault.unreadable).toEqual([]);
   });
+
+  it('reports a vault it cannot decrypt instead of failing the whole check', async () => {
+    const keys = path.join(process.env.MERIDIAN_HOME!, 'keys');
+    fs.mkdirSync(keys, { recursive: true });
+    fs.writeFileSync(path.join(keys, 'vault.enc'), '{"iv":"00","tag":"00","data":"00"}');
+    const doc = await runDoctor();
+    expect(doc.vault.backend).toBeNull();
+    // Providers that need no key are still assessed.
+    expect(doc.providers.find((p) => p.id === 'anthropic')).toMatchObject({
+      ready: false,
+      blockedBy: 'the key vault could not be read',
+    });
+
+    configureLogger({ level: 'normal', json: false });
+    expect(await doctorCommand({}, project)).toBe(0);
+    const out = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('meridian keys repair');
+  });
 });
 
 describe('doctor: project kit', () => {
