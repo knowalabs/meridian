@@ -114,70 +114,213 @@ export function run(
   };
 }
 
-/**
- * Async variant of {@link run}: spawns without blocking the event loop, so
- * spinners and timers keep going while a slow CLI (e.g. `claude -p`) works.
+export interface StreamOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  input?: string;
+  signal?: AbortSignal;
+  /** Wall-clock limit for the whole run. */
+  timeoutMs?: number;
+  /** Limit on silence: a child that prints nothing for this long is treated as hung. */
+  idleTimeoutMs?: number;
+  onStdoutLine?: (line: string) => void;
+  onStderrLine?: (line: string) => void;
+  /** Keep only the last N characters of each stream in the result; unbounded by default. */
+  keepChars?: number;
+}
+
+export interface StreamResult extends ExecResult {
+  /** True when `signal` stopped the child. */
+  aborted?: boolean;
+}
+
+/** How long a child gets to exit on its own after the first signal before it is killed outright. */
+const KILL_GRACE_MS = 5_000;
+
+/*
+ * Children still running when Meridian exits. The SIGINT handler in index.ts
+ * calls process.exit synchronously, which skips every pending abort path, so
+ * this is the last chance to stop an agent CLI mid-edit.
  */
-export function runAsync(
+const live = new Set<ChildProcessWithoutNullStreams>();
+let exitHookInstalled = false;
+
+function killTree(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32' && child.pid !== undefined) {
+    // child.kill() only ends the direct child on Windows; the tools it launched would outlive it.
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  } else {
+    child.kill(signal);
+  }
+}
+
+function stop(child: ChildProcessWithoutNullStreams, first: NodeJS.Signals): void {
+  killTree(child, first);
+  setTimeout(() => killTree(child, 'SIGKILL'), KILL_GRACE_MS).unref();
+}
+
+/** Line-splits a stream, holding back a partial last line until the rest arrives or the stream ends. */
+function lineSplitter(onLine: ((line: string) => void) | undefined): {
+  push(chunk: string): void;
+  flush(): void;
+} {
+  let pending = '';
+  return {
+    push(chunk) {
+      if (!onLine) return;
+      pending += chunk;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? '';
+      for (const line of lines) onLine(line);
+    },
+    flush() {
+      if (onLine && pending !== '') onLine(pending);
+      pending = '';
+    },
+  };
+}
+
+/**
+ * Spawn without a shell and stream output line by line. Never throws: spawn
+ * failures, timeouts and aborts all come back as a result. Stdout and stderr
+ * are returned untrimmed, since a caller parsing lines already saw them raw.
+ */
+export function runStream(
   cmd: string,
   args: string[] = [],
-  input?: string,
-  opts: { timeoutMs?: number } = {},
-): Promise<ExecResult> {
+  opts: StreamOptions = {},
+): Promise<StreamResult> {
   return new Promise((resolve) => {
+    if (opts.signal?.aborted) {
+      resolve({ ok: false, stdout: '', stderr: '', code: null, error: 'ABORTED', aborted: true });
+      return;
+    }
     const launcher = resolveCommand(cmd);
     let child: ChildProcessWithoutNullStreams;
     try {
       child = spawn(launcher.file, [...launcher.prefixArgs, ...args], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+        ...(opts.env !== undefined ? { env: opts.env } : {}),
       });
     } catch (err) {
       // Argument validation (and EINVAL on Windows) throws synchronously instead of emitting 'error'.
       resolve({ ok: false, stdout: '', stderr: '', code: null, error: (err as Error).message });
       return;
     }
+    live.add(child);
+    if (!exitHookInstalled) {
+      exitHookInstalled = true;
+      process.on('exit', () => {
+        for (const c of live) killTree(c, 'SIGTERM');
+      });
+    }
+
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
     let settled = false;
-    const settle = (result: ExecResult): void => {
-      if (!settled) {
-        settled = true;
-        if (timer) clearTimeout(timer);
-        resolve(result);
-      }
-    };
+    const keep = (buf: string): string =>
+      opts.keepChars !== undefined && buf.length > opts.keepChars
+        ? buf.slice(buf.length - opts.keepChars)
+        : buf;
+    const out = lineSplitter(opts.onStdoutLine);
+    const err = lineSplitter(opts.onStderrLine);
+
     const timer = opts.timeoutMs
       ? setTimeout(() => {
           timedOut = true;
-          child.kill();
+          stop(child, 'SIGTERM');
         }, opts.timeoutMs)
       : null;
-    child.stdout.setEncoding('utf8').on('data', (d: string) => (stdout += d));
-    child.stderr.setEncoding('utf8').on('data', (d: string) => (stderr += d));
-    child.on('error', (err: NodeJS.ErrnoException) => {
+    let idle: NodeJS.Timeout | null = null;
+    const touch = (): void => {
+      if (!opts.idleTimeoutMs) return;
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(() => {
+        timedOut = true;
+        stop(child, 'SIGTERM');
+      }, opts.idleTimeoutMs);
+    };
+    touch();
+    const onAbort = (): void => {
+      aborted = true;
+      // SIGINT first: agent CLIs treat it as "stop this turn" and save their session.
+      stop(child, 'SIGINT');
+    };
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+    const settle = (result: StreamResult): void => {
+      if (settled) return;
+      settled = true;
+      live.delete(child);
+      if (timer) clearTimeout(timer);
+      if (idle) clearTimeout(idle);
+      opts.signal?.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+
+    child.stdout.setEncoding('utf8').on('data', (d: string) => {
+      touch();
+      stdout = keep(stdout + d);
+      out.push(d);
+    });
+    child.stderr.setEncoding('utf8').on('data', (d: string) => {
+      touch();
+      stderr = keep(stderr + d);
+      err.push(d);
+    });
+    child.on('error', (e: NodeJS.ErrnoException) => {
       settle({
         ok: false,
         stdout: '',
         stderr: '',
         code: null,
-        error: err.message,
-        notFound: err.code === 'ENOENT',
+        error: e.message,
+        notFound: e.code === 'ENOENT',
       });
     });
     child.on('close', (code) => {
+      out.flush();
+      err.flush();
       settle({
-        ok: code === 0 && !timedOut,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
+        ok: code === 0 && !timedOut && !aborted,
+        stdout,
+        stderr,
         code,
-        ...(timedOut ? { error: 'ETIMEDOUT' } : {}),
+        ...(aborted ? { error: 'ABORTED', aborted: true } : timedOut ? { error: 'ETIMEDOUT' } : {}),
       });
     });
     child.stdin.on('error', () => {}); // EPIPE if the child exits before reading
-    if (input !== undefined) child.stdin.write(input);
+    if (opts.input !== undefined) child.stdin.write(opts.input);
     child.stdin.end();
   });
+}
+
+/**
+ * Async variant of {@link run}: spawns without blocking the event loop, so
+ * spinners and timers keep going while a slow CLI (e.g. `claude -p`) works.
+ */
+export async function runAsync(
+  cmd: string,
+  args: string[] = [],
+  input?: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<ExecResult> {
+  const res = await runStream(cmd, args, {
+    ...(input !== undefined ? { input } : {}),
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+  });
+  return {
+    ok: res.ok,
+    stdout: res.stdout.trim(),
+    stderr: res.stderr.trim(),
+    code: res.code,
+    ...(res.error !== undefined ? { error: res.error } : {}),
+    ...(res.notFound !== undefined ? { notFound: res.notFound } : {}),
+  };
 }
 
 /** Run a command inheriting stdio (for interactive installs). */
