@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import pc from 'picocolors';
 import {
   availableProviders,
@@ -12,48 +11,7 @@ import { openVault } from '../core/vault.js';
 import { loadConfig, saveConfig } from '../core/config.js';
 import { jsonMode, log } from '../core/logger.js';
 import { CliError } from '../core/errors.js';
-
-/** Give up on stdin if not a single byte arrives in this long. */
-const STDIN_FIRST_BYTE_MS = 250;
-
-/**
- * Piped input becomes context for the question, so `cat error.log | meridian
- * ask "what failed?"` works. Returns '' when stdin is a terminal, empty, or
- * an idle stream: a pipe that is open but silent (a CI runner, a background
- * job) must never leave the command hanging forever waiting for EOF.
- */
-async function readPipedInput(): Promise<string> {
-  if (process.stdin.isTTY) return '';
-  try {
-    const stat = fs.fstatSync(0);
-    if (!stat.isFIFO() && !stat.isFile()) return '';
-  } catch {
-    return '';
-  }
-
-  return new Promise<string>((resolve) => {
-    const chunks: Buffer[] = [];
-    let settled = false;
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(idle);
-      process.stdin.pause();
-      resolve(Buffer.concat(chunks).toString('utf8').trim());
-    };
-    // Only the wait for the *first* byte is bounded; once input is flowing we
-    // read it to the end however long that takes.
-    const idle = setTimeout(finish, STDIN_FIRST_BYTE_MS);
-
-    process.stdin.on('data', (chunk: Buffer) => {
-      clearTimeout(idle);
-      chunks.push(Buffer.from(chunk));
-    });
-    process.stdin.once('end', finish);
-    process.stdin.once('error', finish);
-    process.stdin.resume();
-  });
-}
+import { readPipedInput } from '../core/prompt.js';
 
 export async function askCommand(
   promptParts: string[],

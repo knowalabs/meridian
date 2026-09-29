@@ -63,4 +63,27 @@ describe('config corruption handling', () => {
     );
     expect(loadConfig().router.models).toEqual({ anthropic: 'claude-opus-4-8' });
   });
+
+  it('has no harness block until one is set, so old configs load unchanged', () => {
+    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ router: {} }));
+    expect(loadConfig().harness).toBeUndefined();
+  });
+
+  it('keeps valid harness settings and drops the rest', () => {
+    const file = path.join(tmp, 'config.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        harness: { mode: 'auto', maxRepairs: 3, verify: ['make check', 4, ' '] },
+      }),
+    );
+    expect(loadConfig().harness).toEqual({ mode: 'auto', maxRepairs: 3, verify: ['make check'] });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ harness: { mode: 'yolo', maxRepairs: 50, verify: 'make check' } }),
+    );
+    expect(loadConfig().harness).toBeUndefined();
+    fs.writeFileSync(file, JSON.stringify({ harness: { maxRepairs: 1.5 } }));
+    expect(loadConfig().harness).toBeUndefined();
+  });
 });

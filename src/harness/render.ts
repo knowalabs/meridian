@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { currentLevel, log } from '../core/logger.js';
+import { CLI_DEFAULT_MODEL } from '../providers/router.js';
 import type { EventSink, HarnessEvent } from './events.js';
 
 /** Lines of a failing verify step's output shown in the terminal; the record keeps more. */
@@ -46,7 +47,8 @@ export function createRenderer(opts: { json: boolean }): EventSink {
   return (event: HarnessEvent) => {
     switch (event.type) {
       case 'session.started': {
-        const parts = [event.provider, event.model, `${event.mode} mode`];
+        const model = event.model === CLI_DEFAULT_MODEL ? 'default model' : event.model;
+        const parts = [event.provider, model, `${event.mode} mode`];
         if (!event.verify) parts.push('verify off');
         if (event.resumedFrom) parts.push(`continuing ${event.resumedFrom}`);
         note(pc.dim(parts.join(' · ')));
@@ -102,7 +104,7 @@ export function createRenderer(opts: { json: boolean }): EventSink {
         }
         return;
       case 'error':
-        note(`${pc.red('✖')} ${event.message}`);
+        note(`${event.fatal ? pc.red('✖') : pc.yellow('▲')} ${event.message}`);
         if (event.hint) note(pc.dim(`  ${event.hint}`));
         return;
       case 'session.completed': {

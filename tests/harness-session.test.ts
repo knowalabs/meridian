@@ -134,6 +134,7 @@ describe('session records', () => {
       emitter.emit(STARTED);
       emitter.emit({ type: 'turn.started', turn: 1, reason: 'task' });
       emitter.emit({ type: 'turn.completed', turn: 1, ok: true, driverSessionId: `drv-${id}` });
+      emitter.emit({ type: 'usage', turn: 1, costUsd: 0.25 });
       emitter.emit({ type: 'turn.started', turn: 2, reason: 'repair' });
       emitter.emit({ type: 'turn.completed', turn: 2, ok: false, driverSessionId: null });
     }
@@ -147,6 +148,7 @@ describe('session records', () => {
       mode: 'edit',
       driverSessionId: 'drv-20260930-100000-bbbb',
       turns: 2,
+      costUsd: 0.25,
     });
     expect(resumeInfo(project, '20260930-090000-aaaa')?.driverSessionId).toBe(
       'drv-20260930-090000-aaaa',

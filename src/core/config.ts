@@ -17,12 +17,23 @@ export interface RouterConfig {
   pricing?: Record<string, { inputPerMTok: number; outputPerMTok: number }>;
 }
 
+export interface HarnessConfig {
+  /** Default permission mode for `meridian agent`: plan, edit or auto. */
+  mode?: 'plan' | 'edit' | 'auto';
+  /** Repair turns after a failed verify before giving up (0–5). */
+  maxRepairs?: number;
+  /** Verify commands replacing the kit's chain, each run without a shell. */
+  verify?: string[];
+}
+
 export interface MeridianConfig {
   version: number;
   telemetry: boolean;
   router: RouterConfig;
   /** Providers the user has configured keys for (informational cache). */
   providers: string[];
+  /** `meridian agent` defaults; absent until the user sets one. */
+  harness?: HarnessConfig;
 }
 
 const DEFAULT_CONFIG: MeridianConfig = {

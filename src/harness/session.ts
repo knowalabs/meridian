@@ -109,6 +109,8 @@ export interface ResumeInfo {
   driverSessionId: string | null;
   /** Turns already taken, so a follow-up continues the numbering. */
   turns: number;
+  /** Cost reported so far, for CLIs whose own figure is a running total. */
+  costUsd: number;
 }
 
 /** What a follow-up turn needs from a recorded session, or null if there is no usable record. */
@@ -121,9 +123,11 @@ export function resumeInfo(root: string, sessionId?: string): ResumeInfo | null 
   if (!started || started.type !== 'session.started') return null;
   let driverSessionId: string | null = null;
   let turns = 0;
+  let costUsd = 0;
   for (const e of events) {
     if (e.type === 'turn.started') turns = Math.max(turns, e.turn);
     if (e.type === 'turn.completed' && e.driverSessionId) driverSessionId = e.driverSessionId;
+    if (e.type === 'usage' && e.costUsd !== undefined) costUsd += e.costUsd;
   }
   return {
     sessionId: id,
@@ -134,5 +138,6 @@ export function resumeInfo(root: string, sessionId?: string): ResumeInfo | null 
     mode: started.mode,
     driverSessionId,
     turns,
+    costUsd,
   };
 }

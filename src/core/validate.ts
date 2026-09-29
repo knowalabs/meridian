@@ -40,6 +40,21 @@ export function coerceConfig(parsed: unknown, base: MeridianConfig): MeridianCon
   if (Array.isArray(parsed.providers)) {
     base.providers = parsed.providers.filter((p): p is string => typeof p === 'string');
   }
+  if (isRecord(parsed.harness)) {
+    const h = parsed.harness;
+    const harness: NonNullable<MeridianConfig['harness']> = {};
+    if (h.mode === 'plan' || h.mode === 'edit' || h.mode === 'auto') harness.mode = h.mode;
+    // More repair turns than this is a loop, not a repair.
+    const repairs = h.maxRepairs;
+    if (typeof repairs === 'number' && Number.isInteger(repairs) && repairs >= 0 && repairs <= 5) {
+      harness.maxRepairs = repairs;
+    }
+    if (Array.isArray(h.verify)) {
+      const verify = h.verify.filter((c): c is string => typeof c === 'string' && c.trim() !== '');
+      if (verify.length > 0) harness.verify = verify;
+    }
+    if (Object.keys(harness).length > 0) base.harness = harness;
+  }
   return base;
 }
 

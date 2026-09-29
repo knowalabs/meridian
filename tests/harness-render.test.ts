@@ -105,6 +105,28 @@ describe('createRenderer', () => {
     expect(stderr).toBe('');
   });
 
+  it('marks warnings apart from fatal errors and names the CLI default model', () => {
+    render(false, [
+      {
+        type: 'session.started',
+        protocol: 1,
+        cwd: '/p',
+        task: 't',
+        provider: 'claude-code',
+        model: 'cli-default',
+        mode: 'edit',
+        verify: true,
+        maxRepairs: 2,
+      },
+      { type: 'error', message: 'heads up', fatal: false, source: 'harness' },
+      { type: 'error', message: 'broke', fatal: true, source: 'driver', hint: 'try again' },
+    ]);
+    expect(stderr).toContain('claude-code · default model · edit mode');
+    expect(stderr).toContain('▲ heads up');
+    expect(stderr).toContain('✖ broke');
+    expect(stderr).toContain('try again');
+  });
+
   it('stays silent under --quiet', () => {
     configureLogger({ level: 'quiet' });
     render(false, [{ type: 'text.delta', text: 'hi' }, COMPLETED]);

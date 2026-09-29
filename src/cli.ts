@@ -19,6 +19,7 @@ import {
   mcpSearchCommand,
 } from './commands/mcp.js';
 import { askCommand, routerConfigCommand } from './commands/ask.js';
+import { agentCommand, type AgentOptions } from './commands/agent.js';
 import { loginCommand, updateCommand } from './commands/update.js';
 import { ensureHome } from './core/paths.js';
 
@@ -79,7 +80,8 @@ Examples:
   $ meridian auth anthropic             store your Anthropic API key securely
   $ meridian generate                   make this project AI-ready in one shot
   $ meridian mcp search github          find MCP servers
-  $ meridian ask "explain this repo"    ask AI (auto-picks the best provider)`,
+  $ meridian ask "explain this repo"    ask AI (auto-picks the best provider)
+  $ meridian agent "fix the failing test"  run an agent CLI, verified by your own checks`,
     );
 
   program
@@ -239,6 +241,25 @@ Examples:
     )
     .action(async (prompt: string[], opts: { provider?: string; model?: string }) =>
       done(await askCommand(prompt ?? [], opts)),
+    );
+
+  program
+    .command('agent [task...]')
+    .description(
+      'Hand a task to an installed agent CLI (Claude Code, Codex, Gemini) and verify the result with the project’s own checks',
+    )
+    .option('-p, --provider <id>', 'agent CLI to run: claude-code, codex-cli or gemini-cli')
+    .option('-m, --model <model>', 'model for the agent (default: the agent CLI’s own)')
+    .option('--mode <mode>', 'plan (read-only), edit (default) or auto')
+    .option('--no-verify', 'do not run the verification chain afterwards')
+    .option('--max-repairs <n>', 'repair turns after a failed verification, 0–5 (default: 2)')
+    .option('--resume [id]', 'continue the last session, or the one with this id')
+    .addHelpText(
+      'after',
+      '\nAfter the agent finishes, Meridian runs the project’s lint/typecheck/build/test\nscripts itself and sends any failure back to the same agent session to fix.\nSessions are recorded under Meridian’s home, never in the project.\nExamples:\n  $ meridian agent "make the failing test pass"\n  $ meridian agent "why is login slow?" --mode plan\n  $ cat error.log | meridian agent "fix this" -p codex-cli\n  $ meridian agent --resume "also cover the empty case"\n  $ meridian agent "…" --json            stream events as NDJSON',
+    )
+    .action(async (task: string[], opts: AgentOptions) =>
+      done(await agentCommand(task ?? [], opts)),
     );
 
   program

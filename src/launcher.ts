@@ -55,6 +55,7 @@ ${row('meridian generate', 'make your project AI-ready in one shot')}
 ${pc.bold('Everyday:')}
 ${row('meridian sync', 'refresh the AI kit when the codebase drifts')}
 ${row('meridian ask "…"', 'ask AI via the smart router')}
+${row('meridian agent "…"', 'run an agent CLI, verified by your own checks')}
 ${row('meridian mcp search', 'find & install MCP servers')}
 
 Run ${pc.bold('meridian --help')} for all commands, or ${pc.bold('meridian <command> --help')} for details.`);
