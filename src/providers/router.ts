@@ -234,33 +234,62 @@ class TransientNetworkError extends Error {
   }
 }
 
+/**
+ * The deadline for one request. It covers the whole exchange, not just the
+ * headers: a provider that sends headers and then stalls would otherwise
+ * leave the body read waiting forever. `touch` restarts the window — once
+ * when the headers arrive, and on every chunk of a stream, so a long answer
+ * that keeps arriving is never cut off, while a silent one is.
+ */
+interface RequestClock {
+  touch(): void;
+  /** Stop the clock; every path that received a response must call this. */
+  done(): void;
+  readonly timedOut: boolean;
+}
+
+function timeoutError(ctx: PostContext, timeoutMs: number): CliError {
+  return new CliError(`${ctx.provider}: request timed out after ${timeoutMs / 1000}s`, {
+    hint: 'The provider stopped responding. Check your connection or try another provider with --provider.',
+  });
+}
+
 async function rawPost(
   url: string,
   headers: Record<string, string>,
   body: unknown,
   ctx: PostContext,
-): Promise<Response> {
+): Promise<{ res: Response; clock: RequestClock }> {
   const timeoutMs = ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer = setTimeout(() => controller.abort(), timeoutMs);
+  const clock: RequestClock = {
+    touch() {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), timeoutMs);
+    },
+    done() {
+      clearTimeout(timer);
+    },
+    get timedOut() {
+      return controller.signal.aborted;
+    },
+  };
   try {
-    return await fetchImpl(url, {
+    const res = await fetchImpl(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+    clock.touch();
+    return { res, clock };
   } catch (err) {
+    clock.done();
     // A timeout is deliberate, not transient: retrying a hung provider just
     // multiplies the wait, so it is reported instead of retried.
-    if (controller.signal.aborted) {
-      throw new CliError(`${ctx.provider}: request timed out after ${timeoutMs / 1000}s`, {
-        hint: 'The provider did not respond. Check your connection or try another provider with --provider.',
-      });
-    }
+    if (controller.signal.aborted) throw timeoutError(ctx, timeoutMs);
     throw new TransientNetworkError(err);
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -273,8 +302,9 @@ async function post(
   for (let attempt = 1; ; attempt++) {
     const last = attempt >= MAX_ATTEMPTS;
     let res: Response;
+    let clock: RequestClock;
     try {
-      res = await rawPost(url, headers, body, ctx);
+      ({ res, clock } = await rawPost(url, headers, body, ctx));
     } catch (err) {
       if (err instanceof TransientNetworkError && !last) {
         await sleep(backoffFor(attempt));
@@ -292,12 +322,18 @@ async function post(
       throw err;
     }
 
-    const failure = await classifyStatus(res, ctx, last);
-    if (failure === 'retry') {
-      await sleep(retryAfterMs(res) ?? backoffFor(attempt));
-      continue;
+    try {
+      if ((await classifyStatus(res, ctx, last)) === 'ok') {
+        const data: unknown = await res.json();
+        return data;
+      }
+    } catch (err) {
+      if (clock.timedOut) throw timeoutError(ctx, ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+      throw err;
+    } finally {
+      clock.done();
     }
-    return res.json();
+    await sleep(retryAfterMs(res) ?? backoffFor(attempt));
   }
 }
 
@@ -358,8 +394,9 @@ async function postStream(
   onDelta: (text: string) => void,
 ): Promise<string> {
   let res: Response;
+  let clock: RequestClock;
   try {
-    res = await rawPost(url, headers, body, ctx);
+    ({ res, clock } = await rawPost(url, headers, body, ctx));
   } catch (err) {
     if (err instanceof TransientNetworkError) {
       throw new CliError(`${ctx.provider}: network error — ${err.message}`, {
@@ -372,6 +409,23 @@ async function postStream(
     }
     throw err;
   }
+  try {
+    return await readStream(res, ctx, clock, deltaOf, onDelta);
+  } catch (err) {
+    if (clock.timedOut) throw timeoutError(ctx, ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    throw err;
+  } finally {
+    clock.done();
+  }
+}
+
+async function readStream(
+  res: Response,
+  ctx: PostContext,
+  clock: RequestClock,
+  deltaOf: (frame: unknown) => string,
+  onDelta: (text: string) => void,
+): Promise<string> {
   await classifyStatus(res, ctx, true);
   if (!res.body) throw new CliError(`${ctx.provider}: the provider sent an empty response`);
 
@@ -397,6 +451,7 @@ async function postStream(
   };
 
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    clock.touch();
     buffer += decoder.decode(chunk, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
