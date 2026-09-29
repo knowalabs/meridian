@@ -54,7 +54,7 @@ Run `meridian` with no arguments for the interactive launcher: navigate with **�
 
 | Command                                       | What it does                                                                                                                                                                                            |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `meridian doctor`                             | Health check: environment, installed tools, which AI providers are usable right now, key vault, and whether this project's kit is stale                                                                 |
+| `meridian doctor`                             | Health check: environment, installed tools, which AI providers are usable right now, agent CLI versions, key vault, and whether this project's kit is stale                                             |
 | `meridian install <tool>` \| `all`            | Install and configure supported tools (npm / Homebrew / winget)                                                                                                                                         |
 | `meridian auth [provider]`                    | Store an API key in the secure vault (OpenAI, Anthropic, Google, OpenRouter, Groq, DeepSeek, Mistral, xAI)                                                                                              |
 | `meridian keys list/remove/repair`            | Manage stored keys (always masked, never plaintext)                                                                                                                                                     |
@@ -62,6 +62,7 @@ Run `meridian` with no arguments for the interactive launcher: navigate with **�
 | `meridian sync [--check]`                     | Detect drift between the codebase and the generated kit; refresh stale files (hand edits preserved). `--check` is a CI gate: exit 1 when stale                                                          |
 | `meridian mcp search/install/remove/list`     | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                                                                                                              |
 | `meridian ask "<prompt>"`                     | AI router: picks the best provider by cost/speed/quality/context size; streams the answer, and reads piped stdin as context                                                                             |
+| `meridian agent "<task>"`                     | Hand a task to Claude Code, Codex or Gemini CLI, then verify the change with the project's own lint/build/test scripts — a failure goes back to the same agent session to fix                           |
 | `meridian router --prefer/--optimize/--model` | Configure routing behavior and the model each provider uses                                                                                                                                             |
 | `meridian update`                             | Update the CLI and installed tools                                                                                                                                                                      |
 | `meridian login`                              | Cloud Sync (on the roadmap, not available yet)                                                                                                                                                          |
@@ -73,7 +74,7 @@ Run `meridian` with no arguments for the interactive launcher: navigate with **�
 
 Every command accepts:
 
-- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `ask`, `generate`)
+- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `ask`, `generate`; `agent` streams one JSON event per line)
 - `--quiet` — errors only
 - `--verbose` — debug output and stack traces
 - `--no-color` — plain output (also honors `NO_COLOR`)
@@ -86,6 +87,26 @@ meridian ask "explain this repo" --json | jq -r .answer
 cat build-error.log | meridian ask "what failed here?"
 meridian ask "review this diff" --model claude-opus-4-8 < <(git diff)
 ```
+
+</details>
+
+<details>
+<summary><b>Running an agent — <code>meridian agent</code></b></summary>
+
+<br>
+
+`meridian agent` runs the agent CLI you already use — Claude Code, Codex or Gemini CLI, picked like `ask` picks a provider, or named with `-p` — and does not take its word for the result. It compares the working tree before and after, runs the project's own verification chain (one lint, typecheck, build and test script each, the same chain the kit documents), and sends a failure back to the same agent session to fix, up to `--max-repairs` times (default 2).
+
+```bash
+meridian agent "make the failing test pass"
+meridian agent "why is login slow?" --mode plan      # read-only
+cat error.log | meridian agent "fix this" -p codex-cli
+meridian agent --resume "also cover the empty case"
+```
+
+`--mode` is `plan` (read-only), `edit` (the default: file edits plus the commands your kit's `.claude/settings.json` allows) or `auto` (whatever the agent's own sandbox allows). No mode ever passes an agent's permission-bypass flag. Defaults can be set under `harness` in `~/.meridian/config.json` (`mode`, `maxRepairs`, and `verify` to replace the chain). Sessions are recorded under `~/.meridian/sessions/`, never in the project.
+
+The agent runs with the repository's own hooks and MCP servers, and verification runs its scripts — use it in repositories you trust.
 
 </details>
 

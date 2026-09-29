@@ -81,6 +81,7 @@ These rules outrank convenience and your own judgement about what the code
 - `src/rules/generators.ts` owns rendering `.meridian/rules.md` into its five mirrors — no other code writes `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc` or `.github/copilot-instructions.md`.
 - `src/scan/*` is read-only analysis of the target project — nothing under it may write to the scanned project or mutate shared state.
 - `src/generate/manifest.ts` owns kit-drift detection (`signatureOf`, `fileStates`) — sync decisions go through it, not ad hoc hashing.
+- `src/harness/*` owns `meridian agent` sessions: `drivers/` turn each agent CLI's JSONL into `HarnessEvent`s (`events.ts`) and `run.ts` owns the verify-and-repair loop — a new agent CLI is a new driver keyed by its router provider id, never a second session loop. No driver mode may pass a CLI's permission-bypass flag (`bypassPermissions`, `--dangerously-*`, `danger-full-access`), and session records go under `meridianHome()`, never into the target project.
 - Crossing into `src/core/vault.ts`, `src/generate/artifacts.ts`, `.github/workflows/`, or `SECURITY.md` needs explicit approval — CODEOWNERS names exactly these as the security-critical surface.
 - Never bypass `isAllowedPath` for a new write path, and never require a provider to speak more than plain `ask(prompt: string)` — the keyless CLI providers (`claude-code`, `codex-cli`, `gemini-cli`) only understand a text prompt, so a structured protocol added for one provider must stay optional for the rest.
 
