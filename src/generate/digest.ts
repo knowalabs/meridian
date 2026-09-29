@@ -91,7 +91,34 @@ export function digestBudgetFor(contextTokens: number): number {
   return Math.floor(contextTokens * 4 * 0.3);
 }
 
-function excerpt(file: string, cap: number): string | null {
+/**
+ * True when `file` really lives inside `realRoot` (the project's resolved
+ * path). Checking the path as written is not enough: a symlink inside the
+ * project can point at a key file anywhere on the machine, and whatever it
+ * resolves to would be sent to the AI provider. Links that stay inside the
+ * project are fine.
+ */
+export function insideProject(realRoot: string, file: string): boolean {
+  try {
+    const rel = path.relative(realRoot, fs.realpathSync(file));
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+/** The project's resolved path, for `insideProject`; falls back to the path as given. */
+export function realRootOf(root: string): string {
+  try {
+    return fs.realpathSync(root);
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+/** A file's text, capped — or null for anything missing, binary, or outside the project. */
+function excerpt(realRoot: string, file: string, cap: number): string | null {
+  if (!insideProject(realRoot, file)) return null;
   let raw: string;
   try {
     raw = fs.readFileSync(file, 'utf8');
@@ -243,9 +270,10 @@ export function buildDigest(
   let budget = cap - codeMapText.length - gitText.length;
   const files = [...KEY_FILES, ...sampleSources(a, root, sampleMax, ignore, churn)];
   const includedFiles: string[] = [];
+  const realRoot = realRootOf(root);
   for (const rel of files) {
     if (budget <= 0) break;
-    const content = excerpt(path.join(root, rel), Math.min(perFileCap, budget));
+    const content = excerpt(realRoot, path.join(root, rel), Math.min(perFileCap, budget));
     if (content === null) continue;
     sections.push(`\n## File: ${rel}\n\n\`\`\`\n${content}\n\`\`\``);
     includedFiles.push(rel);
@@ -322,6 +350,7 @@ export function serveFileRequests(
   const refused: { file: string; reason: string }[] = [];
   const sections: string[] = [];
   let budget = budgetChars;
+  const realRoot = realRootOf(root);
 
   for (const raw of requested) {
     const rel = path.posix.normalize(raw.replace(/\\/g, '/').replace(/^\.\//, ''));
@@ -349,7 +378,11 @@ export function serveFileRequests(
       refused.push({ file: rel, reason: 'is ignored by this project' });
       continue;
     }
-    const content = excerpt(full, Math.min(PER_FILE_CAP * 2, budget));
+    if (!insideProject(realRoot, full)) {
+      refused.push({ file: rel, reason: 'links outside the project' });
+      continue;
+    }
+    const content = excerpt(realRoot, full, Math.min(PER_FILE_CAP * 2, budget));
     if (content === null) {
       refused.push({ file: rel, reason: 'is not readable text' });
       continue;
