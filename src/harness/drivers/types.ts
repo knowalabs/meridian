@@ -79,7 +79,8 @@ export function versionAtLeast(version: string | null, min: string): boolean {
 /** A path as the project knows it: relative to `cwd` when inside it, POSIX separators. */
 export function projectPath(cwd: string, file: string): string {
   const rel = path.isAbsolute(file) ? path.relative(cwd, file) : file;
-  const inside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+  if (rel === '') return '.';
+  const inside = !rel.startsWith('..') && !path.isAbsolute(rel);
   return (inside ? rel : file).split(path.sep).join('/');
 }
 

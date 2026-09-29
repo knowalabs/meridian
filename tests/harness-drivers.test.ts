@@ -158,5 +158,6 @@ describe('driver helpers', () => {
     expect(projectPath('/work/proj', '/work/proj/src/a.ts')).toBe('src/a.ts');
     expect(projectPath('/work/proj', 'src/a.ts')).toBe('src/a.ts');
     expect(projectPath('/work/proj', '/etc/hosts')).toBe('/etc/hosts');
+    expect(projectPath('/work/proj', '/work/proj')).toBe('.');
   });
 });

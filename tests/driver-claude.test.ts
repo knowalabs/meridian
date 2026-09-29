@@ -153,7 +153,8 @@ describe('claude-code args', () => {
     const plan = args({ policy: { mode: 'plan', allowCommands: [], source: 'none' } });
     const edit = args({ policy: { mode: 'edit', allowCommands, source: 'kit' } });
     const auto = args({ policy: { mode: 'auto', allowCommands, source: 'kit' } });
-    expect(plan).toEqual(expect.arrayContaining(['--permission-mode', 'plan']));
+    // Claude's own plan mode writes outside the project; read-only is manual mode with no approver.
+    expect(plan).toEqual(expect.arrayContaining(['--permission-mode', 'manual']));
     expect(edit).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits']));
     expect(edit.slice(edit.indexOf('--allowedTools'))).toEqual([
       '--allowedTools',
@@ -170,5 +171,13 @@ describe('claude-code args', () => {
 
   it('leaves --permission-prompts out for releases that predate it', () => {
     expect(args({ cliVersion: '2.1.200' })).not.toContain('--permission-prompts');
+  });
+
+  it('names the read-only mode the way older releases expect', () => {
+    const plan = args({
+      cliVersion: '2.1.100',
+      policy: { mode: 'plan', allowCommands: [], source: 'none' },
+    });
+    expect(plan).toEqual(expect.arrayContaining(['--permission-mode', 'default']));
   });
 });

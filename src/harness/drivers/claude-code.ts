@@ -17,6 +17,8 @@ import {
 
 /** `--permission-prompts none` arrived here; older releases already deny unanswerable prompts under -p. */
 const PERMISSION_PROMPTS_SINCE = '2.1.259';
+/** Releases from here name the default mode `manual`; older ones only accept `default`. */
+const MANUAL_MODE_SINCE = '2.1.200';
 
 const EDIT_TOOLS: Record<string, FileChange> = {
   Write: 'unknown',
@@ -64,8 +66,15 @@ export const claudeCodeDriver: Driver = {
     ];
     if (turn.model !== CLI_DEFAULT_MODEL) args.push('--model', turn.model);
     const { mode, allowCommands } = turn.policy;
-    if (mode === 'plan') args.push('--permission-mode', 'plan');
-    else if (mode === 'auto') args.push('--permission-mode', 'auto');
+    // Read-only is the default mode with nobody to approve anything, not Claude's own
+    // `plan` mode: that one writes a plan file under ~/.claude/plans and hunts for a
+    // way to exit planning, which is neither read-only nor what the user asked for.
+    if (mode === 'plan') {
+      args.push(
+        '--permission-mode',
+        versionAtLeast(turn.cliVersion, MANUAL_MODE_SINCE) ? 'manual' : 'default',
+      );
+    } else if (mode === 'auto') args.push('--permission-mode', 'auto');
     else args.push('--permission-mode', 'acceptEdits');
     if (versionAtLeast(turn.cliVersion, PERMISSION_PROMPTS_SINCE)) {
       args.push('--permission-prompts', 'none');
