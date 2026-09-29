@@ -76,7 +76,7 @@ These rules outrank convenience and your own judgement about what the code
 
 - `src/generate/artifacts.ts` owns what an AI response may write (`isAllowedPath`) and the artifact-kind contract — no other module writes generated kit files directly.
 - `src/generate/pipeline.ts` owns orchestration (`dependencyWaves`, `concurrencyFor`, `generateKind`) — a new artifact kind declares `dependsOn` instead of reading another kind's output straight off disk.
-- `src/providers/router.ts` owns provider selection, retry/backoff and HTTP-vs-CLI dispatch — commands call `route()`/`pickProvider()`, never a provider's API directly.
+- `src/providers/router.ts` owns provider selection, retry/backoff and HTTP-vs-CLI dispatch — commands call `route()` (or `pickProvider()` in `src/generate/pipeline.ts`, which wraps it for generate/sync), never a provider's API directly.
 - `src/core/vault.ts` owns secret storage across all four backends — commands read/write secrets only through `openVault()`, never via `fs` directly.
 - `src/rules/generators.ts` owns rendering `.meridian/rules.md` into its five mirrors — no other code writes `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc` or `.github/copilot-instructions.md`.
 - `src/scan/*` is read-only analysis of the target project — nothing under it may write to the scanned project or mutate shared state.
