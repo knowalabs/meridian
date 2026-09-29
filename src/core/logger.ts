@@ -52,4 +52,8 @@ export const log = {
   json(value: unknown): void {
     console.log(JSON.stringify(value, null, 2));
   },
+  /** One compact JSON line (stdout), for commands that stream NDJSON under --json. */
+  event(value: unknown): void {
+    console.log(JSON.stringify(value));
+  },
 };
