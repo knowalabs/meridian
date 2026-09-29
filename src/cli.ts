@@ -65,7 +65,9 @@ export function buildCli(options: CliOptions = {}): Command {
 
   program
     .name('meridian')
-    .description('One command to set up every AI coding tool on any machine.')
+    .description(
+      "Set up every AI coding tool, then run any coding agent under your project's rules and checks.",
+    )
     .version(VERSION, '-v, --version', 'show the installed Meridian version')
     .showSuggestionAfterError(true)
     .showHelpAfterError(pc.dim('(run meridian --help for a list of commands)'))

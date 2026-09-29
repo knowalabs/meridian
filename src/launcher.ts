@@ -37,7 +37,7 @@ export function showBanner(): void {
     console.log(`  ${pc.green(pc.bold('Meridian'))}`);
   }
   console.log(
-    `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
+    `\n  ${pc.bold("Set up every AI coding tool, then run any coding agent under your project's rules and checks.")} ${pc.dim(`v${VERSION}`)}\n`,
   );
 }
 
@@ -45,7 +45,7 @@ export function showBanner(): void {
 export function showWelcome(): void {
   const row = (cmd: string, what: string) => `  ${pc.green(cmd.padEnd(28))} ${what}`;
   console.log(`
-${pc.bold(`Meridian ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
+${pc.bold(`Meridian ${pc.dim(`v${VERSION}`)}`)} — set up every AI coding tool, then run any coding agent under your project's rules and checks.
 
 ${pc.bold('Get started:')}
 ${row('meridian doctor', 'check tools, providers, vault and kit health')}
