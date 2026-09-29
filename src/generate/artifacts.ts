@@ -232,14 +232,24 @@ const kitContext = (extra: string[] = []): string =>
     .map((f) => `@${f}`)
     .join('\n');
 
-function verificationChecklist(a: ProjectAnalysis): string[] {
+/**
+ * The project's verification chain as named steps, in the order they must
+ * run. Exported for the agent harness, which runs this same chain after an
+ * agent edits files — one definition of "verified" for the kit and the
+ * harness, not two that drift.
+ */
+export function verificationSteps(a: ProjectAnalysis): { name: string; command: string }[] {
   const order = ['format', 'lint', 'typecheck', 'build', 'test'];
   return Object.keys(a.scripts)
     .filter((s) => order.some((o) => s === o || s.startsWith(o + ':')))
     .sort(
       (x, y) => order.findIndex((o) => x.startsWith(o)) - order.findIndex((o) => y.startsWith(o)),
     )
-    .map((s) => commandFor(a, s));
+    .map((name) => ({ name, command: commandFor(a, name) }));
+}
+
+function verificationChecklist(a: ProjectAnalysis): string[] {
+  return verificationSteps(a).map((s) => s.command);
 }
 
 /**
