@@ -14,14 +14,11 @@
     ],
     "ask": [
       "Edit(docs/**)",
-      "Write(docs/**)",
       "Edit(README.md)",
-      "Write(README.md)",
       "Edit(CLAUDE.md)",
       "Edit(AGENTS.md)",
       "Edit(GEMINI.md)",
       "Edit(.meridian/**)",
-      "Write(.meridian/**)",
       "Edit(.cursor/rules/meridian.mdc)",
       "Edit(.github/copilot-instructions.md)"
     ],

@@ -487,18 +487,17 @@ code "obviously" needs. Breaking one is a defect even when the code works.
 /**
  * Permission rules that make the documentation guard mechanical rather than
  * advisory: with these under `permissions.ask`, a harness cannot write a doc
- * or instruction file without the user seeing the prompt first.
+ * or instruction file without the user seeing the prompt first. Only `Edit`
+ * rules: Claude Code applies them to every tool that edits or creates a file,
+ * and ignores a `Write(path)` rule entirely (warning about it at startup).
  */
 const DOC_WRITE_RULES = [
   'Edit(docs/**)',
-  'Write(docs/**)',
   'Edit(README.md)',
-  'Write(README.md)',
   'Edit(CLAUDE.md)',
   'Edit(AGENTS.md)',
   'Edit(GEMINI.md)',
   'Edit(.meridian/**)',
-  'Write(.meridian/**)',
 ];
 
 /**
@@ -2968,9 +2967,11 @@ valid JSON object (no comments, no trailing commas) with:
 - "permissions.ask": require confirmation before writing documentation and
   instruction files, so they can never be rewritten as an unannounced side
   effect of a code change. Include, for the doc paths the digest actually
-  shows: "Edit(docs/**)", "Write(docs/**)", "Edit(README.md)",
-  "Write(README.md)", "Edit(CLAUDE.md)", "Edit(AGENTS.md)",
-  "Edit(GEMINI.md)", "Edit(.meridian/**)" and "Write(.meridian/**)".
+  shows: "Edit(docs/**)", "Edit(README.md)", "Edit(CLAUDE.md)",
+  "Edit(AGENTS.md)", "Edit(GEMINI.md)" and "Edit(.meridian/**)". Use only
+  Edit for file paths: an Edit rule covers every tool that edits or creates a
+  file, and Claude Code ignores path rules for Write, NotebookEdit and
+  MultiEdit (warning about them at startup).
 - "permissions.deny": deny reads of the secret material this project could
   hold — ".env" files and any credential/key paths the digest shows (e.g.
   "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)").

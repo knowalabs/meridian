@@ -756,6 +756,8 @@ describe('static fallbacks', () => {
     expect(prompt).toContain('.claude/settings.json');
     expect(prompt).toContain('NEVER allowlist anything destructive');
     expect(prompt).toContain('"permissions.ask"');
+    // It must not teach the provider path rules Claude Code never consults.
+    expect(prompt).not.toMatch(/"Write\(/);
   });
 
   it('harness fallback asks before documentation is written', () => {
@@ -766,8 +768,16 @@ describe('static fallbacks', () => {
       const parsed = JSON.parse(settings!.content) as {
         permissions: { allow: string[]; ask: string[] };
       };
-      for (const rule of ['Edit(docs/**)', 'Write(docs/**)', 'Edit(CLAUDE.md)', 'Edit(README.md)'])
+      for (const rule of [
+        'Edit(docs/**)',
+        'Edit(CLAUDE.md)',
+        'Edit(README.md)',
+        'Edit(.meridian/**)',
+      ])
         expect(parsed.permissions.ask).toContain(rule);
+      // Claude Code checks file paths against Edit rules only: a Write(path) rule
+      // is never consulted and draws a startup warning, and Edit already covers writes.
+      expect(parsed.permissions.ask.join(' ')).not.toMatch(/(Write|NotebookEdit|MultiEdit)\(/);
       // The prompt would be pointless if a write to the same path were allowed.
       expect(parsed.permissions.allow.join(' ')).not.toMatch(/Edit\(|Write\(/);
     } finally {
