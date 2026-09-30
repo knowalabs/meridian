@@ -34,7 +34,7 @@ Everything `src/generate/digest.ts` and `src/generate/pipeline.ts` read for a pr
 
 `meridian agent` (`src/harness/`) runs an agent CLI, so its boundary is permissions rather than an allowlist:
 
-- **Mode mapping** lives in each driver's `args()` (`src/harness/drivers/*.ts`), tested per mode. No mode may pass a bypass flag (`bypassPermissions`, `--dangerously-*`, `danger-full-access`). Read-only uses each CLI's default mode with nobody to approve anything — not Claude's or Gemini's own `plan` modes, which write outside the project or fall through to unrestricted execution.
+- **Mode mapping** lives in each driver's `args()` (`src/harness/drivers/*.ts`), tested per mode. No mode may pass a bypass flag (`bypassPermissions`, `--dangerously-*`, `danger-full-access`). Read-only uses each CLI's default mode with nobody to approve anything — not Claude's or Gemini's own `plan` modes, which write outside the project or fall through to unrestricted execution. For Claude it also removes every tool that can change a file (`--disallowedTools`), because a kit's allow rules still load in default mode and `Bash(npm run format)` rewrites files.
 - **Verification** (`src/harness/verify.ts`) runs commands split on whitespace, without a shell; `harness.verify` entries containing shell syntax are rejected. A failing command's output goes back to the agent fenced and labelled untrusted.
 - **Session records** (`src/harness/session.ts`) are written under `meridianHome()` with `0700`/`0600` modes, never into the project.
 

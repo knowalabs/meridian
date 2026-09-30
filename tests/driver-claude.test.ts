@@ -169,6 +169,22 @@ describe('claude-code args', () => {
     }
   });
 
+  it('removes every tool that can change files in read-only mode, whatever the kit allows', () => {
+    // Kit allow rules still load in manual mode: `Bash(npm run format)` would rewrite files.
+    const plan = args({ policy: { mode: 'plan', allowCommands: [], source: 'none' } });
+    expect(plan.slice(plan.indexOf('--disallowedTools'))).toEqual([
+      '--disallowedTools',
+      'Bash',
+      'PowerShell',
+      'Edit',
+      'Write',
+      'MultiEdit',
+      'NotebookEdit',
+    ]);
+    const edit = args({ policy: { mode: 'edit', allowCommands: [], source: 'none' } });
+    expect(edit).not.toContain('--disallowedTools');
+  });
+
   it('leaves --permission-prompts out for releases that predate it', () => {
     expect(args({ cliVersion: '2.1.200' })).not.toContain('--permission-prompts');
   });

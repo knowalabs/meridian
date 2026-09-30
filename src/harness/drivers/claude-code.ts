@@ -17,6 +17,8 @@ import {
 
 /** `--permission-prompts none` arrived here; older releases already deny unanswerable prompts under -p. */
 const PERMISSION_PROMPTS_SINCE = '2.1.259';
+/** Tools that can change a file or run a command; read-only sessions get none of them. */
+const READ_ONLY_DENY = ['Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 /** Releases from here name the default mode `manual`; older ones only accept `default`. */
 const MANUAL_MODE_SINCE = '2.1.200';
 
@@ -81,13 +83,17 @@ export const claudeCodeDriver: Driver = {
     }
     if (turn.resume) args.push('--resume', turn.resume);
     else if (turn.newSessionId) args.push('--session-id', turn.newSessionId);
-    // Variadic, so it goes last: nothing after it may be read as another rule.
+    // Variadic, so these go last: nothing after them may be read as another rule.
     if (mode === 'edit' && allowCommands.length) {
       args.push(
         '--allowedTools',
         ...allowCommands.map((c) => (c.exact ? `Bash(${c.prefix})` : `Bash(${c.prefix}:*)`)),
       );
     }
+    // The kit's own allow rules still load in manual mode, and `Bash(npm run
+    // format)` rewrites files. Read-only means removing every tool that can
+    // change a file, which only narrows what the session may do.
+    if (mode === 'plan') args.push('--disallowedTools', ...READ_ONLY_DENY);
     return args;
   },
 
