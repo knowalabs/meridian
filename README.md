@@ -63,6 +63,7 @@ Run `meridian` with no arguments for the interactive launcher: navigate with **�
 | `meridian mcp search/install/remove/list`     | Curated MCP marketplace — one install configures all detected tools (incl. Claude Desktop)                                                                                                              |
 | `meridian ask "<prompt>"`                     | AI router: picks the best provider by cost/speed/quality/context size; streams the answer, and reads piped stdin as context                                                                             |
 | `meridian agent "<task>"`                     | Hand a task to Claude Code, Codex or Gemini CLI, then verify the change with the project's own lint/build/test scripts — a failure goes back to the same agent session to fix                           |
+| `meridian lessons [accept/reject/remove]`     | Review the rules Meridian learned from failures an agent repaired; accepted ones go into every tool's instruction file                                                                                  |
 | `meridian router --prefer/--optimize/--model` | Configure routing behavior and the model each provider uses                                                                                                                                             |
 | `meridian update`                             | Update the CLI and installed tools                                                                                                                                                                      |
 | `meridian login`                              | Cloud Sync (on the roadmap, not available yet)                                                                                                                                                          |
@@ -74,7 +75,7 @@ Run `meridian` with no arguments for the interactive launcher: navigate with **�
 
 Every command accepts:
 
-- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `ask`, `generate`; `agent` streams one JSON event per line)
+- `--json` — machine-readable output (`doctor`, `keys list`, `mcp list/search`, `ask`, `generate`, `lessons`; `agent` streams one JSON event per line)
 - `--quiet` — errors only
 - `--verbose` — debug output and stack traces
 - `--no-color` — plain output (also honors `NO_COLOR`)
@@ -107,6 +108,16 @@ meridian agent --resume "also cover the empty case"
 `--mode` is `plan` (read-only), `edit` (the default: file edits plus the commands your kit's `.claude/settings.json` allows) or `auto` (whatever the agent's own sandbox allows). No mode ever passes an agent's permission-bypass flag. Defaults can be set under `harness` in `~/.meridian/config.json` (`mode`, `maxRepairs`, and `verify` to replace the chain). Sessions are recorded under `~/.meridian/sessions/`, never in the project.
 
 The agent runs with the repository's own hooks and MCP servers, and verification runs its scripts — use it in repositories you trust.
+
+**Lessons: a mistake one agent makes becomes a rule every agent follows.** When a change fails your checks and the repair fixes it, Meridian asks that same agent session — read-only — for the one rule that would have prevented the failure. You review it (`[y/N]` on a terminal, or later with `meridian lessons`); once accepted it goes into `.meridian/lessons.md` and from there into `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor's and Copilot's instruction files, so the next agent — whichever vendor — doesn't repeat it.
+
+```bash
+meridian lessons                 # accepted lessons, and those awaiting review
+meridian lessons accept 3f9a2c   # add a pending lesson for every tool
+meridian lessons remove 2        # drop an accepted lesson
+```
+
+A lesson is AI-written text that reaches every agent's instructions, so it never lands without your approval, and every line is checked whenever it is read or written: one plain sentence, no links, markup or `@` file references, nothing that weakens a check, and only scripts and paths that exist. Turn learning off with `--no-learn` or `harness.learn: false`.
 
 </details>
 
