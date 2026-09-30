@@ -391,6 +391,36 @@ describe('syncCommand — option handling, JSON and failure paths', () => {
       expect(await syncCommand({ check: true }, root)).toBe(0);
     });
 
+    it('records what it propagated, so the mirrors do not read as hand-edited afterwards', async () => {
+      await generateKit(root);
+      fs.appendFileSync(rulesPath(), '\n- my own rule\n');
+      expect(await syncCommand({ ai: false }, root)).toBe(0);
+      configureLogger({ json: true });
+      expect(await syncCommand({ check: true }, root)).toBe(0);
+      // The rules file stays "edited": that is what keeps a later refresh off the hand edit.
+      expect(lastJson<{ edited: string[] }>().edited).toEqual(['.meridian/rules.md']);
+    });
+
+    it('writes nothing under --dry-run', async () => {
+      await generateKit(root);
+      fs.appendFileSync(rulesPath(), '\n- my own rule\n');
+      expect(await syncCommand({ ai: false, dryRun: true }, root)).toBe(0);
+      expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).not.toContain('my own rule');
+      expect(output()).toContain('would propagate');
+    });
+
+    it('never creates a mirror the project did not have', async () => {
+      setToolDetectionForTests(() => ['claude']);
+      await generateKit(root);
+      expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+      // The machine now has every tool installed; the project still only uses Claude.
+      setToolDetectionForTests(() => RULE_TARGETS.map((t) => t.id));
+      fs.appendFileSync(rulesPath(), '\n- my own rule\n');
+      expect(await syncCommand({ ai: false }, root)).toBe(0);
+      expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain('my own rule');
+      expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+    });
+
     it('leaves a hand-edited mirror alone — that case is overwritten on generate', async () => {
       await generateKit(root);
       fs.appendFileSync(path.join(root, 'CLAUDE.md'), '\nhand edit\n');

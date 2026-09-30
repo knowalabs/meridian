@@ -8,9 +8,10 @@ import {
   fingerprintOf,
   MANIFEST_FILE,
   readManifest,
+  recordSignatures,
 } from '../generate/manifest.js';
 import { jsonMode, log } from '../core/logger.js';
-import { generateRules, staleMirrors } from '../rules/generators.js';
+import { generateRules, RULE_TARGETS, staleMirrors } from '../rules/generators.js';
 
 /** The canonical rules file, as recorded in the manifest. */
 const RULES_FILE = '.meridian/rules.md';
@@ -84,9 +85,21 @@ export async function syncCommand(
 
   // Mirrors are re-rendered from the rules file itself — no AI call, no
   // regeneration, so a hand-edited rules.md survives and reaches every tool.
+  // Only the stale ones: a tool installed on this machine is not a tool this
+  // project uses, and a mirror it never had is not sync's to create.
   if (mirrors.length && !opts.check) {
-    for (const g of generateRules(cwd, analysis.name, mirrorTools({ root: cwd })))
-      log.ok(`${g.file} ${pc.dim('(rules propagated)')}`);
+    if (opts.dryRun) {
+      for (const f of mirrors)
+        log.info(`${pc.cyan('→')} would propagate .meridian/rules.md into ${f}`);
+    } else {
+      const stale = RULE_TARGETS.filter((t) => mirrors.includes(t.file)).map((t) => t.id);
+      const written = generateRules(cwd, analysis.name, stale);
+      recordSignatures(
+        cwd,
+        written.map((g) => g.file),
+      );
+      for (const g of written) log.ok(`${g.file} ${pc.dim('(rules propagated)')}`);
+    }
   }
 
   if (!stale) {

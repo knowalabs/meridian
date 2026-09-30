@@ -172,6 +172,29 @@ export function writeManifest(root: string, manifest: KitManifest): void {
   writeFileAtomic(path.join(root, MANIFEST_FILE), JSON.stringify(manifest, null, 2) + '\n');
 }
 
+/**
+ * Re-record the signatures of tracked files Meridian itself just rewrote
+ * outside a generate run — mirrors `sync` re-rendered from an edited rules
+ * file — so a later sync does not mistake its own output for a hand edit.
+ * The fingerprint and generation date stay as they were: nothing was
+ * regenerated, and changing them would hide drift.
+ */
+export function recordSignatures(root: string, files: string[]): void {
+  const manifest = readManifest(root);
+  if (!manifest) return;
+  let changed = false;
+  for (const file of files) {
+    if (!(file in manifest.files)) continue;
+    try {
+      manifest.files[file] = signatureOf(fs.readFileSync(path.join(root, file), 'utf8'));
+      changed = true;
+    } catch {
+      // Unreadable right after writing it: leave the old record rather than guess.
+    }
+  }
+  if (changed) writeManifest(root, manifest);
+}
+
 /** How each manifest-tracked file stands on disk right now. */
 export interface FileStates {
   /** Unchanged since generation — safe for sync to overwrite. */
