@@ -1,6 +1,6 @@
 {
   "name": "@knowalabs/meridian",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Set up every AI coding tool, then run any coding agent under your project's rules and checks.",
   "keywords": [
     "ai",
