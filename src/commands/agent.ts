@@ -1,7 +1,9 @@
+import path from 'node:path';
+import pc from 'picocolors';
 import { loadConfig } from '../core/config.js';
 import { CliError, EXIT } from '../core/errors.js';
 import { jsonMode, log } from '../core/logger.js';
-import { readPipedInput } from '../core/prompt.js';
+import { promptLine, readPipedInput } from '../core/prompt.js';
 import { CLI_DEFAULT_MODEL } from '../providers/router.js';
 import { analyzeProject } from '../scan/analyzer.js';
 import {
@@ -21,6 +23,9 @@ import { createRenderer } from '../harness/render.js';
 import { runAgentSession } from '../harness/run.js';
 import { latestSessionId, recordSink, resumeInfo } from '../harness/session.js';
 import { verifyPlan } from '../harness/verify.js';
+import { acceptLesson, type PendingLesson } from '../harness/lessons.js';
+import { RULE_TARGETS } from '../rules/generators.js';
+import { LESSONS_FILE } from '../rules/lessons.js';
 
 export interface AgentOptions {
   provider?: string;
@@ -31,7 +36,17 @@ export interface AgentOptions {
   maxRepairs?: string;
   /** True for a bare --resume, the session id when one is given. */
   resume?: string | boolean;
+  /** False with --no-learn. */
+  learn?: boolean;
 }
+
+/** Files every AI tool reads as instructions; an agent editing one is worth a second look. */
+const INSTRUCTION_FILES = [
+  '.meridian/rules.md',
+  LESSONS_FILE,
+  // Changed files come from git, which always uses forward slashes.
+  ...RULE_TARGETS.map((t) => t.file.split(path.sep).join('/')),
+];
 
 const EXIT_FOR: Record<SessionStatus, number> = {
   succeeded: EXIT.OK,
@@ -70,6 +85,8 @@ export async function agentCommand(
   const maxRepairs =
     opts.maxRepairs !== undefined ? parseRepairs(opts.maxRepairs) : (defaults.maxRepairs ?? 2);
   const verify = opts.verify !== false;
+  // --no-learn wins; otherwise the config decides, and learning is on by default.
+  const learn = opts.learn === false ? false : (defaults.learn ?? true);
 
   const resume =
     opts.resume === undefined
@@ -134,7 +151,50 @@ export async function agentCommand(
     maxRepairs,
     cliVersion: agentCliVersion(spec),
     sinks: [createRenderer({ json: jsonMode() }), record.sink],
+    learn,
     ...(resume ? { resume } : {}),
   });
+
+  const touched = result.filesChanged.filter((f) => INSTRUCTION_FILES.includes(f));
+  if (touched.length && !jsonMode()) {
+    log.warn(
+      `The agent edited ${touched.join(', ')}, which every AI tool reads as instructions. Review that change before committing it.`,
+    );
+  }
+  if (result.lesson) await offerLesson(root, result.lesson);
   return EXIT_FOR[result.status];
+}
+
+/**
+ * Ask whether a just-learned lesson should reach every tool. Only on a
+ * terminal, and No by default: a lesson becomes part of every agent's
+ * instructions, so it is never added without someone reading it first.
+ * Declining keeps it pending, since "not now" is the common answer.
+ */
+async function offerLesson(root: string, lesson: PendingLesson): Promise<void> {
+  if (jsonMode()) return;
+  const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  if (!interactive) {
+    log.dim(
+      `  Review it with: meridian lessons  (accept with: meridian lessons accept ${lesson.id})`,
+    );
+    return;
+  }
+  // Escaped so a reviewer sees exactly the characters every agent will read.
+  const shown = JSON.stringify(lesson.text).replace(
+    /[^\x20-\x7e]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+  const answer = await promptLine(
+    `\n  ${shown}\n  Add this lesson for every AI tool in this project? [y/N] `,
+  );
+  if (!/^y(es)?$/i.test(answer)) {
+    log.dim(`  Kept for later: meridian lessons accept ${lesson.id}`);
+    return;
+  }
+  const applied = acceptLesson(root, lesson.id);
+  log.ok(
+    `Lesson added to ${applied.mirrors.join(', ')} ${pc.dim(`(+${applied.tokenDelta} tokens per request)`)}`,
+  );
+  for (const file of applied.overwritten) log.warn(`${file} had hand edits; they were replaced.`);
 }

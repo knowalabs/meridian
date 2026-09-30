@@ -74,13 +74,20 @@ describe('config corruption handling', () => {
     fs.writeFileSync(
       file,
       JSON.stringify({
-        harness: { mode: 'auto', maxRepairs: 3, verify: ['make check', 4, ' '] },
+        harness: { mode: 'auto', maxRepairs: 3, verify: ['make check', 4, ' '], learn: false },
       }),
     );
-    expect(loadConfig().harness).toEqual({ mode: 'auto', maxRepairs: 3, verify: ['make check'] });
+    expect(loadConfig().harness).toEqual({
+      mode: 'auto',
+      maxRepairs: 3,
+      verify: ['make check'],
+      learn: false,
+    });
     fs.writeFileSync(
       file,
-      JSON.stringify({ harness: { mode: 'yolo', maxRepairs: 50, verify: 'make check' } }),
+      JSON.stringify({
+        harness: { mode: 'yolo', maxRepairs: 50, verify: 'make check', learn: 'no' },
+      }),
     );
     expect(loadConfig().harness).toBeUndefined();
     fs.writeFileSync(file, JSON.stringify({ harness: { maxRepairs: 1.5 } }));

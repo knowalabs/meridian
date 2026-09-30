@@ -24,6 +24,8 @@ export interface HarnessConfig {
   maxRepairs?: number;
   /** Verify commands replacing the kit's chain, each run without a shell. */
   verify?: string[];
+  /** Ask for a lesson after a repaired failure (default true). */
+  learn?: boolean;
 }
 
 export interface MeridianConfig {

@@ -163,3 +163,73 @@ describe('agentCommand', () => {
     expect(await agentCommand(['x'], { maxRepairs: '1' }, project)).toBe(EXIT.ERROR);
   });
 });
+
+describe('agentCommand and lessons', () => {
+  const LESSON = 'Write `out.txt` with a trailing newline; `check.js` compares the whole file.';
+
+  beforeEach(async () => {
+    installFakeClaude();
+    fs.writeFileSync(
+      path.join(project, 'package.json'),
+      JSON.stringify({ name: 'p', scripts: { test: 'node check.js' } }),
+    );
+    fs.writeFileSync(path.join(project, 'check.js'), '');
+    const { runGenerate } = await import('../src/generate/pipeline.js');
+    await runGenerate({
+      root: project,
+      kinds: ['rules'],
+      force: false,
+      dryRun: false,
+      noAi: true,
+      tools: ['claude'],
+    });
+  });
+
+  /** An agent that needs one repair, then answers the lesson prompt. */
+  function repairThenTeach(): string[][] {
+    const calls: string[][] = [];
+    let edits = 0;
+    setDriverRunnerForTests(async (_cmd, args, o) => {
+      calls.push(args);
+      const lessonTurn = o.input?.includes('LESSON: NONE') === true;
+      if (!lessonTurn) fs.writeFileSync(path.join(project, 'out.txt'), `attempt ${++edits}\n`);
+      const text = lessonTurn ? `LESSON: ${LESSON}` : 'done';
+      o.onStdoutLine?.(
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }),
+      );
+      o.onStdoutLine?.(
+        JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 's' }),
+      );
+      return { ok: true, stdout: '', stderr: '', code: 0 };
+    });
+    let verifies = 0;
+    setVerifyRunnerForTests(async () => {
+      const ok = ++verifies > 1;
+      return { ok, code: ok ? 0 : 1, output: ok ? '' : 'nope' };
+    });
+    return calls;
+  }
+
+  it('leaves a learned lesson pending when nobody is at a terminal to approve it', async () => {
+    const calls = repairThenTeach();
+    expect(await agentCommand(['fix'], {}, project)).toBe(EXIT.OK);
+    expect(calls).toHaveLength(3);
+    const { pendingLessons } = await import('../src/harness/lessons.js');
+    expect(pendingLessons(project).map((p) => p.text)).toEqual([LESSON]);
+    expect(fs.existsSync(path.join(project, '.meridian', 'lessons.md'))).toBe(false);
+  });
+
+  it('spends no lesson turn with --no-learn, or when the config turns learning off', async () => {
+    let calls = repairThenTeach();
+    await agentCommand(['fix'], { learn: false }, project);
+    expect(calls).toHaveLength(2);
+
+    const { loadConfig, saveConfig } = await import('../src/core/config.js');
+    const config = loadConfig();
+    config.harness = { learn: false };
+    saveConfig(config);
+    calls = repairThenTeach();
+    await agentCommand(['fix'], {}, project);
+    expect(calls).toHaveLength(2);
+  });
+});

@@ -20,6 +20,12 @@ import {
 } from './commands/mcp.js';
 import { askCommand, routerConfigCommand } from './commands/ask.js';
 import { agentCommand, type AgentOptions } from './commands/agent.js';
+import {
+  lessonsAcceptCommand,
+  lessonsListCommand,
+  lessonsRejectCommand,
+  lessonsRemoveCommand,
+} from './commands/lessons.js';
 import { loginCommand, updateCommand } from './commands/update.js';
 import { ensureHome } from './core/paths.js';
 
@@ -256,6 +262,7 @@ Examples:
     .option('--no-verify', 'do not run the verification chain afterwards')
     .option('--max-repairs <n>', 'repair turns after a failed verification, 0–5 (default: 2)')
     .option('--resume [id]', 'continue the last session, or the one with this id')
+    .option('--no-learn', 'do not ask for a lesson after a failure the agent repaired')
     .addHelpText(
       'after',
       '\nAfter the agent finishes, Meridian runs the project’s lint/typecheck/build/test\nscripts itself and sends any failure back to the same agent session to fix.\nSessions are recorded under Meridian’s home, never in the project.\nExamples:\n  $ meridian agent "make the failing test pass"\n  $ meridian agent "why is login slow?" --mode plan\n  $ cat error.log | meridian agent "fix this" -p codex-cli\n  $ meridian agent --resume "also cover the empty case"\n  $ meridian agent "…" --json            stream events as NDJSON',
@@ -263,6 +270,32 @@ Examples:
     .action(async (task: string[], opts: AgentOptions) =>
       done(await agentCommand(task ?? [], opts)),
     );
+
+  const lessons = program
+    .command('lessons')
+    .description('Review the rules Meridian learned from failures an agent repaired')
+    .addHelpText(
+      'after',
+      "\nAfter meridian agent repairs a change that failed your checks, it asks the agent for\nthe one rule that would have prevented the failure. Accepted lessons go into\n.meridian/lessons.md and every AI tool's instruction file.\nExamples:\n  $ meridian lessons                 accepted and pending lessons\n  $ meridian lessons accept 3f9a2c   add a pending lesson for every tool\n  $ meridian lessons remove 2        drop the second accepted lesson",
+    );
+  lessons
+    .command('list', { isDefault: true })
+    .alias('ls')
+    .description('List accepted lessons and those awaiting review')
+    .action(() => done(lessonsListCommand()));
+  lessons
+    .command('accept <id>')
+    .description('Add a pending lesson to every AI tool in this project')
+    .action((id: string) => done(lessonsAcceptCommand(id)));
+  lessons
+    .command('reject <id>')
+    .description('Turn a pending lesson down so it is not proposed again')
+    .action((id: string) => done(lessonsRejectCommand(id)));
+  lessons
+    .command('remove <n>')
+    .alias('rm')
+    .description('Remove the n-th accepted lesson from every AI tool')
+    .action((n: string) => done(lessonsRemoveCommand(n)));
 
   program
     .command('router')

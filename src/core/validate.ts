@@ -53,6 +53,7 @@ export function coerceConfig(parsed: unknown, base: MeridianConfig): MeridianCon
       const verify = h.verify.filter((c): c is string => typeof c === 'string' && c.trim() !== '');
       if (verify.length > 0) harness.verify = verify;
     }
+    if (typeof h.learn === 'boolean') harness.learn = h.learn;
     if (Object.keys(harness).length > 0) base.harness = harness;
   }
   return base;
