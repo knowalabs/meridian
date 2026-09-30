@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { parseCmdShim, pickWhereMatch, runAsync, runStream } from '../src/core/exec.js';
+import { parseCmdShim, pickWhereMatch, run, runAsync, runStream } from '../src/core/exec.js';
 
 /** The shim npm's cmd-shim writes for a JS bin, e.g. a global `codex` install. */
 const JS_SHIM = [
@@ -62,6 +62,25 @@ describe('runAsync', () => {
     const res = await runAsync('bad\0command');
     expect(res.ok).toBe(false);
     expect(res.code).toBeNull();
+    expect(res.error).toMatch(/null bytes/);
+  });
+});
+
+describe('never throwing on bad input', () => {
+  const realPlatform = process.platform;
+  afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }));
+
+  it('run reports an argument Node rejects instead of throwing', () => {
+    const res = run('bad\0command');
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/null bytes/);
+  });
+
+  it('resolving a command on Windows cannot throw either', async () => {
+    // On Windows the command is looked up with `where` first, before any spawn.
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const res = await runAsync('bad\0command');
+    expect(res.ok).toBe(false);
     expect(res.error).toMatch(/null bytes/);
   });
 });

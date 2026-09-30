@@ -1,4 +1,10 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  spawn,
+  spawnSync,
+  type ChildProcessWithoutNullStreams,
+  type SpawnSyncOptionsWithStringEncoding,
+  type SpawnSyncReturns,
+} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -66,6 +72,25 @@ export function parseCmdShim(text: string, shimPath: string): Launcher | null {
  * to the script it wraps and run with this Node, or to the .exe it wraps.
  */
 const resolved = new Map<string, Launcher>();
+
+/**
+ * spawnSync that reports every failure in its result. Node validates
+ * arguments (a null byte, say) by throwing before it spawns anything, which
+ * would break the never-throws contract every helper here promises.
+ */
+function trySpawnSync(
+  file: string,
+  args: string[],
+  options: SpawnSyncOptionsWithStringEncoding,
+): SpawnSyncReturns<string> {
+  try {
+    return spawnSync(file, args, options);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    return { pid: 0, output: [], stdout: '', stderr: '', status: null, signal: null, error };
+  }
+}
+
 function resolveCommand(cmd: string): Launcher {
   const bare = { file: cmd, prefixArgs: [] };
   if (process.platform !== 'win32') return bare;
@@ -73,7 +98,7 @@ function resolveCommand(cmd: string): Launcher {
   if (cached) return cached;
   let file = cmd;
   if (path.win32.extname(cmd) === '' && !cmd.includes('\\') && !cmd.includes('/')) {
-    const res = spawnSync('where', [cmd], { encoding: 'utf8' });
+    const res = trySpawnSync('where', [cmd], { encoding: 'utf8' });
     file = (res.status === 0 ? pickWhereMatch(res.stdout ?? '') : null) ?? cmd;
   }
   let launcher: Launcher = { file, prefixArgs: [] };
@@ -97,7 +122,7 @@ export function run(
   opts: { timeoutMs?: number } = {},
 ): ExecResult {
   const launcher = resolveCommand(cmd);
-  const res = spawnSync(launcher.file, [...launcher.prefixArgs, ...args], {
+  const res = trySpawnSync(launcher.file, [...launcher.prefixArgs, ...args], {
     encoding: 'utf8',
     input,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -196,9 +221,9 @@ export function runStream(
       resolve({ ok: false, stdout: '', stderr: '', code: null, error: 'ABORTED', aborted: true });
       return;
     }
-    const launcher = resolveCommand(cmd);
     let child: ChildProcessWithoutNullStreams;
     try {
+      const launcher = resolveCommand(cmd);
       child = spawn(launcher.file, [...launcher.prefixArgs, ...args], {
         stdio: ['pipe', 'pipe', 'pipe'],
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
@@ -326,7 +351,10 @@ export async function runAsync(
 /** Run a command inheriting stdio (for interactive installs). */
 export function runLive(cmd: string, args: string[] = []): boolean {
   const launcher = resolveCommand(cmd);
-  const res = spawnSync(launcher.file, [...launcher.prefixArgs, ...args], { stdio: 'inherit' });
+  const res = trySpawnSync(launcher.file, [...launcher.prefixArgs, ...args], {
+    stdio: 'inherit',
+    encoding: 'utf8',
+  });
   return res.status === 0;
 }
 
