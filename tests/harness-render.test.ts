@@ -6,19 +6,22 @@ import { createRenderer } from '../src/harness/render.js';
 let stdout: string;
 let stderr: string;
 
+/** CI turns colors on (picocolors honours CI); assertions are about the words, not the escapes. */
+const plain = (chunk: unknown): string => String(chunk).replace(/\u001b\[[0-9;]*m/g, '');
+
 beforeEach(() => {
   stdout = '';
   stderr = '';
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-    stdout += String(chunk);
+    stdout += plain(chunk);
     return true;
   });
   vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-    stderr += String(chunk);
+    stderr += plain(chunk);
     return true;
   });
   vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
-    stdout += `${String(line)}\n`;
+    stdout += `${plain(line)}\n`;
   });
 });
 afterEach(() => {

@@ -100,6 +100,11 @@ export function validateLesson(
 ): LessonCheck {
   const checked = checkLessonText(raw);
   if (!checked.ok) return checked;
+  // A repeat is a repeat whatever it names, so it is caught before the grounding checks.
+  const key = lessonKey(checked.text);
+  if (existing.some((e) => lessonKey(e) === key)) {
+    return { ok: false, reason: 'repeats an existing lesson' };
+  }
   for (const claim of claimedScripts(checked.text)) {
     if (!(claim.script in scripts)) {
       return { ok: false, reason: `names \`${claim.command}\`, which this project does not have` };
@@ -110,10 +115,6 @@ export function validateLesson(
     if (!resolveInside(root, file) || !fs.existsSync(path.join(root, file))) {
       return { ok: false, reason: `names ${file}, which does not exist here` };
     }
-  }
-  const key = lessonKey(checked.text);
-  if (existing.some((e) => lessonKey(e) === key)) {
-    return { ok: false, reason: 'repeats an existing lesson' };
   }
   return checked;
 }
