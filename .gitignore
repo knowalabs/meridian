@@ -5,3 +5,5 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 .claude/settings.local.json
+# Private business planning — never published with the public repo.
+business/
