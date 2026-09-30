@@ -11,7 +11,7 @@ import {
   route,
 } from '../providers/router.js';
 import { openVault } from '../core/vault.js';
-import { writeFileAtomic } from '../core/fsx.js';
+import { realRootOf, writeFileAtomic } from '../core/fsx.js';
 import { generateRules } from '../rules/generators.js';
 import { detectedAiTools } from '../plugins/tools.js';
 import { log } from '../core/logger.js';
@@ -19,6 +19,7 @@ import { startSpinner } from '../core/spinner.js';
 import {
   buildDigest,
   digestBudgetFor,
+  insideProject,
   parseFileRequests,
   REQUEST_SPEC,
   serveFileRequests,
@@ -184,9 +185,14 @@ export function dependencyWaves(kinds: ArtifactKind[]): ArtifactKind[][] {
  */
 function readKitFiles(root: string, prefixes: string[]): ArtifactFile[] {
   const files: ArtifactFile[] = [];
+  // Everything read here is pasted into a prompt, so a kit file that is really
+  // a link to somewhere else on the machine is skipped, as the digest does.
+  const realRoot = realRootOf(root);
   const readOne = (rel: string): void => {
+    const full = path.join(root, rel);
+    if (!insideProject(realRoot, full)) return;
     try {
-      files.push({ file: rel, content: fs.readFileSync(path.join(root, rel), 'utf8') });
+      files.push({ file: rel, content: fs.readFileSync(full, 'utf8') });
     } catch {
       // Not generated yet — the dependent kind simply works without it.
     }
@@ -205,7 +211,7 @@ function readKitFiles(root: string, prefixes: string[]): ArtifactFile[] {
         walk(full, depth + 1);
         continue;
       }
-      if (!entry.name.endsWith('.md')) continue;
+      if (!entry.name.endsWith('.md') || !insideProject(realRoot, full)) continue;
       try {
         files.push({
           file: path.relative(root, full).split(path.sep).join('/'),

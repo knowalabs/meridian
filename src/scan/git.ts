@@ -215,6 +215,110 @@ export function collectGitSignal(
   };
 }
 
+/**
+ * One observation of a working tree, compared with a later one to learn which
+ * files changed in between — what an agent actually touched, whatever it
+ * claims. Each dirty path carries its status plus size and mtime, so a second
+ * edit to a file that was already modified still registers.
+ */
+export interface WorktreeSnapshot {
+  head: string | null;
+  /** Root-relative POSIX path → fingerprint. Clean files are absent. */
+  entries: Map<string, string>;
+}
+
+/** Paths from `status --porcelain=v2 -z`, relative to the repository root. */
+export function parsePorcelainV2(stdout: string): string[] {
+  const paths: string[] = [];
+  const tokens = stdout.split('\0');
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (!token) continue;
+    const fields = token.split(' ');
+    // Fixed fields before the path: ordinary 8, rename/copy 9, unmerged 10.
+    const skip = { '1': 8, '2': 9, u: 10 }[fields[0] as '1' | '2' | 'u'];
+    if (skip !== undefined) {
+      paths.push(fields.slice(skip).join(' '));
+      // A rename's original path follows as its own NUL-terminated token; the
+      // old name changed too (it stopped existing).
+      if (fields[0] === '2' && tokens[i + 1] !== undefined) paths.push(tokens[++i]!);
+    } else if (fields[0] === '?') {
+      paths.push(token.slice(2));
+    }
+  }
+  return paths;
+}
+
+/**
+ * Snapshot `root`'s working tree, or null when it is not in a git work tree.
+ * `--no-optional-locks` keeps this read-only: plain `git status` refreshes the
+ * index, which would both write to the scanned project and race an agent
+ * running git at the same moment. Porcelain v2 rather than v1 because `run()`
+ * trims output, and v1's first record can start with a meaningful space.
+ */
+export function worktreeSnapshot(root: string): WorktreeSnapshot | null {
+  if (!runner && !hasGitDir(root)) return null;
+  const prefix = git(root, ['rev-parse', '--show-prefix']);
+  if (!prefix.ok) return null;
+  const status = git(root, [
+    '--no-optional-locks',
+    'status',
+    '--porcelain=v2',
+    '-z',
+    '--untracked-files=all',
+    '--',
+    '.',
+  ]);
+  if (!status.ok) return null;
+  const head = git(root, ['rev-parse', '--verify', '--quiet', 'HEAD']);
+  const under = prefix.stdout.trim();
+  const entries = new Map<string, string>();
+  for (const repoPath of parsePorcelainV2(status.stdout)) {
+    if (!repoPath.startsWith(under)) continue;
+    const rel = repoPath.slice(under.length);
+    let fingerprint = 'missing';
+    try {
+      const stat = fs.statSync(path.join(root, rel));
+      fingerprint = `${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      // Deleted in the working tree; the absence itself is the fingerprint.
+    }
+    entries.set(rel, fingerprint);
+  }
+  return { head: head.ok && head.stdout ? head.stdout.trim() : null, entries };
+}
+
+/**
+ * Files that differ between two snapshots: edited, created, deleted or
+ * reverted in between, plus everything in commits made in between — an agent
+ * that commits its work leaves a clean tree, and must not look like it did
+ * nothing.
+ */
+export function changedSince(
+  root: string,
+  before: WorktreeSnapshot,
+  after: WorktreeSnapshot,
+): string[] {
+  const changed = new Set<string>();
+  for (const key of new Set([...before.entries.keys(), ...after.entries.keys()])) {
+    if (before.entries.get(key) !== after.entries.get(key)) changed.add(key);
+  }
+  if (before.head && after.head && before.head !== after.head) {
+    const committed = git(root, [
+      'diff',
+      '--name-only',
+      '--relative',
+      `${before.head}..${after.head}`,
+      '--',
+      '.',
+    ]);
+    if (committed.ok) {
+      for (const line of committed.stdout.split('\n')) if (line.trim()) changed.add(line.trim());
+    }
+  }
+  return [...changed].sort();
+}
+
 /** Churn per file, for ranking which files a digest should spend its budget on. */
 export function churnMap(signal: GitSignal | null): Map<string, number> {
   return new Map((signal?.hotspots ?? []).map((h) => [h.file, h.commits]));

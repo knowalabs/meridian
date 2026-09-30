@@ -26,6 +26,19 @@ Never bypass `openVault()` to read or write a secret directly via `fs` — every
 
 `isAllowedPath` (`src/generate/artifacts.ts`) checks every path an AI response names before anything is written: it rejects absolute paths, Windows drive letters, and `..` escapes, and requires the path to fall under one of the `ArtifactKind`'s declared `allowedPaths`. `SECURITY.md` states this plainly: "Prompt injection reaching a provider through the digest is a known property of the design, not a bug... It becomes a vulnerability when it escapes the write allowlist. That boundary is the thing to attack." Any new `ArtifactKind` or path-handling code must route through this function — never construct a write path independently.
 
+## Reads that reach a provider
+
+Everything `src/generate/digest.ts` and `src/generate/pipeline.ts` read for a prompt — key files, sampled sources, files the reviewer requests, existing kit files — passes `insideProject` (`src/generate/digest.ts`) first, which resolves the real path and rejects anything outside the project. Checking the path as written is not enough: a symlink inside the project can point at a key file anywhere on the machine. New code that puts file contents into a prompt must use the same check.
+
+## The agent harness
+
+`meridian agent` (`src/harness/`) runs an agent CLI, so its boundary is permissions rather than an allowlist:
+
+- **Mode mapping** lives in each driver's `args()` (`src/harness/drivers/*.ts`), tested per mode. No mode may pass a bypass flag (`bypassPermissions`, `--dangerously-*`, `danger-full-access`). Read-only uses each CLI's default mode with nobody to approve anything — not Claude's or Gemini's own `plan` modes, which write outside the project or fall through to unrestricted execution. For Claude it also removes every tool that can change a file (`--disallowedTools`), because a kit's allow rules still load in default mode and `Bash(npm run format)` rewrites files.
+- **Verification** (`src/harness/verify.ts`) runs commands split on whitespace, without a shell; `harness.verify` entries containing shell syntax are rejected. A failing command's output goes back to the agent fenced and labelled untrusted.
+- **Session records** (`src/harness/session.ts`) are written under `meridianHome()` with `0700`/`0600` modes, never into the project.
+- **Lessons** are AI-written text that reaches every tool's instruction file, which makes them a prompt-injection path into every agent. `src/rules/lessons.ts` validates every line on read and on write — one plain line, no markup, HTML, links or `@` file references (Claude Code expands those into the file's contents), no invisible characters, no override phrasing, nothing that weakens a check — and proposals must also name only scripts and paths that exist. Nothing is written without a human accepting the exact text (`meridian lessons accept`, or `[y/N]` defaulting to No); the lesson turn itself runs read-only, and if the agent changes files anyway the change is verified again.
+
 ## MCP config writes
 
 MCP server installs (`src/mcp/configure.ts`'s `addServer`/`writeConfig`) write `${VAR}` environment-variable references into a tool's config, never a resolved secret value — confirmed by `tests/mcp.test.ts`'s assertion that a stored `GITHUB_PERSONAL_ACCESS_TOKEN` never appears in the written `.mcp.json`. Writes are defensive against a config file that already exists and is malformed: `addServer` backs up an unparseable config and skips it rather than overwriting it (`tests/mcp.test.ts`'s "never destroys a malformed tool config" case), and refuses to merge into a config whose `mcpServers` field has an unexpected shape.

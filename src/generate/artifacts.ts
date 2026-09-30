@@ -232,14 +232,24 @@ const kitContext = (extra: string[] = []): string =>
     .map((f) => `@${f}`)
     .join('\n');
 
-function verificationChecklist(a: ProjectAnalysis): string[] {
+/**
+ * The project's verification chain as named steps, in the order they must
+ * run. Exported for the agent harness, which runs this same chain after an
+ * agent edits files — one definition of "verified" for the kit and the
+ * harness, not two that drift.
+ */
+export function verificationSteps(a: ProjectAnalysis): { name: string; command: string }[] {
   const order = ['format', 'lint', 'typecheck', 'build', 'test'];
   return Object.keys(a.scripts)
     .filter((s) => order.some((o) => s === o || s.startsWith(o + ':')))
     .sort(
       (x, y) => order.findIndex((o) => x.startsWith(o)) - order.findIndex((o) => y.startsWith(o)),
     )
-    .map((s) => commandFor(a, s));
+    .map((name) => ({ name, command: commandFor(a, name) }));
+}
+
+function verificationChecklist(a: ProjectAnalysis): string[] {
+  return verificationSteps(a).map((s) => s.command);
 }
 
 /**
@@ -477,18 +487,17 @@ code "obviously" needs. Breaking one is a defect even when the code works.
 /**
  * Permission rules that make the documentation guard mechanical rather than
  * advisory: with these under `permissions.ask`, a harness cannot write a doc
- * or instruction file without the user seeing the prompt first.
+ * or instruction file without the user seeing the prompt first. Only `Edit`
+ * rules: Claude Code applies them to every tool that edits or creates a file,
+ * and ignores a `Write(path)` rule entirely (warning about it at startup).
  */
 const DOC_WRITE_RULES = [
   'Edit(docs/**)',
-  'Write(docs/**)',
   'Edit(README.md)',
-  'Write(README.md)',
   'Edit(CLAUDE.md)',
   'Edit(AGENTS.md)',
   'Edit(GEMINI.md)',
   'Edit(.meridian/**)',
-  'Write(.meridian/**)',
 ];
 
 /**
@@ -2958,9 +2967,11 @@ valid JSON object (no comments, no trailing commas) with:
 - "permissions.ask": require confirmation before writing documentation and
   instruction files, so they can never be rewritten as an unannounced side
   effect of a code change. Include, for the doc paths the digest actually
-  shows: "Edit(docs/**)", "Write(docs/**)", "Edit(README.md)",
-  "Write(README.md)", "Edit(CLAUDE.md)", "Edit(AGENTS.md)",
-  "Edit(GEMINI.md)", "Edit(.meridian/**)" and "Write(.meridian/**)".
+  shows: "Edit(docs/**)", "Edit(README.md)", "Edit(CLAUDE.md)",
+  "Edit(AGENTS.md)", "Edit(GEMINI.md)" and "Edit(.meridian/**)". Use only
+  Edit for file paths: an Edit rule covers every tool that edits or creates a
+  file, and Claude Code ignores path rules for Write, NotebookEdit and
+  MultiEdit (warning about them at startup).
 - "permissions.deny": deny reads of the secret material this project could
   hold — ".env" files and any credential/key paths the digest shows (e.g.
   "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)").

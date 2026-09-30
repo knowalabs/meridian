@@ -24,6 +24,7 @@ export const HOME_SUBDIRS = [
   'rules',
   'prompts',
   'plugins',
+  'sessions',
 ] as const;
 
 export function ensureHome(): string {

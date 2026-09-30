@@ -17,6 +17,8 @@ import { diffFingerprints, fileStates, fingerprintOf, readManifest } from '../ge
 import { analyzeProject } from '../scan/analyzer.js';
 import { VERSION } from '../core/pkg.js';
 import { jsonMode, log } from '../core/logger.js';
+import { DRIVERS, INSTALL_NAME } from '../harness/drivers/index.js';
+import { parseVersion, versionAtLeast } from '../harness/drivers/types.js';
 
 /**
  * `meridian doctor` — the first command a new user runs, so it answers the
@@ -66,6 +68,18 @@ interface ProviderStatus {
   keyCheck?: KeyVerification;
 }
 
+interface AgentStatus {
+  id: string;
+  installed: boolean;
+  version: string | null;
+  /** Oldest release `meridian agent` can drive, when known. */
+  minVersion: string | null;
+  /** Release its parser was checked against, when one was. */
+  testedVersion: string | null;
+  level: Level;
+  note: string;
+}
+
 interface KitStatus {
   root: string;
   present: boolean;
@@ -82,6 +96,8 @@ export interface DoctorReportJson {
   tools: ToolStatus[];
   missing: number;
   providers: ProviderStatus[];
+  /** The agent CLIs `meridian agent` drives, and whether each is new enough. */
+  agents: AgentStatus[];
   /** Provider `generate` and `ask` would route to today, if any. */
   routesTo: string | null;
   vault: { backend: VaultBackend | null; keys: string[]; unreadable: string[] };
@@ -158,22 +174,77 @@ function toolStatuses(): ToolStatus[] {
     });
 }
 
-/** Vault reads must never take the whole command down. */
-function safeVaultKeys(): string[] {
+/**
+ * Agent CLIs change their headless flags between releases, so an install that
+ * predates what a driver relies on is called out here rather than failing
+ * halfway through an agent session.
+ */
+function agentStatuses(tools: ToolStatus[]): AgentStatus[] {
+  return Object.values(DRIVERS).map((driver) => {
+    const tool = tools.find((t) => t.id === INSTALL_NAME[driver.providerId]);
+    const version = parseVersion(tool?.version ?? null);
+    const base = {
+      id: driver.providerId,
+      installed: tool?.installed ?? false,
+      version,
+      minVersion: driver.minVersion,
+      testedVersion: driver.testedVersion,
+    };
+    if (!base.installed) return { ...base, level: 'warn', note: 'not installed' };
+    if (!version) return { ...base, level: 'warn', note: 'version could not be read' };
+    if (driver.minVersion && !versionAtLeast(version, driver.minVersion)) {
+      return { ...base, level: 'fail', note: `${version} is older than ${driver.minVersion}` };
+    }
+    if (!driver.testedVersion) {
+      return {
+        ...base,
+        level: 'ok',
+        note: `${version} (driver not yet checked against a real install)`,
+      };
+    }
+    return {
+      ...base,
+      level: 'ok',
+      note: versionAtLeast(driver.testedVersion, version)
+        ? version
+        : `${version} (newer than the ${driver.testedVersion} it was checked against)`,
+    };
+  });
+}
+
+/**
+ * Usable providers, even when the vault cannot be read: the ones that need no
+ * key are still worth reporting, and the vault section says what is wrong.
+ */
+function safeAvailableProviders(): string[] {
   try {
-    return openVault().list();
+    return availableProviders();
   } catch {
-    return [];
+    return availableProviders(PROVIDERS.filter((p) => !p.needsKey));
   }
 }
 
+/** Stored key names, or null when the vault cannot be read — never a thrown error. */
+function safeVaultKeys(): string[] | null {
+  try {
+    return openVault().list();
+  } catch {
+    return null;
+  }
+}
+
+/** Why a keyed provider is blocked when the vault itself is the problem. */
+const VAULT_UNREADABLE = 'the key vault could not be read';
+
 function providerStatuses(available: string[]): ProviderStatus[] {
-  const stored = new Set(safeVaultKeys());
+  const keys = safeVaultKeys();
+  const stored = new Set(keys ?? []);
   return PROVIDERS.map((p) => {
     const ready = available.includes(p.id);
     let blockedBy: string | null = null;
     if (!ready) {
-      if (p.needsKey && !stored.has(p.id)) blockedBy = 'no API key stored';
+      if (p.needsKey && keys === null) blockedBy = VAULT_UNREADABLE;
+      else if (p.needsKey && !stored.has(p.id)) blockedBy = 'no API key stored';
       else if (p.binary) blockedBy = `the "${p.binary}" CLI is not on PATH`;
       else blockedBy = 'disabled via MERIDIAN_DISABLE_PROVIDERS';
     }
@@ -271,9 +342,13 @@ function render(report: DoctorReportJson): void {
   // lines bury the providers that actually work. One line per reason instead.
   const needKey = report.providers.filter((p) => !p.ready && p.blockedBy?.includes('API key'));
   const needCli = report.providers.filter((p) => !p.ready && p.blockedBy?.includes('CLI'));
+  const vaultLocked = report.providers.filter((p) => !p.ready && p.blockedBy === VAULT_UNREADABLE);
   const otherwiseOff = report.providers.filter(
-    (p) => !p.ready && !needKey.includes(p) && !needCli.includes(p),
+    (p) => !p.ready && !needKey.includes(p) && !needCli.includes(p) && !vaultLocked.includes(p),
   );
+  if (vaultLocked.length) {
+    line('fail', 'vault locked', vaultLocked.map((p) => p.id).join(', '), 'meridian keys repair');
+  }
   if (needKey.length) {
     line('warn', 'need a key', needKey.map((p) => p.id).join(', '), 'meridian auth <provider>');
   }
@@ -297,6 +372,20 @@ function render(report: DoctorReportJson): void {
     log.info(
       `  ${pc.dim('No provider configured — generate and ask need one. Sign in to an AI CLI or run')} ${pc.bold('meridian auth')}${pc.dim('.')}`,
     );
+  }
+
+  log.info(`\n${pc.bold('Agent CLIs')} ${pc.dim('— what meridian agent can drive')}`);
+  for (const a of report.agents) {
+    if (!a.installed) continue;
+    line(
+      a.level,
+      a.id,
+      a.level === 'ok' ? pc.dim(a.note) : a.note,
+      a.level === 'fail' ? 'meridian update --tools' : undefined,
+    );
+  }
+  if (!report.agents.some((a) => a.installed)) {
+    line('warn', 'none', 'no agent CLI installed', 'meridian install claude (or codex, gemini)');
   }
 
   log.info(`\n${pc.bold('Key vault')}`);
@@ -362,7 +451,9 @@ function renderNextSteps(report: DoctorReportJson): void {
     steps.push('fix the environment problems above — nothing else will work reliably');
   }
   if (!report.routesTo) steps.push(`${pc.bold('meridian auth')} — or sign in to an AI CLI`);
-  if (report.vault.unreadable.length) steps.push(pc.bold('meridian keys repair'));
+  if (!report.vault.backend || report.vault.unreadable.length) {
+    steps.push(pc.bold('meridian keys repair'));
+  }
   if (!report.kit.present) {
     steps.push(`${pc.bold('meridian generate')} — make this project AI-ready`);
   } else if (report.kit.drift.length || report.kit.missing.length) {
@@ -390,7 +481,7 @@ export async function doctorCommand(
   opts: { online?: boolean } = {},
   cwd: string = process.cwd(),
 ): Promise<number> {
-  const available = availableProviders();
+  const available = safeAvailableProviders();
   const providers = providerStatuses(available);
   const vault = vaultStatus();
 
@@ -412,6 +503,7 @@ export async function doctorCommand(
     tools,
     missing: tools.filter((t) => !t.installed).length,
     providers,
+    agents: agentStatuses(tools),
     routesTo: route('generate ai project artifacts', available)?.provider.id ?? null,
     vault,
     kit: kitStatus(cwd),

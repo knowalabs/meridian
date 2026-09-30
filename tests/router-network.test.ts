@@ -166,6 +166,80 @@ describe('provider network behavior', () => {
     expect((err as CliError).message).toContain('timed out');
   });
 
+  /**
+   * A response whose headers arrive at once and whose body is written by
+   * `feed`; the body errors when the request is aborted, as a real one does.
+   */
+  function slowBody(
+    init: RequestInit | undefined,
+    feed: (push: (text: string) => void, close: () => void) => void,
+  ): Response {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        init?.signal?.addEventListener('abort', () =>
+          controller.error(new DOMException('aborted', 'AbortError')),
+        );
+        feed(
+          (text) => controller.enqueue(encoder.encode(text)),
+          () => controller.close(),
+        );
+      },
+    });
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }
+
+  const PENDING = Symbol('pending');
+  const settled = (p: Promise<unknown>): Promise<unknown> =>
+    Promise.race([p, Promise.resolve(PENDING)]);
+
+  it('times out a response whose body stops arriving after the headers', async () => {
+    vi.useFakeTimers();
+    setFetchForTests(async (_url, init) => slowBody(init, (push) => push('{"content":')));
+    const promise = anthropic.ask('hi', 'key').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(61_000);
+    const err = await settled(promise);
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).message).toContain('timed out');
+  });
+
+  it('times out a stream that goes silent, without waiting forever', async () => {
+    vi.useFakeTimers();
+    setFetchForTests(async (_url, init) =>
+      slowBody(init, (push) =>
+        push('data: {"type":"content_block_delta","delta":{"text":"Hel"}}\n\n'),
+      ),
+    );
+    const deltas: string[] = [];
+    const promise = anthropic.askStream!('hi', 'key', (d) => deltas.push(d)).catch(
+      (e: unknown) => e,
+    );
+    await vi.advanceTimersByTimeAsync(61_000);
+    const err = await settled(promise);
+    expect(deltas).toEqual(['Hel']);
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).message).toContain('timed out');
+  });
+
+  it('lets a slow stream run as long as it keeps sending', async () => {
+    vi.useFakeTimers();
+    setFetchForTests(async (_url, init) =>
+      slowBody(init, (push, close) => {
+        let sent = 0;
+        const tick = setInterval(() => {
+          push(`data: {"type":"content_block_delta","delta":{"text":"${sent}"}}\n\n`);
+          if (++sent === 5) {
+            clearInterval(tick);
+            close();
+          }
+        }, 45_000);
+      }),
+    );
+    const promise = anthropic.askStream!('hi', 'key', () => {});
+    await vi.advanceTimersByTimeAsync(5 * 45_000 + 1_000);
+    await expect(promise).resolves.toBe('01234');
+  });
+
   it('maps persistent connection failures to a connectivity hint (Ollama daemon)', async () => {
     vi.useFakeTimers();
     setFetchForTests(async () => {

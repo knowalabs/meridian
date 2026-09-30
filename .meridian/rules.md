@@ -72,11 +72,13 @@ These rules outrank convenience and your own judgement about what the code
 
 - `src/generate/artifacts.ts` owns what an AI response may write (`isAllowedPath`) and the artifact-kind contract — no other module writes generated kit files directly.
 - `src/generate/pipeline.ts` owns orchestration (`dependencyWaves`, `concurrencyFor`, `generateKind`) — a new artifact kind declares `dependsOn` instead of reading another kind's output straight off disk.
-- `src/providers/router.ts` owns provider selection, retry/backoff and HTTP-vs-CLI dispatch — commands call `route()`/`pickProvider()`, never a provider's API directly.
+- `src/providers/router.ts` owns provider selection, retry/backoff and HTTP-vs-CLI dispatch — commands call `route()` (or `pickProvider()` in `src/generate/pipeline.ts`, which wraps it for generate/sync), never a provider's API directly.
 - `src/core/vault.ts` owns secret storage across all four backends — commands read/write secrets only through `openVault()`, never via `fs` directly.
 - `src/rules/generators.ts` owns rendering `.meridian/rules.md` into its five mirrors — no other code writes `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/meridian.mdc` or `.github/copilot-instructions.md`.
 - `src/scan/*` is read-only analysis of the target project — nothing under it may write to the scanned project or mutate shared state.
 - `src/generate/manifest.ts` owns kit-drift detection (`signatureOf`, `fileStates`) — sync decisions go through it, not ad hoc hashing.
+- `src/rules/lessons.ts` owns `.meridian/lessons.md` and the validation every lesson line passes on read and write; `src/harness/lessons.ts` owns the lesson lifecycle (propose, pending, accept) and never writes the file except through it. No lesson is written without a human accepting its exact text.
+- `src/harness/*` owns `meridian agent` sessions: `drivers/` turn each agent CLI's JSONL into `HarnessEvent`s (`events.ts`) and `run.ts` owns the verify-and-repair loop — a new agent CLI is a new driver keyed by its router provider id, never a second session loop. No driver mode may pass a CLI's permission-bypass flag (`bypassPermissions`, `--dangerously-*`, `danger-full-access`), and session records go under `meridianHome()`, never into the target project.
 - Crossing into `src/core/vault.ts`, `src/generate/artifacts.ts`, `.github/workflows/`, or `SECURITY.md` needs explicit approval — CODEOWNERS names exactly these as the security-critical surface.
 - Never bypass `isAllowedPath` for a new write path, and never require a provider to speak more than plain `ask(prompt: string)` — the keyless CLI providers (`claude-code`, `codex-cli`, `gemini-cli`) only understand a text prompt, so a structured protocol added for one provider must stay optional for the rest.
 

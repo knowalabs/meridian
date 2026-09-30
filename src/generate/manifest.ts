@@ -5,6 +5,7 @@ import { ProjectAnalysis } from '../scan/analyzer.js';
 import { writeFileAtomic } from '../core/fsx.js';
 import { topLevelDirs } from './artifacts.js';
 import type { Rigor } from './artifacts.js';
+import { lessonsSection, readLessons } from '../rules/lessons.js';
 
 /**
  * Kit manifest (.meridian/manifest.json): what `meridian generate` knew about
@@ -172,6 +173,41 @@ export function writeManifest(root: string, manifest: KitManifest): void {
   writeFileAtomic(path.join(root, MANIFEST_FILE), JSON.stringify(manifest, null, 2) + '\n');
 }
 
+/**
+ * Re-record the signatures of tracked files Meridian itself just rewrote
+ * outside a generate run — mirrors `sync` re-rendered from an edited rules
+ * file — so a later sync does not mistake its own output for a hand edit.
+ * The fingerprint and generation date stay as they were: nothing was
+ * regenerated, and changing them would hide drift.
+ *
+ * `track` names files to start recording even if the manifest does not list
+ * them yet (the lessons file, the first time a lesson is accepted); a file in
+ * it that no longer exists is dropped from the record instead.
+ */
+export function recordSignatures(root: string, files: string[], track: string[] = []): void {
+  const manifest = readManifest(root);
+  if (!manifest) return;
+  let changed = false;
+  for (const file of [...files, ...track]) {
+    if (!(file in manifest.files) && !track.includes(file)) continue;
+    const full = path.join(root, file);
+    if (!fs.existsSync(full)) {
+      if (track.includes(file) && file in manifest.files) {
+        delete manifest.files[file];
+        changed = true;
+      }
+      continue;
+    }
+    try {
+      manifest.files[file] = signatureOf(fs.readFileSync(full, 'utf8'));
+      changed = true;
+    } catch {
+      // Unreadable right after writing it: leave the old record rather than guess.
+    }
+  }
+  if (changed) writeManifest(root, manifest);
+}
+
 /** How each manifest-tracked file stands on disk right now. */
 export interface FileStates {
   /** Unchanged since generation — safe for sync to overwrite. */
@@ -245,7 +281,11 @@ export function residentCost(root: string): ResidentCost {
     }
     return total;
   };
-  const rules = tokensOf(readIf('CLAUDE.md') || readIf(path.join('.meridian', 'rules.md')));
+  // Without a CLAUDE.md, what a tool loads is rules.md plus the lessons rendered after it.
+  const rules = tokensOf(
+    readIf('CLAUDE.md') ||
+      `${readIf(path.join('.meridian', 'rules.md'))}${lessonsSection(readLessons(root).lessons)}`,
+  );
   const agents = descriptions(path.join('.claude', 'agents'));
   const skills = descriptions(path.join('.claude', 'skills'), 'SKILL.md');
   const commands = descriptions(path.join('.claude', 'commands'));

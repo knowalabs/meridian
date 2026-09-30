@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { backupFile, readJsonFile, writeFileAtomic } from '../src/core/fsx.js';
+import { backupFile, readJsonFile, resolveInside, writeFileAtomic } from '../src/core/fsx.js';
 
 describe('fsx', () => {
   let tmp: string;
@@ -73,5 +73,59 @@ describe('fsx', () => {
         typeof x === 'object' && x !== null && !Array.isArray(x);
       expect(readJsonFile(file, isObj)).toMatchObject({ ok: false, reason: 'invalid' });
     });
+  });
+});
+
+describe('resolveInside', () => {
+  let root: string;
+  let outside: string;
+
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-inside-')));
+    outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-outside-')));
+    fs.writeFileSync(path.join(root, 'a.md'), 'a');
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  /** Where the OS will not let a test create symlinks (Windows without Developer Mode), skip. */
+  const link = (target: string, at: string): boolean => {
+    try {
+      fs.symlinkSync(target, at);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('resolves files and not-yet-created paths inside the project', () => {
+    expect(resolveInside(root, 'a.md')).toBe(path.join(root, 'a.md'));
+    expect(resolveInside(root, 'new/dir/b.md')).toBe(path.join(root, 'new', 'dir', 'b.md'));
+    expect(resolveInside(root, '.')).toBe(root);
+  });
+
+  it('refuses paths that climb out of the project', () => {
+    expect(resolveInside(root, '../elsewhere.md')).toBeNull();
+    expect(resolveInside(root, path.join(outside, 'x.md'))).toBeNull();
+  });
+
+  it('follows links that stay inside, and refuses links that leave', () => {
+    if (!link(path.join(root, 'a.md'), path.join(root, 'alias.md'))) return;
+    expect(resolveInside(root, 'alias.md')).toBe(path.join(root, 'a.md'));
+    link(path.join(outside, 'x.md'), path.join(root, 'leak.md'));
+    fs.writeFileSync(path.join(outside, 'x.md'), 'secret');
+    expect(resolveInside(root, 'leak.md')).toBeNull();
+  });
+
+  it('judges a new file by the directory it would land in', () => {
+    if (!link(outside, path.join(root, 'linked-dir'))) return;
+    expect(resolveInside(root, 'linked-dir/new.md')).toBeNull();
+  });
+
+  it('refuses a dangling link, since writing through it would create its target', () => {
+    if (!link(path.join(outside, 'not-yet.md'), path.join(root, 'dangling.md'))) return;
+    expect(resolveInside(root, 'dangling.md')).toBeNull();
   });
 });

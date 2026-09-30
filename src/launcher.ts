@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { CommanderError } from 'commander';
 import { buildCli, VERSION } from './cli.js';
 import { renderError } from './core/errors.js';
+import { setRuntimeModel } from './providers/router.js';
 
 /* ---------------------------------- banner ---------------------------------- */
 
@@ -36,7 +37,7 @@ export function showBanner(): void {
     console.log(`  ${pc.green(pc.bold('Meridian'))}`);
   }
   console.log(
-    `\n  ${pc.bold('One command to set up every AI coding tool.')} ${pc.dim(`v${VERSION}`)}\n`,
+    `\n  ${pc.bold("Set up every AI coding tool, then run any coding agent under your project's rules and checks.")} ${pc.dim(`v${VERSION}`)}\n`,
   );
 }
 
@@ -44,7 +45,7 @@ export function showBanner(): void {
 export function showWelcome(): void {
   const row = (cmd: string, what: string) => `  ${pc.green(cmd.padEnd(28))} ${what}`;
   console.log(`
-${pc.bold(`Meridian ${pc.dim(`v${VERSION}`)}`)} — one command to set up every AI coding tool.
+${pc.bold(`Meridian ${pc.dim(`v${VERSION}`)}`)} — set up every AI coding tool, then run any coding agent under your project's rules and checks.
 
 ${pc.bold('Get started:')}
 ${row('meridian doctor', 'check tools, providers, vault and kit health')}
@@ -55,6 +56,7 @@ ${row('meridian generate', 'make your project AI-ready in one shot')}
 ${pc.bold('Everyday:')}
 ${row('meridian sync', 'refresh the AI kit when the codebase drifts')}
 ${row('meridian ask "…"', 'ask AI via the smart router')}
+${row('meridian agent "…"', 'run an agent CLI, verified by your own checks')}
 ${row('meridian mcp search', 'find & install MCP servers')}
 
 Run ${pc.bold('meridian --help')} for all commands, or ${pc.bold('meridian <command> --help')} for details.`);
@@ -243,7 +245,7 @@ export function tokenize(line: string): string[] {
   return tokens;
 }
 
-async function runCommandLine(line: string): Promise<number> {
+export async function runCommandLine(line: string): Promise<number> {
   // Users may type the binary name out of habit — accept both forms.
   const argv = tokenize(line.replace(/^meridian\s+/, ''));
   process.exitCode = 0;
@@ -259,6 +261,10 @@ async function runCommandLine(line: string): Promise<number> {
       // A failing command must never kill the menu loop.
       process.exitCode = renderError(err, { verbose: argv.includes('--verbose') });
     }
+  } finally {
+    // Every command runs in this one process, so a --model given to one must
+    // not still be in force when the user picks the next.
+    setRuntimeModel(null);
   }
   const code = typeof process.exitCode === 'number' ? process.exitCode : 0;
   process.exitCode = 0;

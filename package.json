@@ -1,7 +1,7 @@
 {
   "name": "@knowalabs/meridian",
   "version": "0.1.2",
-  "description": "One command to set up every AI coding tool on any machine.",
+  "description": "Set up every AI coding tool, then run any coding agent under your project's rules and checks.",
   "keywords": [
     "ai",
     "cli",
@@ -50,6 +50,7 @@
     "provenance": true
   },
   "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/index.ts",
     "lint": "eslint src tests",

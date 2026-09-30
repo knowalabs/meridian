@@ -2,11 +2,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
+  changedSince,
   churnMap,
   collectGitSignal,
+  parsePorcelainV2,
   renderGitSignal,
   setGitForTests,
+  worktreeSnapshot,
   type GitSignal,
 } from '../src/scan/git.js';
 
@@ -154,5 +158,112 @@ describe('collectGitSignal without a stub', () => {
     expect(signal).not.toBeNull();
     expect(signal!.commits).toBeGreaterThan(0);
     expect(signal!.hotspots.length).toBeGreaterThan(0);
+  });
+});
+
+describe('parsePorcelainV2', () => {
+  it('reads ordinary, renamed, unmerged and untracked entries, spaces included', () => {
+    const out = [
+      '1 .M N... 100644 100644 100644 abc abc src/a file.ts',
+      '2 R. N... 100644 100644 100644 abc abc R100 src/new.ts',
+      'src/old.ts',
+      'u UU N... 100644 100644 100644 100644 abc def ghi src/conflict.ts',
+      '? notes.md',
+      '',
+    ].join('\0');
+    expect(parsePorcelainV2(out)).toEqual([
+      'src/a file.ts',
+      'src/new.ts',
+      'src/old.ts',
+      'src/conflict.ts',
+      'notes.md',
+    ]);
+  });
+});
+
+describe('worktreeSnapshot and changedSince', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    setGitForTests(null);
+    for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function gitRepo(files: Record<string, string>): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-wt-')));
+    roots.push(root);
+    const g = (...args: string[]): void => {
+      execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], {
+        cwd: root,
+        stdio: 'ignore',
+      });
+    };
+    g('init', '-q');
+    for (const [file, content] of Object.entries(files)) {
+      fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), content);
+    }
+    g('add', '-A');
+    g('commit', '-q', '-m', 'init');
+    return root;
+  }
+
+  it('returns null outside a work tree', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-nogit-'));
+    roots.push(root);
+    expect(worktreeSnapshot(root)).toBeNull();
+  });
+
+  it('sees edits, new files and deletions made between two snapshots', () => {
+    const root = gitRepo({ 'a.ts': 'a', 'b.ts': 'b', 'c.ts': 'c' });
+    const before = worktreeSnapshot(root)!;
+    expect(before.entries.size).toBe(0);
+    fs.writeFileSync(path.join(root, 'a.ts'), 'changed');
+    fs.writeFileSync(path.join(root, 'new.ts'), 'new');
+    fs.rmSync(path.join(root, 'c.ts'));
+    expect(changedSince(root, before, worktreeSnapshot(root)!)).toEqual(['a.ts', 'c.ts', 'new.ts']);
+  });
+
+  it('notices a second edit to a file that was already dirty', () => {
+    const root = gitRepo({ 'a.ts': 'a' });
+    fs.writeFileSync(path.join(root, 'a.ts'), 'first edit');
+    const before = worktreeSnapshot(root)!;
+    fs.writeFileSync(path.join(root, 'a.ts'), 'second, longer edit');
+    expect(changedSince(root, before, worktreeSnapshot(root)!)).toEqual(['a.ts']);
+  });
+
+  it('counts files the agent committed, even though the tree ends clean', () => {
+    const root = gitRepo({ 'a.ts': 'a' });
+    const before = worktreeSnapshot(root)!;
+    fs.writeFileSync(path.join(root, 'a.ts'), 'committed change');
+    execFileSync(
+      'git',
+      ['-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '-qam', 'x'],
+      {
+        cwd: root,
+        stdio: 'ignore',
+      },
+    );
+    const after = worktreeSnapshot(root)!;
+    expect(after.head).not.toBe(before.head);
+    expect(changedSince(root, before, after)).toEqual(['a.ts']);
+  });
+
+  it('reports paths relative to a project inside a larger repository', () => {
+    const root = gitRepo({ 'packages/app/a.ts': 'a', 'other/b.ts': 'b' });
+    const app = path.join(root, 'packages', 'app');
+    const before = worktreeSnapshot(app)!;
+    fs.writeFileSync(path.join(app, 'a.ts'), 'changed');
+    fs.writeFileSync(path.join(root, 'other', 'b.ts'), 'outside the project');
+    expect(changedSince(app, before, worktreeSnapshot(app)!)).toEqual(['a.ts']);
+  });
+
+  it('asks git not to take optional locks', () => {
+    const calls: string[][] = [];
+    setGitForTests((args) => {
+      calls.push(args);
+      return { ok: true, stdout: '' };
+    });
+    worktreeSnapshot('/proj');
+    expect(calls.some((c) => c.includes('status') && c.includes('--no-optional-locks'))).toBe(true);
   });
 });

@@ -178,6 +178,61 @@ describe('buildDigest', () => {
   });
 });
 
+/** Point `link` at `target`, or report false where the OS will not let a test create symlinks. */
+function trySymlink(target: string, link: string): boolean {
+  try {
+    fs.symlinkSync(target, link);
+    return true;
+  } catch {
+    return false; // Windows without Developer Mode: nothing to test there.
+  }
+}
+
+describe('symlinks that lead out of the project', () => {
+  let root: string;
+  let outside: string;
+  let secret: string;
+
+  beforeEach(() => {
+    root = makeProject();
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-outside-'));
+    secret = path.join(outside, 'id_rsa');
+    fs.writeFileSync(secret, 'TOP-SECRET-KEY-MATERIAL\n');
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('never excerpts a key file that links outside', () => {
+    fs.rmSync(path.join(root, 'README.md'));
+    if (!trySymlink(secret, path.join(root, 'README.md'))) return;
+    const digest = buildDigest(root);
+    expect(digest.text).not.toContain('TOP-SECRET');
+    expect(digest.includedFiles).not.toContain('README.md');
+  });
+
+  it('never samples a source file that links outside', () => {
+    if (!trySymlink(secret, path.join(root, 'src', 'leak.ts'))) return;
+    const digest = buildDigest(root);
+    expect(digest.text).not.toContain('TOP-SECRET');
+    expect(digest.includedFiles).not.toContain('src/leak.ts');
+  });
+
+  it('refuses a requested file that links outside, and says why', () => {
+    if (!trySymlink(secret, path.join(root, 'notes.md'))) return;
+    const served = serveFileRequests(root, ['notes.md'], 10_000);
+    expect(served.served).toEqual([]);
+    expect(served.refused).toEqual([{ file: 'notes.md', reason: 'links outside the project' }]);
+    expect(served.text).not.toContain('TOP-SECRET');
+  });
+
+  it('still serves a link that stays inside the project', () => {
+    if (!trySymlink(path.join(root, 'README.md'), path.join(root, 'alias.md'))) return;
+    expect(serveFileRequests(root, ['alias.md'], 10_000).served).toEqual(['alias.md']);
+  });
+});
+
 describe('buildDigest with history', () => {
   let root: string;
 
@@ -701,6 +756,8 @@ describe('static fallbacks', () => {
     expect(prompt).toContain('.claude/settings.json');
     expect(prompt).toContain('NEVER allowlist anything destructive');
     expect(prompt).toContain('"permissions.ask"');
+    // It must not teach the provider path rules Claude Code never consults.
+    expect(prompt).not.toMatch(/"Write\(/);
   });
 
   it('harness fallback asks before documentation is written', () => {
@@ -711,8 +768,16 @@ describe('static fallbacks', () => {
       const parsed = JSON.parse(settings!.content) as {
         permissions: { allow: string[]; ask: string[] };
       };
-      for (const rule of ['Edit(docs/**)', 'Write(docs/**)', 'Edit(CLAUDE.md)', 'Edit(README.md)'])
+      for (const rule of [
+        'Edit(docs/**)',
+        'Edit(CLAUDE.md)',
+        'Edit(README.md)',
+        'Edit(.meridian/**)',
+      ])
         expect(parsed.permissions.ask).toContain(rule);
+      // Claude Code checks file paths against Edit rules only: a Write(path) rule
+      // is never consulted and draws a startup warning, and Edit already covers writes.
+      expect(parsed.permissions.ask.join(' ')).not.toMatch(/(Write|NotebookEdit|MultiEdit)\(/);
       // The prompt would be pointless if a write to the same path were allowed.
       expect(parsed.permissions.allow.join(' ')).not.toMatch(/Edit\(|Write\(/);
     } finally {
@@ -1812,6 +1877,56 @@ describe('file requests during the codebase review', () => {
     const review = fs.readFileSync(path.join(root, '.meridian/docs/codebase-review.md'), 'utf8');
     expect(review).toContain('It is explained in design-notes.md.');
     expect(review).not.toContain('<<<REQUEST>>>');
+  });
+
+  it('never sends a requested file that links outside the project to the provider', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-outside-'));
+    try {
+      fs.writeFileSync(path.join(outside, 'id_rsa'), 'TOP-SECRET-KEY-MATERIAL\n');
+      if (!trySymlink(path.join(outside, 'id_rsa'), path.join(root, 'deploy-key.md'))) return;
+      const prompts: string[] = [];
+      setFetchForTests(async (_url, init) => {
+        const text = promptOf(init);
+        prompts.push(text);
+        if (!isReviewPrompt(text)) return aiResponse(filesFor(text));
+        return text.includes('FILES YOU REQUESTED')
+          ? aiResponse('# Review')
+          : aiResponse('<<<REQUEST>>>\ndeploy-key.md\n<<<END>>>');
+      });
+
+      const result = await run();
+
+      expect(result.requestedFiles).toEqual([]);
+      expect(prompts.some((p) => p.includes('TOP-SECRET'))).toBe(false);
+      expect(prompts.some((p) => p.includes('deploy-key.md — links outside the project'))).toBe(
+        true,
+      );
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('never shows the provider an existing kit file that links outside the project', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-outside-'));
+    try {
+      fs.writeFileSync(path.join(outside, 'id_rsa'), 'TOP-SECRET-KEY-MATERIAL\n');
+      fs.mkdirSync(path.join(root, '.meridian', 'prompts'), { recursive: true });
+      const link = path.join(root, '.meridian', 'prompts', 'leak.md');
+      if (!trySymlink(path.join(outside, 'id_rsa'), link)) return;
+      const prompts: string[] = [];
+      setFetchForTests(async (_url, init) => {
+        const text = promptOf(init);
+        prompts.push(text);
+        return isReviewPrompt(text) ? aiResponse('# Review') : aiResponse(filesFor(text));
+      });
+
+      await run();
+
+      expect(prompts.length).toBeGreaterThan(1);
+      expect(prompts.some((p) => p.includes('TOP-SECRET'))).toBe(false);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('passes the requested source to the artifact kinds, not just the review', async () => {

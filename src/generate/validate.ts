@@ -74,7 +74,7 @@ const isKitPath = (file: string): boolean =>
  * `yarn x` — because those are the ones whose existence the analysis can
  * actually prove or disprove.
  */
-function claimedScripts(content: string): { command: string; script: string }[] {
+export function claimedScripts(content: string): { command: string; script: string }[] {
   const claims: { command: string; script: string }[] = [];
   const re = /`(npm run|pnpm run|pnpm|yarn run|yarn|bun run)\s+([a-zA-Z][\w:.-]*)/g;
   let match: RegExpExecArray | null;
@@ -89,7 +89,7 @@ function claimedScripts(content: string): { command: string; script: string }[] 
  * paths that carry a directory separator, which is what distinguishes a file
  * reference from prose in backticks.
  */
-function claimedPaths(content: string): string[] {
+export function claimedPaths(content: string): string[] {
   const paths = new Set<string>();
   for (const match of content.matchAll(/(?:^|\s)@([\w./-]+\/[\w./-]+)/gm)) paths.add(match[1]!);
   for (const match of content.matchAll(/`([\w.-]+(?:\/[\w.*-]+)+)`/g)) paths.add(match[1]!);
@@ -97,7 +97,7 @@ function claimedPaths(content: string): string[] {
 }
 
 /** True for a reference no filesystem check can settle (globs, placeholders). */
-const isConcretePath = (file: string): boolean =>
+export const isConcretePath = (file: string): boolean =>
   !file.includes('*') && !file.includes('<') && /\.[a-zA-Z0-9]+$/.test(file);
 
 /**
