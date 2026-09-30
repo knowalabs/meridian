@@ -7,13 +7,24 @@ import {
   type EventSink,
   type HarnessEventBody,
   type HarnessMode,
+  type LessonSkipReason,
   type SessionStatus,
+  type TurnReason,
 } from './events.js';
 import { runDriverTurn, type TurnOutcome } from './drivers/index.js';
 import type { Driver } from './drivers/types.js';
-import { policyFor } from './policy.js';
+import { policyFor, type DriverPolicy } from './policy.js';
 import type { ResumeInfo } from './session.js';
-import { repairPrompt, runVerify } from './verify.js';
+import { repairPrompt, runVerify, type VerifyFailure } from './verify.js';
+import { readLessons } from '../rules/lessons.js';
+import {
+  hasKit,
+  lessonPrompt,
+  parseLesson,
+  pendingLessons,
+  proposeLesson,
+  type PendingLesson,
+} from './lessons.js';
 
 export interface AgentSessionOptions {
   sessionId: string;
@@ -32,13 +43,23 @@ export interface AgentSessionOptions {
   /** A recorded session to continue instead of starting a new one. */
   resume?: ResumeInfo;
   signal?: AbortSignal;
+  /**
+   * After a repaired success, ask the agent for the rule that would have
+   * prevented the failure. Off unless asked for: it costs an extra turn.
+   */
+  learn?: boolean;
 }
 
 export interface AgentSessionResult {
   sessionId: string;
   status: SessionStatus;
   filesChanged: string[];
+  /** A lesson the session proposed, pending a human's approval. */
+  lesson?: PendingLesson;
 }
+
+/** A lesson turn is a question, not a task: it gets minutes, not the quarter hour a task may take. */
+const LESSON_IDLE_MS = 3 * 60_000;
 
 /**
  * What the agent is told beyond the user's words: that it will be judged by
@@ -67,8 +88,11 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
   const emitter = createEmitter(opts.sessionId, opts.sinks);
   const started = Date.now();
   const reported = new Set<string>();
+  // The agent's last complete message in the current turn: a lesson turn's answer.
+  let lastText: string | null = null;
   const emit = (body: HarnessEventBody): void => {
     if (body.type === 'file.changed') reported.add(body.path);
+    if (body.type === 'text') lastText = body.text;
     emitter.emit(body);
   };
 
@@ -105,9 +129,12 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
 
   const runTurn = async (
     prompt: string,
-    reason: 'task' | 'repair' | 'followup',
+    reason: TurnReason,
+    turnPolicy: DriverPolicy = policy,
+    idleTimeoutMs?: number,
   ): Promise<TurnOutcome> => {
     turn++;
+    lastText = null;
     emit({ type: 'turn.started', turn, reason });
     const outcome = await runDriverTurn(
       spec,
@@ -116,7 +143,7 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
         cwd: root,
         prompt,
         model: opts.model,
-        policy,
+        policy: turnPolicy,
         ...(driverSessionId ? { resume: driverSessionId } : { newSessionId }),
         cliVersion: opts.cliVersion,
         priorCostUsd: costSoFar,
@@ -124,6 +151,7 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
       },
       emit,
       signal,
+      idleTimeoutMs,
     );
     if (outcome.driverSessionId) driverSessionId = outcome.driverSessionId;
     if (outcome.cumulativeCostUsd !== undefined) costSoFar = outcome.cumulativeCostUsd;
@@ -138,7 +166,8 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
       emit({
         type: 'error',
         message: `${spec.id}: ${outcome.error}`,
-        fatal: true,
+        // A lesson turn failing costs a lesson, not the verified change before it.
+        fatal: reason !== 'lesson',
         source: 'driver',
       });
     }
@@ -151,6 +180,7 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
     return before && after ? changedSince(root, before, after) : [...reported].sort();
   };
 
+  let lesson: PendingLesson | undefined;
   const finish = (
     status: SessionStatus,
     verify: 'passed' | 'failed' | 'skipped',
@@ -166,7 +196,61 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
       verify,
       durationMs: Date.now() - started,
     });
-    return { sessionId: opts.sessionId, status, filesChanged };
+    return { sessionId: opts.sessionId, status, filesChanged, ...(lesson ? { lesson } : {}) };
+  };
+
+  /**
+   * One read-only turn asking the agent that just repaired `failed` for the
+   * rule that would have prevented it. Returns false only when the turn
+   * changed files after all, and re-verifying them failed — the one case
+   * where learning costs the session its verified result.
+   */
+  const learn = async (failed: VerifyFailure, attempt: number): Promise<boolean> => {
+    const skip = (reason: LessonSkipReason, detail?: string): true => {
+      emit({ type: 'lesson.skipped', reason, ...(detail ? { detail } : {}) });
+      return true;
+    };
+    if (!driverSessionId) return skip('no-session');
+    if (!hasKit(root)) return skip('no-kit');
+    const existing = [...readLessons(root).lessons, ...pendingLessons(root).map((p) => p.text)];
+    const beforeLesson = worktreeSnapshot(root);
+    const outcome = await runTurn(
+      lessonPrompt(failed, existing),
+      'lesson',
+      policyFor(root, 'plan', []),
+      LESSON_IDLE_MS,
+    );
+    const afterLesson = beforeLesson ? worktreeSnapshot(root) : null;
+    if (beforeLesson && afterLesson && changedSince(root, beforeLesson, afterLesson).length) {
+      skip('modified-files');
+      emit({
+        type: 'error',
+        message: 'The agent changed files while it was only asked for a lesson; verifying again.',
+        fatal: false,
+        source: 'harness',
+      });
+      const recheck = await runVerify(root, verifyCommands, emit, attempt + 1, signal);
+      return recheck.passed;
+    }
+    if (outcome.aborted || signal?.aborted) return skip('interrupted');
+    if (!outcome.ok) return skip('turn-failed');
+    const parsed = parseLesson(lastText);
+    if (parsed.kind === 'none') return skip('none');
+    if (parsed.kind === 'unparseable') return skip('unparseable');
+    const proposed = proposeLesson(root, parsed.text, {
+      command: failed.command,
+      provider: spec.id,
+      sessionId: opts.sessionId,
+    });
+    if (!proposed.ok) return skip(proposed.reason, proposed.detail);
+    lesson = proposed.lesson;
+    emit({
+      type: 'lesson.proposed',
+      lessonId: lesson.id,
+      text: lesson.text,
+      command: failed.command,
+    });
+    return true;
   };
 
   const first = await runTurn(
@@ -191,10 +275,18 @@ export async function runAgentSession(opts: AgentSessionOptions): Promise<AgentS
     return finish('succeeded', 'skipped', 0);
   }
 
+  let lastFailure: VerifyFailure | undefined;
   for (let repairs = 0; ; repairs++) {
     const result = await runVerify(root, verifyCommands, emit, repairs + 1, signal);
     if (result.aborted) return finish('interrupted', 'skipped', repairs);
-    if (result.passed) return finish('succeeded', 'passed', repairs);
+    if (result.passed) {
+      // Only a failure that was then fixed is proof enough to learn from.
+      if (opts.learn && lastFailure && !(await learn(lastFailure, repairs + 1))) {
+        return finish('verify_failed', 'failed', repairs);
+      }
+      return finish('succeeded', 'passed', repairs);
+    }
+    lastFailure = result.failed;
     if (repairs >= opts.maxRepairs) return finish('verify_failed', 'failed', repairs);
     if (!driverSessionId) {
       emit({

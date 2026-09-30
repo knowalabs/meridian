@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -295,5 +295,160 @@ describe('taskPrompt', () => {
     );
     expect(taskPrompt('fix it', 'edit', [])).toBe('fix it');
     expect(taskPrompt('why?', 'plan', ['npm run test'])).toContain('read-only');
+  });
+});
+
+describe('runAgentSession: learning a lesson', () => {
+  const LESSON =
+    'Write `value.txt` as exactly "new" plus a newline; the check compares whole bytes.';
+  let home: string;
+
+  beforeEach(async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-run-home-'));
+    process.env.MERIDIAN_HOME = home;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // A static kit, committed, so lessons have somewhere to go.
+    const { runGenerate } = await import('../src/generate/pipeline.js');
+    fs.writeFileSync(path.join(root, 'value.txt'), 'old\n');
+    await runGenerate({
+      root,
+      kinds: ['rules'],
+      force: false,
+      dryRun: false,
+      noAi: true,
+      tools: ['claude'],
+    });
+    gitInit();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.MERIDIAN_HOME;
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  /** A claude that fails once, repairs, then answers the lesson prompt with `answer`. */
+  function learningClaude(
+    answer: string,
+    lessonTurn: { edits?: boolean; fails?: boolean } = {},
+  ): Call[] {
+    const calls: Call[] = [];
+    setDriverRunnerForTests(async (_cmd, args, o) => {
+      calls.push({ args, input: o.input });
+      const isLesson = o.input?.includes('LESSON: NONE') === true;
+      if (!isLesson) write(calls.length === 1 ? 'wrong\n' : 'new\n')();
+      if (isLesson && lessonTurn.edits) write('edited during the lesson\n')();
+      const idx = Math.max(args.indexOf('--resume'), args.indexOf('--session-id'));
+      const sid = args[idx + 1] ?? 'none';
+      const text = isLesson ? `It compares bytes.\nLESSON: ${answer}` : 'done';
+      const failed = isLesson && lessonTurn.fails === true;
+      for (const line of [
+        { type: 'system', subtype: 'init', session_id: sid },
+        { type: 'assistant', message: { content: [{ type: 'text', text }] } },
+        {
+          type: 'result',
+          subtype: failed ? 'error_during_execution' : 'success',
+          is_error: failed,
+          session_id: sid,
+          usage: {},
+        },
+      ])
+        o.onStdoutLine?.(JSON.stringify(line));
+      return { ok: !failed, stdout: '', stderr: '', code: failed ? 1 : 0 };
+    });
+    return calls;
+  }
+
+  it('asks the repairing agent for a rule, read-only, and proposes it before the session ends', async () => {
+    const calls = learningClaude(LESSON);
+    verifyResults([false, true]);
+    const events: HarnessEvent[] = [];
+    const result = await runAgentSession({
+      sessionId: 's1',
+      root,
+      task: 'make it new',
+      spec: claude,
+      driver: DRIVERS['claude-code'],
+      model: CLI_DEFAULT_MODEL,
+      mode: 'edit',
+      verifyCommands: ['npm run test'],
+      verify: true,
+      maxRepairs: 2,
+      cliVersion: '2.1.280',
+      sinks: [(e) => events.push(e)],
+      learn: true,
+    });
+
+    expect(result.status).toBe('succeeded');
+    expect(result.lesson?.text).toBe(LESSON);
+    expect(
+      events
+        .filter((e) => e.type === 'turn.started')
+        .map((e) => (e.type === 'turn.started' ? e.reason : '')),
+    ).toEqual(['task', 'repair', 'lesson']);
+    expect(calls[2]!.args).toEqual(
+      expect.arrayContaining(['--permission-mode', 'manual', '--disallowedTools']),
+    );
+    expect(calls[2]!.input).toContain('`npm run test` failed');
+    expect(events.find((e) => e.type === 'lesson.proposed')).toMatchObject({
+      text: LESSON,
+      command: 'npm run test',
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: 'session.completed',
+      turns: 3,
+      repairs: 1,
+      verify: 'passed',
+    });
+  });
+
+  it('does not spend a turn when nothing failed first, or when learning is off', async () => {
+    const calls = fakeClaude(write('new\n'));
+    verifyResults([true]);
+    await session({ learn: true });
+    expect(calls).toHaveLength(1);
+    const again = learningClaude(LESSON);
+    verifyResults([false, true]);
+    await session({ learn: false });
+    expect(again).toHaveLength(2);
+  });
+
+  it('records why no lesson came out', async () => {
+    learningClaude('NONE');
+    verifyResults([false, true]);
+    const { events, status } = await session({ learn: true });
+    expect(status).toBe('succeeded');
+    expect(events.find((e) => e.type === 'lesson.skipped')).toMatchObject({ reason: 'none' });
+  });
+
+  it('keeps the verified result when the lesson turn fails', async () => {
+    learningClaude(LESSON, { fails: true });
+    verifyResults([false, true]);
+    const { events, status } = await session({ learn: true });
+    expect(status).toBe('succeeded');
+    expect(events.find((e) => e.type === 'lesson.skipped')).toMatchObject({
+      reason: 'turn-failed',
+    });
+    expect(events.find((e) => e.type === 'error')).toMatchObject({ fatal: false });
+  });
+
+  it('verifies again if the agent changed files instead of answering', async () => {
+    learningClaude(LESSON, { edits: true });
+    const ran = verifyResults([false, true, false]);
+    const { events, status } = await session({ learn: true });
+    expect(ran).toHaveLength(3);
+    expect(events.find((e) => e.type === 'lesson.skipped')).toMatchObject({
+      reason: 'modified-files',
+    });
+    expect(status).toBe('verify_failed');
+  });
+
+  it('skips learning in a project without a kit', async () => {
+    fs.rmSync(path.join(root, '.meridian'), { recursive: true, force: true });
+    const calls = learningClaude(LESSON);
+    verifyResults([false, true]);
+    const { events } = await session({ learn: true });
+    expect(calls).toHaveLength(2);
+    expect(events.find((e) => e.type === 'lesson.skipped')).toMatchObject({ reason: 'no-kit' });
   });
 });

@@ -133,11 +133,12 @@ export async function runDriverTurn(
   turn: DriverTurn,
   emit: (body: HarnessEventBody) => unknown,
   signal?: AbortSignal,
+  idleTimeoutMs: number = TURN_IDLE_MS,
 ): Promise<TurnOutcome> {
   const parser = driver.createParser(turn);
   const res = await (streamRunner ?? runStream)(spec.binary ?? spec.id, driver.args(turn), {
     cwd: turn.cwd,
-    idleTimeoutMs: TURN_IDLE_MS,
+    idleTimeoutMs,
     keepChars: TURN_KEEP_CHARS,
     onStdoutLine: (line) => {
       for (const body of parser.push(line)) emit(body);
@@ -148,6 +149,6 @@ export async function runDriverTurn(
   const summary = parser.finish(res);
   if (res.notFound) summary.error = `the "${spec.binary}" CLI was not found on PATH`;
   else if (res.error === 'ETIMEDOUT')
-    summary.error = `${spec.binary} printed nothing for ${TURN_IDLE_MS / 60_000} minutes and was stopped`;
+    summary.error = `${spec.binary} printed nothing for ${idleTimeoutMs / 60_000} minutes and was stopped`;
   return { ...summary, aborted: res.aborted === true };
 }

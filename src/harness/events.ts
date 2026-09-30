@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
  * editors unchanged — so a field added here is a protocol change, and
  * HARNESS_PROTOCOL_VERSION moves with it.
  */
-export const HARNESS_PROTOCOL_VERSION = 1;
+export const HARNESS_PROTOCOL_VERSION = 2;
 
 export type HarnessMode = 'plan' | 'edit' | 'auto';
 export const HARNESS_MODES: readonly HarnessMode[] = ['plan', 'edit', 'auto'];
@@ -15,6 +15,19 @@ export const HARNESS_MODES: readonly HarnessMode[] = ['plan', 'edit', 'auto'];
 export type ToolKind = 'shell' | 'edit' | 'read' | 'search' | 'web' | 'mcp' | 'other';
 export type FileChange = 'add' | 'update' | 'delete' | 'unknown';
 export type SessionStatus = 'succeeded' | 'no_changes' | 'verify_failed' | 'failed' | 'interrupted';
+/** Why a turn ran: the task, a repair after failed verification, a follow-up, or learning a lesson. */
+export type TurnReason = 'task' | 'repair' | 'followup' | 'lesson';
+/** Why no lesson came out of a session that earned one. */
+export type LessonSkipReason =
+  | 'no-kit'
+  | 'no-session'
+  | 'turn-failed'
+  | 'interrupted'
+  | 'none'
+  | 'unparseable'
+  | 'invalid'
+  | 'rejected-before'
+  | 'modified-files';
 
 export type HarnessEventBody =
   | {
@@ -29,7 +42,7 @@ export type HarnessEventBody =
       maxRepairs: number;
       resumedFrom?: string;
     }
-  | { type: 'turn.started'; turn: number; reason: 'task' | 'repair' | 'followup' }
+  | { type: 'turn.started'; turn: number; reason: TurnReason }
   /** Streamed assistant text; renderers show it, the session record skips it. */
   | { type: 'text.delta'; text: string }
   /** A complete assistant message; `streamed` means its deltas were already shown. */
@@ -68,6 +81,9 @@ export type HarnessEventBody =
       failed?: { command: string; code: number | null; tail: string };
     }
   | { type: 'repair.attempt'; attempt: number; maxRepairs: number; command: string }
+  /** A rule learned from a repaired failure, awaiting a human's approval. */
+  | { type: 'lesson.proposed'; lessonId: string; text: string; command: string }
+  | { type: 'lesson.skipped'; reason: LessonSkipReason; detail?: string }
   | {
       type: 'usage';
       turn: number;

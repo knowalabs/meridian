@@ -179,15 +179,27 @@ export function writeManifest(root: string, manifest: KitManifest): void {
  * file — so a later sync does not mistake its own output for a hand edit.
  * The fingerprint and generation date stay as they were: nothing was
  * regenerated, and changing them would hide drift.
+ *
+ * `track` names files to start recording even if the manifest does not list
+ * them yet (the lessons file, the first time a lesson is accepted); a file in
+ * it that no longer exists is dropped from the record instead.
  */
-export function recordSignatures(root: string, files: string[]): void {
+export function recordSignatures(root: string, files: string[], track: string[] = []): void {
   const manifest = readManifest(root);
   if (!manifest) return;
   let changed = false;
-  for (const file of files) {
-    if (!(file in manifest.files)) continue;
+  for (const file of [...files, ...track]) {
+    if (!(file in manifest.files) && !track.includes(file)) continue;
+    const full = path.join(root, file);
+    if (!fs.existsSync(full)) {
+      if (track.includes(file) && file in manifest.files) {
+        delete manifest.files[file];
+        changed = true;
+      }
+      continue;
+    }
     try {
-      manifest.files[file] = signatureOf(fs.readFileSync(path.join(root, file), 'utf8'));
+      manifest.files[file] = signatureOf(fs.readFileSync(full, 'utf8'));
       changed = true;
     } catch {
       // Unreadable right after writing it: leave the old record rather than guess.

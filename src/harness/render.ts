@@ -1,10 +1,22 @@
 import pc from 'picocolors';
 import { currentLevel, log } from '../core/logger.js';
 import { CLI_DEFAULT_MODEL } from '../providers/router.js';
-import type { EventSink, HarnessEvent } from './events.js';
+import type { EventSink, HarnessEvent, LessonSkipReason } from './events.js';
 
 /** Lines of a failing verify step's output shown in the terminal; the record keeps more. */
 const TAIL_LINES = 15;
+
+const LESSON_SKIPPED: Record<LessonSkipReason, string> = {
+  'no-kit': 'lessons need a Meridian kit — create one with "meridian generate"',
+  'no-session': 'the agent reported no session to ask',
+  'turn-failed': 'the agent could not answer',
+  interrupted: 'the run was interrupted',
+  none: 'the agent judged the failure a one-off',
+  unparseable: 'the answer had no LESSON line',
+  invalid: 'the proposed rule was not usable',
+  'rejected-before': 'the same rule was turned down before',
+  'modified-files': 'the agent changed files instead of answering',
+};
 
 function duration(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
@@ -28,6 +40,8 @@ export function createRenderer(opts: { json: boolean }): EventSink {
   let midLine = false;
   let cost = 0;
   let costKnown = false;
+  // A lesson turn's own words and tool calls are plumbing; its outcome is shown instead.
+  let learning = false;
 
   const say = (text: string): void => {
     if (quiet || !text) return;
@@ -54,19 +68,24 @@ export function createRenderer(opts: { json: boolean }): EventSink {
         note(pc.dim(parts.join(' · ')));
         return;
       }
+      case 'turn.started':
+        learning = event.reason === 'lesson';
+        if (learning) note(pc.dim('Asking the agent what would have prevented that failure…'));
+        return;
       case 'text.delta':
-        say(event.text);
+        if (!learning) say(event.text);
         return;
       case 'text':
+        if (learning) return;
         if (!event.streamed) say(`${event.text}\n`);
         else if (midLine) say('\n');
         return;
       case 'tool.started':
         titles.set(event.toolId, event.title);
-        note(pc.dim(`  › ${event.title}`));
+        if (!learning) note(pc.dim(`  › ${event.title}`));
         return;
       case 'tool.completed':
-        if (!event.ok) {
+        if (!event.ok && !learning) {
           const title = titles.get(event.toolId) ?? 'tool';
           const exit = event.exitCode !== undefined ? ` (exit ${event.exitCode})` : '';
           note(`    ${pc.red('✖')} ${title} failed${exit}`);
@@ -91,6 +110,18 @@ export function createRenderer(opts: { json: boolean }): EventSink {
           const tail = event.failed.tail.trimEnd().split('\n').slice(-TAIL_LINES);
           note(pc.dim(tail.map((l) => `    ${l}`).join('\n')));
         }
+        return;
+      case 'lesson.proposed':
+        note(
+          `${pc.cyan('✦')} Lesson learned from the failing ${pc.bold(event.command)}:\n    ${JSON.stringify(event.text)}`,
+        );
+        return;
+      case 'lesson.skipped':
+        note(
+          pc.dim(
+            `  No lesson recorded: ${LESSON_SKIPPED[event.reason]}${event.detail ? ` (it ${event.detail})` : ''}.`,
+          ),
+        );
         return;
       case 'repair.attempt':
         note(
@@ -137,7 +168,6 @@ export function createRenderer(opts: { json: boolean }): EventSink {
         }
         return;
       }
-      case 'turn.started':
       case 'turn.completed':
       case 'file.changed':
         return;
