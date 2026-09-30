@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import pc from 'picocolors';
 import { analyzeProject } from '../scan/analyzer.js';
 import { mirrorTools, pickProvider, runGenerate } from '../generate/pipeline.js';
@@ -12,6 +14,7 @@ import {
 } from '../generate/manifest.js';
 import { jsonMode, log } from '../core/logger.js';
 import { generateRules, RULE_TARGETS, staleMirrors } from '../rules/generators.js';
+import { LESSONS_FILE, readLessons } from '../rules/lessons.js';
 
 /** The canonical rules file, as recorded in the manifest. */
 const RULES_FILE = '.meridian/rules.md';
@@ -69,19 +72,44 @@ export async function syncCommand(
   // Gated on the canonical file being the edited one. A hand-edit to a mirror
   // is a different situation the kit already covers — it is overwritten on the
   // next generate — and must not start failing `--check`.
-  const rulesEdited = states.edited.some((f) => f.replace(/\\/g, '/') === RULES_FILE);
-  const mirrors = rulesEdited ? staleMirrors(cwd, analysis.name, mirrorTools({ root: cwd })) : [];
-  const stale = drift.length > 0 || states.missing.length > 0;
+  const is = (target: string) => (f: string) => f.replace(/\\/g, '/') === target;
+  const rulesEdited = states.edited.some(is(RULES_FILE));
+  // The lessons file is the other source every mirror renders from. It counts
+  // as changed when edited, deleted (lessons cleared), or written by hand
+  // before Meridian ever recorded it.
+  const lessonsChanged =
+    states.edited.some(is(LESSONS_FILE)) ||
+    states.missing.some(is(LESSONS_FILE)) ||
+    (fs.existsSync(path.join(cwd, LESSONS_FILE)) &&
+      !Object.keys(manifest.files).some(is(LESSONS_FILE)));
+  // A deleted lessons file means "no lessons", not a kit file to regenerate.
+  const missing = states.missing.filter((f) => !is(LESSONS_FILE)(f));
+  const mirrors =
+    rulesEdited || lessonsChanged
+      ? staleMirrors(cwd, analysis.name, mirrorTools({ root: cwd }))
+      : [];
+  const stale = drift.length > 0 || missing.length > 0;
+  const { dropped } = readLessons(cwd);
+  const sources = `.meridian/rules.md${lessonsChanged ? ' and .meridian/lessons.md' : ''}`;
 
   if (jsonMode() && opts.check) {
-    log.json({ inSync: !stale && !mirrors.length, drift, staleMirrors: mirrors, ...states });
+    log.json({
+      inSync: !stale && !mirrors.length,
+      drift,
+      staleMirrors: mirrors,
+      ...states,
+      missing,
+      droppedLessons: dropped,
+    });
     return stale || mirrors.length ? 1 : 0;
   }
 
   for (const d of drift) log.info(`${pc.yellow('△')} ${d}`);
-  for (const f of mirrors) log.info(`${pc.yellow('△')} out of date with .meridian/rules.md: ${f}`);
-  for (const f of states.missing) log.info(`${pc.yellow('△')} generated file deleted: ${f}`);
+  for (const f of mirrors) log.info(`${pc.yellow('△')} out of date with ${sources}: ${f}`);
+  for (const f of missing) log.info(`${pc.yellow('△')} generated file deleted: ${f}`);
   for (const f of states.edited) log.dim(`  hand-edited, will be preserved: ${f}`);
+  for (const d of dropped)
+    log.warn(`Lesson left out of every tool's instructions — it ${d.reason}: "${d.line}"`);
 
   // Mirrors are re-rendered from the rules file itself — no AI call, no
   // regeneration, so a hand-edited rules.md survives and reaches every tool.
@@ -89,24 +117,28 @@ export async function syncCommand(
   // project uses, and a mirror it never had is not sync's to create.
   if (mirrors.length && !opts.check) {
     if (opts.dryRun) {
-      for (const f of mirrors)
-        log.info(`${pc.cyan('→')} would propagate .meridian/rules.md into ${f}`);
+      for (const f of mirrors) log.info(`${pc.cyan('→')} would propagate ${sources} into ${f}`);
     } else {
       const stale = RULE_TARGETS.filter((t) => mirrors.includes(t.file)).map((t) => t.id);
       const written = generateRules(cwd, analysis.name, stale);
       recordSignatures(
         cwd,
         written.map((g) => g.file),
+        lessonsChanged ? [LESSONS_FILE] : [],
       );
       for (const g of written) log.ok(`${g.file} ${pc.dim('(rules propagated)')}`);
     }
+  } else if (lessonsChanged && !opts.check && !opts.dryRun) {
+    // Nothing to re-render (the mirrors already say it); record the file so it
+    // stops reading as changed.
+    recordSignatures(cwd, [], [LESSONS_FILE]);
   }
 
   if (!stale) {
     if (mirrors.length) {
       if (opts.check) {
         log.fail(
-          `${mirrors.length} tool file(s) no longer match .meridian/rules.md. Run ${pc.bold('meridian sync')}.`,
+          `${mirrors.length} tool file(s) no longer match ${sources}. Run ${pc.bold('meridian sync')}.`,
         );
         return 1;
       }
@@ -123,7 +155,7 @@ export async function syncCommand(
   if (opts.check) {
     log.warn(
       `Kit is stale: ${drift.length} drift signal${drift.length === 1 ? '' : 's'}, ` +
-        `${states.missing.length} missing file${states.missing.length === 1 ? '' : 's'}. ` +
+        `${missing.length} missing file${missing.length === 1 ? '' : 's'}. ` +
         `Run ${pc.bold('meridian sync')} to refresh.`,
     );
     return 1;
