@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { projectDir } from '../core/paths.js';
 import { signatureOf } from '../generate/manifest.js';
+import { CliError } from '../core/errors.js';
+import { resolveInside } from '../core/fsx.js';
+import { log } from '../core/logger.js';
 
 /**
  * Rules generator (Phase 2): render one canonical rule set into the
@@ -93,9 +96,24 @@ export const DEFAULT_RULES = `## Working agreement — non-negotiable
 - Ask before running destructive commands.
 `;
 
+/**
+ * The rules file, if it really lives in this project. Its text is copied
+ * into every mirror — files that get committed — so a rules.md linked to a
+ * file elsewhere on the machine must never be read through.
+ */
+function rulesFile(root: string): string {
+  const file = path.join(projectDir(root), 'rules.md');
+  if (!resolveInside(root, file)) {
+    throw new CliError('.meridian/rules.md leads outside this project.', {
+      hint: 'It is a symlink to a file elsewhere on this machine. Replace it with a regular file.',
+    });
+  }
+  return file;
+}
+
 /** Read the canonical rules from .meridian/rules.md (create default if missing). */
 export function loadRules(root: string): string {
-  const file = path.join(projectDir(root), 'rules.md');
+  const file = rulesFile(root);
   if (!fs.existsSync(file)) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, DEFAULT_RULES);
@@ -122,7 +140,7 @@ export interface GeneratedFile {
  */
 export function staleMirrors(root: string, projectName: string, only?: string[]): string[] {
   const file = path.join(projectDir(root), 'rules.md');
-  if (!fs.existsSync(file)) return [];
+  if (!fs.existsSync(file) || !resolveInside(root, file)) return [];
   const rules = fs.readFileSync(file, 'utf8').trim();
   const stale: string[] = [];
   for (const target of targetsFor(only)) {
@@ -151,6 +169,12 @@ export function generateRules(root: string, projectName: string, only?: string[]
   const written: GeneratedFile[] = [];
   for (const target of targets) {
     const out = path.join(root, target.file);
+    // A committed link — CLAUDE.md to a shell profile, .cursor/ to the home
+    // folder — would turn a rules refresh into a write elsewhere on the machine.
+    if (!resolveInside(root, target.file)) {
+      log.warn(`Skipped ${target.file}: it leads outside this project.`);
+      continue;
+    }
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, target.render(rules.trim(), projectName));
     written.push({ target: target.name, file: target.file });

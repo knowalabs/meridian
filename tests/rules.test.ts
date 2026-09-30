@@ -5,6 +5,7 @@ import path from 'node:path';
 import { generateRules, loadRules, RULE_TARGETS, staleMirrors } from '../src/rules/generators.js';
 import { detectedAiTools, setToolDetectionForTests } from '../src/plugins/tools.js';
 import { mirrorTools } from '../src/generate/pipeline.js';
+import { CliError } from '../src/core/errors.js';
 
 describe('rules generator', () => {
   let tmp: string;
@@ -133,5 +134,65 @@ describe('detectedAiTools', () => {
     setToolDetectionForTests(() => ['claude']);
     expect(mirrorTools({ root, tools: ['cursor', 'gemini'] })).toEqual(['cursor', 'gemini']);
     expect(mirrorTools({ root, tools: ['all'] })).toBeUndefined();
+  });
+});
+
+describe('rules generator and symlinks', () => {
+  let root: string;
+  let outside: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-rules-link-'));
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'meridian-rules-outside-'));
+    fs.mkdirSync(path.join(root, '.meridian'));
+    fs.writeFileSync(path.join(root, '.meridian', 'rules.md'), '- Always use tabs\n');
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  /** Where the OS will not let a test create symlinks (Windows without Developer Mode), skip. */
+  const link = (target: string, at: string): boolean => {
+    try {
+      fs.symlinkSync(target, at);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('never writes a mirror through a link that leaves the project', () => {
+    const profile = path.join(outside, 'profile');
+    fs.writeFileSync(profile, 'export PATH=$PATH\n');
+    if (!link(profile, path.join(root, 'CLAUDE.md'))) return;
+    const written = generateRules(root, 'my-app');
+    expect(fs.readFileSync(profile, 'utf8')).toBe('export PATH=$PATH\n');
+    expect(written.map((w) => w.file)).not.toContain('CLAUDE.md');
+    expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toContain('Always use tabs');
+  });
+
+  it('never writes into a mirror directory that links out of the project', () => {
+    if (!link(outside, path.join(root, '.cursor'))) return;
+    generateRules(root, 'my-app');
+    expect(fs.readdirSync(outside)).toEqual([]);
+  });
+
+  it('refuses a rules file that links outside, rather than copying it into every mirror', () => {
+    fs.rmSync(path.join(root, '.meridian', 'rules.md'));
+    const secret = path.join(outside, 'id_rsa');
+    fs.writeFileSync(secret, 'TOP-SECRET');
+    if (!link(secret, path.join(root, '.meridian', 'rules.md'))) return;
+    expect(() => generateRules(root, 'my-app')).toThrow(CliError);
+    expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(false);
+    expect(staleMirrors(root, 'my-app')).toEqual([]);
+  });
+
+  it('still writes through a link that stays inside the project', () => {
+    fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'old');
+    if (!link(path.join(root, 'CLAUDE.md'), path.join(root, 'AGENTS.md'))) return;
+    generateRules(root, 'my-app');
+    expect(fs.lstatSync(path.join(root, 'AGENTS.md')).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain('Always use tabs');
   });
 });
