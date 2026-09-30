@@ -5,6 +5,7 @@ import { signatureOf } from '../generate/manifest.js';
 import { CliError } from '../core/errors.js';
 import { resolveInside } from '../core/fsx.js';
 import { log } from '../core/logger.js';
+import { lessonsSection, readLessons } from './lessons.js';
 
 /**
  * Rules generator (Phase 2): render one canonical rule set into the
@@ -141,7 +142,7 @@ export interface GeneratedFile {
 export function staleMirrors(root: string, projectName: string, only?: string[]): string[] {
   const file = path.join(projectDir(root), 'rules.md');
   if (!fs.existsSync(file) || !resolveInside(root, file)) return [];
-  const rules = fs.readFileSync(file, 'utf8').trim();
+  const rules = withLessons(root, fs.readFileSync(file, 'utf8').trim());
   const stale: string[] = [];
   for (const target of targetsFor(only)) {
     const out = path.join(root, target.file);
@@ -163,8 +164,18 @@ function targetsFor(only?: string[]): RuleTarget[] {
   return only?.length ? RULE_TARGETS.filter((t) => only.includes(t.id)) : RULE_TARGETS;
 }
 
+/**
+ * What every mirror renders: the rules, then the accepted lessons. The one
+ * definition both `generateRules` and `staleMirrors` use, so a mirror is never
+ * judged stale against different text than it was written from.
+ */
+function withLessons(root: string, rules: string): string {
+  const section = lessonsSection(readLessons(root).lessons);
+  return section ? `${rules}\n\n${section}` : rules;
+}
+
 export function generateRules(root: string, projectName: string, only?: string[]): GeneratedFile[] {
-  const rules = loadRules(root);
+  const rules = withLessons(root, loadRules(root).trim());
   const targets = targetsFor(only);
   const written: GeneratedFile[] = [];
   for (const target of targets) {

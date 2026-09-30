@@ -5,6 +5,7 @@ import { ProjectAnalysis } from '../scan/analyzer.js';
 import { writeFileAtomic } from '../core/fsx.js';
 import { topLevelDirs } from './artifacts.js';
 import type { Rigor } from './artifacts.js';
+import { lessonsSection, readLessons } from '../rules/lessons.js';
 
 /**
  * Kit manifest (.meridian/manifest.json): what `meridian generate` knew about
@@ -268,7 +269,11 @@ export function residentCost(root: string): ResidentCost {
     }
     return total;
   };
-  const rules = tokensOf(readIf('CLAUDE.md') || readIf(path.join('.meridian', 'rules.md')));
+  // Without a CLAUDE.md, what a tool loads is rules.md plus the lessons rendered after it.
+  const rules = tokensOf(
+    readIf('CLAUDE.md') ||
+      `${readIf(path.join('.meridian', 'rules.md'))}${lessonsSection(readLessons(root).lessons)}`,
+  );
   const agents = descriptions(path.join('.claude', 'agents'));
   const skills = descriptions(path.join('.claude', 'skills'), 'SKILL.md');
   const commands = descriptions(path.join('.claude', 'commands'));
