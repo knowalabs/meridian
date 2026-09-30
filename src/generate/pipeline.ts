@@ -11,7 +11,7 @@ import {
   route,
 } from '../providers/router.js';
 import { openVault } from '../core/vault.js';
-import { writeFileAtomic } from '../core/fsx.js';
+import { realRootOf, writeFileAtomic } from '../core/fsx.js';
 import { generateRules } from '../rules/generators.js';
 import { detectedAiTools } from '../plugins/tools.js';
 import { log } from '../core/logger.js';
@@ -21,7 +21,6 @@ import {
   digestBudgetFor,
   insideProject,
   parseFileRequests,
-  realRootOf,
   REQUEST_SPEC,
   serveFileRequests,
 } from './digest.js';

@@ -4,6 +4,7 @@ import { analyzeProject, ProjectAnalysis, renderCodeMap } from '../scan/analyzer
 import { renderWorkspaces } from '../scan/workspaces.js';
 import { createIgnore, IgnoreMatcher, ignoresPath } from '../scan/ignore.js';
 import { churnMap, collectGitSignal, GitSignal, renderGitSignal } from '../scan/git.js';
+import { realRootOf, resolveInside } from '../core/fsx.js';
 
 /**
  * Project digest (Phase 5): a compact, deterministic text snapshot of the
@@ -99,21 +100,9 @@ export function digestBudgetFor(contextTokens: number): number {
  * project are fine.
  */
 export function insideProject(realRoot: string, file: string): boolean {
-  try {
-    const rel = path.relative(realRoot, fs.realpathSync(file));
-    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
-  } catch {
-    return false;
-  }
-}
-
-/** The project's resolved path, for `insideProject`; falls back to the path as given. */
-export function realRootOf(root: string): string {
-  try {
-    return fs.realpathSync(root);
-  } catch {
-    return path.resolve(root);
-  }
+  if (!fs.existsSync(file)) return false;
+  const real = resolveInside(realRoot, file);
+  return real !== null && real !== realRoot;
 }
 
 /** A file's text, capped — or null for anything missing, binary, or outside the project. */

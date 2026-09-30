@@ -53,3 +53,51 @@ export function readJsonFile<T>(
   if (validate && !validate(parsed)) return { ok: false, reason: 'invalid' };
   return { ok: true, value: parsed as T };
 }
+
+/** `root` with every symlink resolved; the path as given when it cannot be resolved. */
+export function realRootOf(root: string): string {
+  try {
+    return fs.realpathSync(root);
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+/** True when a path exists as an entry, even a symlink whose target is missing. */
+function hasEntry(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where `target` really is once every symlink is followed, or null when that
+ * lands outside `root`. The path as written proves nothing: a committed link —
+ * `CLAUDE.md` pointing at a shell profile, a directory pointing at the home
+ * folder — would turn a read into an exfiltration or a write into damage
+ * elsewhere on the machine. A path that does not exist yet is judged by its
+ * nearest existing ancestor, since that is where a write would land; a
+ * dangling symlink is refused, because writing through it creates its target.
+ */
+export function resolveInside(root: string, target: string): string | null {
+  const realRoot = realRootOf(root);
+  const full = path.resolve(root, target);
+  let existing = full;
+  while (!hasEntry(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) return null;
+    existing = parent;
+  }
+  let real: string;
+  try {
+    real = fs.realpathSync(existing);
+  } catch {
+    return null;
+  }
+  const rel = path.relative(realRoot, real);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return path.join(real, path.relative(existing, full));
+}
