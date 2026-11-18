@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { ARTIFACT_KINDS, isRigor, RIGOR_LEVELS, type Rigor } from '../generate/artifacts.js';
 import { estimateGenerate, pickProvider, runGenerate } from '../generate/pipeline.js';
-import { residentCost } from '../generate/manifest.js';
+import { describeResidentChange, residentCost } from '../generate/manifest.js';
 import { RULE_TARGETS } from '../rules/generators.js';
 import {
   availableProviders,
@@ -247,6 +247,10 @@ export async function generateCommand(
   // provider the run is about to fail on.
   if (opts.ai !== false && !opts.model) await chooseModel(opts.provider);
 
+  // Read before anything is written: once the pipeline runs, the old kit is gone
+  // and so is the baseline for showing what this regeneration changed.
+  const costBefore = opts.dryRun ? null : residentCost(cwd);
+
   log.info(opts.dryRun ? 'Planning AI kit (dry run)…' : 'Generating AI kit…');
   const result = await runGenerate({
     rigor,
@@ -297,9 +301,8 @@ export async function generateCommand(
   if (written.length && !opts.dryRun) {
     const cost = residentCost(cwd);
     if (cost.total > 0) {
-      log.dim(
-        `\n  Kit resident cost: ~${cost.total} tokens/request ` +
-          `(rules ${cost.rules} · agents ${cost.agents} · skills ${cost.skills} · commands ${cost.commands})`,
+      describeResidentChange(costBefore ?? cost, cost).forEach((line, i) =>
+        log.dim(i === 0 ? `\n${line}` : line),
       );
       log.dim(
         `  Lower it with ${pc.bold('--rigor light')}, raise it with ${pc.bold('--rigor strict')}.`,

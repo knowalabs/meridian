@@ -31,6 +31,16 @@ export interface ArtifactIssue {
   severity: 'error' | 'warning';
 }
 
+/**
+ * Rough token count for a piece of generated content (~4 chars per token).
+ * Lives here rather than in manifest.ts, which also uses it, because
+ * manifest.ts reaches this module through `rules/lessons.ts` — importing it
+ * back would close a cycle.
+ */
+export function tokensOf(content: string): number {
+  return Math.round(content.length / 4);
+}
+
 /** Claude Code tool names an agent may list under `tools:`. */
 const KNOWN_TOOLS = new Set([
   'Agent',
@@ -263,6 +273,22 @@ export function validateArtifacts(
 
   for (const file of artifacts) {
     issues.push(...validateFrontmatter(kind, file));
+
+    // Only what the provider wrote is measured, because only that is its to
+    // cut: validation runs before the kind's `finalize` prepends the working
+    // agreement, and accepted lessons join only when the mirrors are rendered.
+    if (kind.tokenBudget !== undefined) {
+      const tokens = tokensOf(file.content);
+      if (tokens > kind.tokenBudget)
+        issues.push({
+          file: file.file,
+          message:
+            `is ~${tokens.toLocaleString('en-US')} tokens; the budget is ` +
+            `${kind.tokenBudget.toLocaleString('en-US')} — cut every line an agent could ` +
+            'discover from the repo itself',
+          severity: 'error',
+        });
+    }
 
     // Only meaningful when the project declares scripts at all: a project with
     // none has nothing to contradict, and the reference may be an adoption step.

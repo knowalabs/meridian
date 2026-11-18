@@ -160,6 +160,28 @@ Genuinely wrong: \`src/core/missing.ts\`.
     expect(validateArtifacts(kind('docs'), docs, analysis, root)).toEqual([]);
   });
 
+  it('rejects a rules file over its token budget, naming the size and the budget', () => {
+    const budget = kind('rules').tokenBudget!;
+    const over = [{ file: '.meridian/rules.md', content: 'x'.repeat((budget + 100) * 4) }];
+    const issues = validateArtifacts(kind('rules'), over, analysis, root);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.severity).toBe('error');
+    expect(issues[0]!.message).toContain(`~${(budget + 100).toLocaleString('en-US')} tokens`);
+    expect(issues[0]!.message).toContain(`the budget is ${budget.toLocaleString('en-US')}`);
+  });
+
+  it('accepts a rules file at its token budget', () => {
+    const budget = kind('rules').tokenBudget!;
+    const at = [{ file: '.meridian/rules.md', content: 'x'.repeat(budget * 4) }];
+    expect(validateArtifacts(kind('rules'), at, analysis, root)).toEqual([]);
+  });
+
+  it('never budget-checks a kind without a token budget', () => {
+    expect(kind('docs').tokenBudget).toBeUndefined();
+    const long = [{ file: 'docs/architecture.md', content: 'x'.repeat(100_000) }];
+    expect(validateArtifacts(kind('docs'), long, analysis, root)).toEqual([]);
+  });
+
   it('passes every kind its own static fallback without complaint', () => {
     for (const k of ARTIFACT_KINDS) {
       const files = k.fallback(analysis);

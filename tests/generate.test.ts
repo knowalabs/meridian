@@ -14,7 +14,11 @@ import {
   type ArtifactKind,
 } from '../src/generate/artifacts.js';
 import { buildDigest, parseFileRequests, serveFileRequests } from '../src/generate/digest.js';
-import { residentCost } from '../src/generate/manifest.js';
+import {
+  describeResidentChange,
+  residentCost,
+  type ResidentCost,
+} from '../src/generate/manifest.js';
 import {
   concurrencyFor,
   correctionFor,
@@ -322,6 +326,30 @@ describe('static fallbacks', () => {
     }
   });
 
+  it('holds the rules prompt to the token budget the validator enforces', () => {
+    const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+    const prompt = rules.prompt('digest');
+    expect(prompt).toContain(`~${rules.tokenBudget!.toLocaleString('en-US')} tokens`);
+    expect(prompt).toContain('20–45 lines');
+    expect(prompt).not.toContain('50–90');
+    expect(prompt).toContain('could the agent find this itself in one read?');
+  });
+
+  it('keeps discoverable filler out of the static rules but keeps the commands', () => {
+    const root = makeProject();
+    try {
+      const rules = ARTIFACT_KINDS.find((k) => k.id === 'rules')!;
+      const content = rules.fallback(analyzeProject(root))[0]!.content;
+      expect(content).not.toContain('Stack:');
+      expect(content).not.toContain('keep changes scoped here');
+      expect(content).not.toContain('Respect the configured tooling');
+      for (const command of ['npm run lint', 'npm run build', 'npm run test'])
+        expect(content).toContain(`\`${command}\``);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('rules point at docs/architecture.md instead of restating the module map', () => {
     const root = makeProject();
     try {
@@ -484,6 +512,53 @@ describe('static fallbacks', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  describe('describeResidentChange', () => {
+    const cost = (
+      rules: number,
+      agents: number,
+      skills: number,
+      commands: number,
+    ): ResidentCost => ({
+      rules,
+      agents,
+      skills,
+      commands,
+      total: rules + agents + skills + commands,
+    });
+
+    it('keeps the single-number line when there was no kit before', () => {
+      expect(describeResidentChange(cost(0, 0, 0, 0), cost(2300, 40, 60, 30))).toEqual([
+        '  Kit resident cost: ~2430 tokens/request (rules 2300 · agents 40 · skills 60 · commands 30)',
+      ]);
+    });
+
+    it('keeps the single-number line when nothing changed', () => {
+      const same = cost(900, 40, 60, 30);
+      expect(describeResidentChange(same, { ...same })).toEqual([
+        '  Kit resident cost: ~1030 tokens/request (rules 900 · agents 40 · skills 60 · commands 30)',
+      ]);
+    });
+
+    it('shows a smaller kit as before → after with a negative percentage', () => {
+      expect(describeResidentChange(cost(2300, 500, 300, 100), cost(900, 250, 200, 50))).toEqual([
+        '  Kit resident cost: ~3,200 → ~1,400 tokens/request (−56%)',
+        '  (rules 2,300 → 900 · agents 500 → 250 · skills 300 → 200 · commands 100 → 50)',
+      ]);
+    });
+
+    it('shows a larger kit with a positive percentage', () => {
+      expect(describeResidentChange(cost(900, 40, 60, 0), cost(1200, 40, 60, 0))).toEqual([
+        '  Kit resident cost: ~1,000 → ~1,300 tokens/request (+30%)',
+        '  (rules 900 → 1,200 · agents 40 · skills 60 · commands 0)',
+      ]);
+    });
+
+    it('shows parts that did not change as a single number', () => {
+      const [, breakdown] = describeResidentChange(cost(2300, 40, 60, 30), cost(900, 40, 75, 30));
+      expect(breakdown).toBe('  (rules 2,300 → 900 · agents 40 · skills 60 → 75 · commands 30)');
+    });
   });
 
   it('keeps the always-resident kinds small enough to earn their context', () => {
@@ -2144,6 +2219,39 @@ describe('grounded retry, end to end', () => {
     expect(result.issues).toEqual([]);
     const written = fs.readFileSync(path.join(root, '.meridian/prompts/p1.md'), 'utf8');
     expect(written).toContain('npm run test');
+  });
+
+  it('sends an over-budget rules file back once to be cut', async () => {
+    const budget = ARTIFACT_KINDS.find((k) => k.id === 'rules')!.tokenBudget!;
+    const kindPrompts: string[] = [];
+    setFetchForTests(async (_url, init) => {
+      const text = promptOf(init);
+      if (isReviewPrompt(text)) return aiResponse('# Review');
+      kindPrompts.push(text);
+      const body =
+        kindPrompts.length === 1
+          ? `## General\n\n${'- Restated.\n'.repeat(budget)}`
+          : '## General\n\n- Lean.';
+      return aiResponse(`<<<FILE .meridian/rules.md>>>\n${body}\n<<<END>>>`);
+    });
+
+    // A dry run still generates and validates every kind, without mirroring
+    // the rules into tool files this test does not care about.
+    const result = await runGenerate({
+      root,
+      kinds: ['rules'],
+      provider: 'anthropic',
+      force: true,
+      dryRun: true,
+      noAi: false,
+      noCache: true,
+    });
+
+    expect(kindPrompts).toHaveLength(2);
+    expect(kindPrompts[1]).toContain(`the budget is ${budget.toLocaleString('en-US')}`);
+    expect(kindPrompts[1]).toContain('PREVIOUS ATTEMPT WAS REJECTED');
+    expect(result.issues).toEqual([]);
+    expect(result.failed).toEqual([]);
   });
 });
 

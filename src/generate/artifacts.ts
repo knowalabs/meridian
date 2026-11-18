@@ -50,6 +50,14 @@ export interface ArtifactKind {
    * `commands` delegates to the skills `skills` just wrote.
    */
   dependsOn?: string[];
+  /**
+   * Most tokens (~4 chars each, the estimate `tokensOf` uses) the AI-written
+   * content of each of this kind's files may take. Set only for a kind whose
+   * files are resident in the assistant's context on every request, where
+   * each line it restates from the repo is paid for on every turn; a response
+   * over budget is rejected and retried once with the size it came back at.
+   */
+  tokenBudget?: number;
   prompt(digest: string, upstream?: ArtifactFile[], existing?: ExistingKit): string;
   fallback(analysis: ProjectAnalysis): ArtifactFile[];
   /**
@@ -716,6 +724,14 @@ ${digest}`;
 
 /* ---------------------------------- kinds ---------------------------------- */
 
+/**
+ * The rules file's budget, shared by its prompt and its validation so the
+ * number the provider is told is the number it is held to. Context files
+ * that restate what an agent can discover from the repo cost tokens on every
+ * request without making it more correct, so the AI-written body stays small.
+ */
+const RULES_TOKEN_BUDGET = 1_200;
+
 export const ARTIFACT_KINDS: ArtifactKind[] = [
   {
     id: 'rules',
@@ -723,22 +739,41 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
     description: 'canonical project rules (.meridian/rules.md → all tools)',
     allowedPaths: ['.meridian/rules.md'],
     requiredFiles: ['.meridian/rules.md'],
+    tokenBudget: RULES_TOKEN_BUDGET,
     prompt: (digest, _upstream, existing) =>
       commonPrompt(
         `Generate exactly one file: ".meridian/rules.md" — the canonical coding
 rules for AI assistants working in this repository.
 
 This file is loaded into the assistant's context on EVERY request in this
-project, so every line costs tokens on every turn, forever. Write only rules
-that change what an assistant DOES. Reference material — module catalogues,
-dependency inventories, standards backlogs — belongs in the generated "docs/"
-suite, not here. Where you would explain something, point at the file that
-already explains it instead.
+project, so every line costs tokens on every turn, forever — and a line that
+restates what the assistant could discover for itself makes it slower and
+costlier without making it more correct. For this file, the budget below
+overrides "depth beats brevity".
 
-Structure it as:
+The test for every line: include it only if an agent could NOT learn it in
+one read of the README, the package manifests, the config files (tsconfig,
+linter, test and formatter configs) or the code itself — and getting it wrong
+would cost something. That keeps:
+- traps and load-bearing invariants — the ordering, coupling or hidden
+  contract that breaks when ignored;
+- the reason behind a non-obvious decision, so nobody "fixes" it away;
+- forbidden actions and approval boundaries;
+- commands whose correct use is not obvious — ordering, hooks, stale-build
+  pitfalls.
+It drops: a project overview or description; which frameworks, test runners
+or config files exist; compiler or linter flags visible in their config;
+directory listings; and generic advice any competent engineer already
+follows. Reference material — module catalogues, dependency inventories,
+standards backlogs — belongs in the generated "docs/" suite, not here. Where
+you would explain something, point at the file that already explains it.
 
-## General — how to approach changes in this codebase, and the files an
-   assistant must read before touching each area
+Structure it as the sections below, in this order. Omit a section that would
+hold only discoverable content — except Architecture and Safety, which stay
+whenever they have anything specific to this project.
+
+## General — the files an assistant must read before touching each area, and
+   where changing this codebase differs from what an engineer would assume
 ## Architecture — the boundaries an assistant must respect, written as
    imperatives: which module owns which concern (one line each), which
    crossings need approval, and the invariants a change must not break. Do NOT
@@ -746,22 +781,28 @@ Structure it as:
    carries that, and restating it here both drifts from it and costs tokens on
    every turn. Prefer the handful of boundaries that are easiest to violate by
    accident over exhaustive coverage.
-## Code Style — the project's real idioms: naming, error handling, imports,
-  formatting tools, patterns visible in the source excerpts
-## Testing — which test frameworks/configs exist, where tests live, what a
-  change must include, exact commands to run
-## Verification — the commands to run before work is done. When the project's
-   full chain is slower or noisier than a quick check, split it: a fast loop to
-   run after each edit while iterating, and the full chain in CI's order to run
-   once when the change is finished — and say which is the default. If the
-   project has only one meaningful chain, give one list and say so.
+## Code Style — only the idioms an agent would get wrong after reading one
+   file of this project: the house error type, a test-seam or mocking
+   convention, an import quirk. Nothing a formatter, linter or compiler config
+   already enforces — the tool catches that without costing a token.
+## Testing — what a change must include (which kind of test, which seam or
+   fixture pattern it must use) and the testing traps that are not evident
+   from the test config. Not which frameworks or configs exist, and not where
+   tests live — one look at the repo shows that.
+## Verification — the commands to run before work is done, in order. When the
+   project's full chain is slower or noisier than a quick check, split it: a
+   fast loop to run after each edit while iterating, and the full chain in
+   CI's order to run once when the change is finished — and say which is the
+   default. If the project has only one meaningful chain, give one list and
+   say so. Give each command and any pitfall in running it; do not explain
+   what each tool is.
 ## Legacy code — the parts of this codebase that sit below the standard set
    above (name the files/modules from your review), the target pattern each
    should move to, and the rules for working in them: new code meets the
    standard even when its neighbours do not, restructuring stays
    behavior-preserving and test-backed, and a defect found in old code is
    reported to the developer before it is fixed. If nothing is below the
-   standard, say so in one line instead of inventing legacy.
+   standard, omit this section rather than inventing legacy.
 ## Safety — secrets, destructive operations, files never to touch
 ## Further reading — the generated "docs/" files worth opening, one line each
    on when to open them, marked explicitly as consult-on-demand rather than
@@ -784,15 +825,19 @@ files that sit below the standard; in "Safety", name this project's own
 documentation and generated files by path, so "never edit docs silently"
 points at real paths.
 
-Every rule is an imperative one-liner an AI can follow. Aim for 50–90 lines of
-genuinely project-specific rules. If you run longer, you are describing rather
-than instructing — cut the description and keep the imperative.`,
+Every rule is an imperative one-liner an AI can follow. Aim for 20–45 lines of
+genuinely project-specific rules, and stay under
+~${RULES_TOKEN_BUDGET.toLocaleString('en-US')} tokens (~${(RULES_TOKEN_BUDGET * 4).toLocaleString('en-US')} characters); a longer file is
+rejected and sent back once to be cut. If you run longer, you are describing
+rather than instructing — cut the description and keep the imperative.
+
+Last, ask of each line: "could the agent find this itself in one read?" If
+yes, delete it.`,
         digest,
         undefined,
         existing,
       ),
     fallback: (a) => {
-      const dirs = topLevelDirs(a);
       const checklist = verificationChecklist(a);
       const testScripts = Object.keys(a.scripts).filter((s) => s.startsWith('test'));
       const testCmd = a.scripts['test'] ? commandFor(a, 'test') : null;
@@ -809,16 +854,12 @@ than instructing — cut the description and keep the imperative.`,
 
 ## Architecture
 
-- Stack: ${stack(a)}.
-${dirs.map((d) => `- \`${d}/\` — keep changes scoped here when working on this area; do not create new top-level directories without need.`).join('\n') || '- Single-directory project — keep the flat layout.'}
 - The full module map lives in \`docs/architecture.md\` — read it there rather
   than restating it here.
 
 ## Code Style
 
 - Match the project's existing formatting, naming and idioms.
-${a.conventions.map((c) => `- Respect the configured tooling: ${c}.`).join('\n')}
-- Prefer clear, self-explanatory code over comments.
 
 ## Testing
 

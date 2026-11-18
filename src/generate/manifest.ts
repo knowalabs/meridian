@@ -6,6 +6,7 @@ import { writeFileAtomic } from '../core/fsx.js';
 import { topLevelDirs } from './artifacts.js';
 import type { Rigor } from './artifacts.js';
 import { lessonsSection, readLessons } from '../rules/lessons.js';
+import { tokensOf } from './validate.js';
 
 /**
  * Kit manifest (.meridian/manifest.json): what `meridian generate` knew about
@@ -233,11 +234,6 @@ export function fileStates(root: string, manifest: KitManifest): FileStates {
   return states;
 }
 
-/** Rough token count for a piece of generated content (~4 chars per token). */
-function tokensOf(content: string): number {
-  return Math.round(content.length / 4);
-}
-
 /** What a generated kit costs an assistant on every single request. */
 export interface ResidentCost {
   /** The rules file the assistant loads in full each turn. */
@@ -290,4 +286,37 @@ export function residentCost(root: string): ResidentCost {
   const skills = descriptions(path.join('.claude', 'skills'), 'SKILL.md');
   const commands = descriptions(path.join('.claude', 'commands'));
   return { rules, agents, skills, commands, total: rules + agents + skills + commands };
+}
+
+/**
+ * The "Kit resident cost" lines `meridian generate` prints after writing.
+ *
+ * Regenerating over an existing kit shows before → after, because a kit that
+ * quietly grew (or shrank) is invisible otherwise and the delta is what tells
+ * a developer whether the rerun was worth it. With no prior kit, or no change,
+ * the single-number form is kept so first runs read exactly as they always have.
+ */
+export function describeResidentChange(before: ResidentCost, after: ResidentCost): string[] {
+  const parts = ['rules', 'agents', 'skills', 'commands'] as const;
+  const unchanged = parts.every((part) => before[part] === after[part]);
+  if (before.total === 0 || unchanged) {
+    return [
+      `  Kit resident cost: ~${after.total} tokens/request ` +
+        `(rules ${after.rules} · agents ${after.agents} · skills ${after.skills} · commands ${after.commands})`,
+    ];
+  }
+  const n = (value: number): string => value.toLocaleString('en-US');
+  const percent = Math.abs(Math.round(((after.total - before.total) / before.total) * 100));
+  const sign = after.total < before.total ? '−' : '+';
+  const breakdown = parts
+    .map((part) =>
+      before[part] === after[part]
+        ? `${part} ${n(after[part])}`
+        : `${part} ${n(before[part])} → ${n(after[part])}`,
+    )
+    .join(' · ');
+  return [
+    `  Kit resident cost: ~${n(before.total)} → ~${n(after.total)} tokens/request (${sign}${percent}%)`,
+    `  (${breakdown})`,
+  ];
 }
